@@ -1,0 +1,248 @@
+/* =============================================
+   EL PEDRO — ui.js
+   Pantallas, foco, lectura de botones, diálogos
+   con listas y listas de opciones. Todo se maneja
+   con flechas, Enter y Escape, o tocando.
+   ============================================= */
+'use strict';
+
+const $ = id => document.getElementById(id);
+
+/** Texto que se lee de un elemento. */
+function labelOf(el) {
+    if (!el) return '';
+    return el.getAttribute('aria-label') || el.textContent.replace(/\s+/g, ' ').trim();
+}
+
+const UI = {
+    speech: null, audio: null, settings: null,
+    screens: {},
+    current: 'splash',
+    backHandlers: {},
+    _silentFocus: false,
+
+    init({ speech, audio, settings }) {
+        this.speech = speech; this.audio = audio; this.settings = settings;
+        document.querySelectorAll('.screen').forEach(el => { this.screens[el.id.replace('screen-', '')] = el; });
+        document.addEventListener('focusin', e => this._onFocus(e));
+        speech.onCaption = text => this.caption(text);
+    },
+
+    show(name, { focus = null, intro = null, silent = false } = {}) {
+        for (const [k, el] of Object.entries(this.screens)) el.classList.toggle('active', k === name);
+        this.current = name;
+        document.body.dataset.screen = name;
+        window.scrollTo(0, 0);
+        if (intro) this.say(intro);
+        const scr = this.screens[name];
+        if (typeof focus === 'function') focus = focus();
+        const target = typeof focus === 'string' ? $(focus) : (focus || this.navItems(scr)[0] || scr.querySelector('h1,h2'));
+        if (target) this.focus(target, { silent: silent || !!intro, queue: !!intro });
+    },
+
+    say(text, opts) { return this.speech.say(text, opts); },
+
+    /** Enfoca un elemento. silent: no lo lee. queue: lo lee después de lo que se esté diciendo. */
+    focus(el, { silent = false, queue = false } = {}) {
+        if (!el) return;
+        if (!el.matches('button, input, select, textarea, a[href], [tabindex]')) el.setAttribute('tabindex', '-1');
+        this._silentFocus = silent;
+        this._queueFocus = queue;
+        const already = document.activeElement === el;
+        el.focus({ preventScroll: false });
+        if (already && !silent) this._speakEl(el, queue);
+        this._silentFocus = false;
+        this._queueFocus = false;
+        el.scrollIntoView?.({ block: 'nearest' });
+    },
+
+    _onFocus(e) {
+        if (this._silentFocus) return;
+        const el = e.target;
+        if (!el || el === document.body) return;
+        this._speakEl(el, this._queueFocus);
+    },
+
+    /** Con la voz del juego, lee el elemento enfocado (con lector de pantalla ya lo hace él). */
+    _speakEl(el, queue) {
+        if (!this.speech.useTTS) return;
+        const t = labelOf(el);
+        if (t) this.say(t, { interrupt: !queue });
+    },
+
+    navItems(container) {
+        if (!container) return [];
+        return [...container.querySelectorAll('.nav')].filter(el => !el.hidden && !el.disabled && el.offsetParent !== null);
+    },
+
+    moveFocus(delta, container = this.screens[this.current]) {
+        const items = this.navItems(container);
+        if (!items.length) return;
+        let i = items.indexOf(document.activeElement);
+        i = i < 0 ? (delta > 0 ? 0 : items.length - 1) : (i + delta + items.length) % items.length;
+        this.audio.move();
+        this.focus(items[i]);
+    },
+
+    back() {
+        const h = this.backHandlers[this.current];
+        if (h) { this.audio.back(); h(); }
+    },
+
+    caption(text) {
+        const el = $('caption');
+        if (!el) return;
+        el.textContent = text;
+    },
+};
+
+// ═══════════════════════════════════════════════════════
+// Dialog: ventana con un título, un texto y una lista de opciones.
+// open() devuelve una promesa con el valor elegido (o el de cancelar).
+// ═══════════════════════════════════════════════════════
+
+const Dialog = {
+    active: false,
+    _resolve: null,
+    _cancel: undefined,
+    _prevFocus: null,
+    _items: [],
+
+    open({ title, text = '', items, cancel = undefined, speak = true, focusIndex = 0 }) {
+        if (this.active) this.close(this._cancel, true);
+        const box = $('dialog'), list = $('dialog-items');
+        $('dialog-title').textContent = title;
+        $('dialog-text').textContent = text;
+        $('dialog-text').hidden = !text;
+        list.innerHTML = '';
+        this._items = items;
+        items.forEach((it, i) => {
+            const b = document.createElement('button');
+            b.className = 'nav dialog-item';
+            b.textContent = it.label;
+            if (it.hint) b.setAttribute('aria-label', `${it.label}. ${it.hint}`);
+            if (it.disabled) b.disabled = true;
+            b.addEventListener('click', () => { UI.audio.select(); this.close(it.value); });
+            list.appendChild(b);
+        });
+        this._cancel = cancel;
+        this._prevFocus = document.activeElement;
+        this.active = true;
+        box.hidden = false;
+        document.body.classList.add('dialog-open');
+        return new Promise(resolve => {
+            this._resolve = resolve;
+            const first = UI.navItems(list)[focusIndex] || UI.navItems(list)[0];
+            if (speak) {
+                const intro = typeof speak === 'string' ? speak : [title, text].filter(Boolean).join('. ');
+                UI.say(intro);
+                UI.focus(first, { queue: true });
+            } else UI.focus(first, { silent: true });
+        });
+    },
+
+    close(value, silent = false) {
+        if (!this.active) return;
+        this.active = false;
+        $('dialog').hidden = true;
+        document.body.classList.remove('dialog-open');
+        const r = this._resolve;
+        this._resolve = null;
+        const prev = this._prevFocus;
+        if (prev && document.contains(prev) && prev.offsetParent !== null) UI.focus(prev, { silent: true });
+        if (!silent || r) r?.(value);
+    },
+
+    onKey(e) {
+        const k = e.key;
+        if (k === 'ArrowDown' || k === 'ArrowRight') { e.preventDefault(); UI.moveFocus(1, $('dialog-items')); return true; }
+        if (k === 'ArrowUp' || k === 'ArrowLeft') { e.preventDefault(); UI.moveFocus(-1, $('dialog-items')); return true; }
+        if (k === 'Escape' || k === 'Backspace') {
+            e.preventDefault();
+            if (this._cancel !== undefined) { UI.audio.back(); this.close(this._cancel); }
+            else UI.audio.error();
+            return true;
+        }
+        if (k === 'Home' || k === 'End') {
+            e.preventDefault();
+            const items = UI.navItems($('dialog-items'));
+            UI.focus(k === 'Home' ? items[0] : items[items.length - 1]);
+            return true;
+        }
+        // Atajos: un número o una letra elige directamente.
+        const it = this._items.find(x => x.key && x.key.toLowerCase() === k.toLowerCase() && !x.disabled);
+        if (it) { e.preventDefault(); UI.audio.select(); this.close(it.value); return true; }
+        return false;
+    },
+};
+
+// ═══════════════════════════════════════════════════════
+// OptionList: filas que cambian de valor con izquierda/derecha o Enter.
+// def: { id, label, values: [...], text(v) → texto, get(), set(v), action() }
+// ═══════════════════════════════════════════════════════
+
+const OptionList = {
+    render(container, defs, onChange) {
+        container.innerHTML = '';
+        for (const def of defs) {
+            const b = document.createElement('button');
+            b.className = 'nav opt';
+            b._def = def;
+            b._onChange = onChange;
+            this._fill(b);
+            b.addEventListener('click', () => this.activate(b));
+            container.appendChild(b);
+        }
+    },
+
+    _fill(b) {
+        const d = b._def;
+        if (d.action) { b.textContent = d.label; return; }
+        const v = d.get();
+        const shown = d.text ? d.text(v) : String(v);
+        b.innerHTML = '';
+        const l = document.createElement('span'); l.className = 'opt-label'; l.textContent = d.label;
+        const r = document.createElement('span'); r.className = 'opt-value'; r.textContent = shown;
+        b.append(l, r);
+        b.setAttribute('aria-label', `${d.label}: ${shown}`);
+    },
+
+    adjust(b, step) {
+        const d = b._def;
+        if (d.action) return;
+        const vals = d.values;
+        let i = vals.findIndex(x => x === d.get());
+        if (i < 0) i = 0;
+        const j = clamp(i + step, 0, vals.length - 1);
+        if (j === i && !d.wrap) { UI.audio.error(); return; }
+        const next = d.wrap ? vals[(i + step + vals.length) % vals.length] : vals[j];
+        d.set(next);
+        this._fill(b);
+        UI.audio.select();
+        b._onChange?.(d, next);
+        const shown = d.text ? d.text(next) : String(next);
+        UI.say(shown);
+        d.preview?.(next);
+    },
+
+    activate(b) {
+        const d = b._def;
+        if (d.action) { UI.audio.select(); d.action(); return; }
+        const vals = d.values;
+        const i = vals.findIndex(x => x === d.get());
+        d.set(vals[(i + 1) % vals.length]);
+        this._fill(b);
+        UI.audio.select();
+        b._onChange?.(d, d.get());
+        UI.say(d.text ? d.text(d.get()) : String(d.get()));
+        d.preview?.(d.get());
+    },
+
+    onKey(e) {
+        const el = document.activeElement;
+        if (!el || !el._def) return false;
+        if (e.key === 'ArrowRight') { e.preventDefault(); this.adjust(el, 1); return true; }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); this.adjust(el, -1); return true; }
+        return false;
+    },
+};

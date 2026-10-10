@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>El Pedro</title>
+    <meta name="description" content="El Pedro: juego de cartas de memoria con baraja española. Se juega con el oído o con la vista, contra la máquina.">
+    <meta name="theme-color" content="#0f3d2a">
+    <link rel="stylesheet" href="css/style.css?v=20261010a">
+</head>
+<body data-screen="splash">
+    <div id="sr-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+    <div id="sr-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+    <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+        <defs>
+            <symbol id="suit-oros" viewBox="0 0 40 40">
+                <circle cx="20" cy="20" r="15" fill="#e8b830" stroke="#8a6410" stroke-width="2"/>
+                <circle cx="20" cy="20" r="9" fill="none" stroke="#8a6410" stroke-width="1.6"/>
+                <circle cx="20" cy="20" r="3" fill="#8a6410"/>
+            </symbol>
+            <symbol id="suit-copas" viewBox="0 0 40 40">
+                <path d="M9 5 H31 C31 17 26 22 20 22 C14 22 9 17 9 5 Z" fill="#c8323c"/>
+                <rect x="18.3" y="21" width="3.4" height="9" fill="#a3262f"/>
+                <path d="M11 35 Q20 27 29 35 Z" fill="#c8323c"/>
+            </symbol>
+            <symbol id="suit-espadas" viewBox="0 0 40 40">
+                <path d="M20 2 L23.5 8 L23.5 27 L16.5 27 L16.5 8 Z" fill="#3d73cf"/>
+                <rect x="10" y="27" width="20" height="3.5" rx="1.2" fill="#24457f"/>
+                <rect x="18.3" y="30" width="3.4" height="6" fill="#24457f"/>
+                <circle cx="20" cy="37.2" r="2.2" fill="#24457f"/>
+            </symbol>
+            <symbol id="suit-bastos" viewBox="0 0 40 40">
+                <path d="M15.5 37 L13 11 C12 4 18.5 1.5 22 3.5 C27 6 27.5 10.5 25.5 14.5 L22.5 37 Z" fill="#8a5d2b"/>
+                <circle cx="15.5" cy="17" r="2.2" fill="#4f8a3a"/>
+                <circle cx="23.5" cy="22" r="2.2" fill="#4f8a3a"/>
+                <circle cx="16.5" cy="29" r="2.2" fill="#4f8a3a"/>
+            </symbol>
+        </defs>
+    </svg>
+
+    <main id="app">
+        <!-- Portada -->
+        <section id="screen-splash" class="screen active" aria-labelledby="t-splash">
+            <div class="hero">
+                <h1 id="t-splash">El Pedro</h1>
+                <p class="tagline">El juego de cartas de memoria. Recuerda tus cartas, quema las iguales y canta Pedro cuando tengas la suma más baja.</p>
+                <button id="btn-start" class="nav big">Empezar</button>
+                <p class="small">Pulsa cualquier tecla o toca la pantalla. Usa auriculares si puedes.</p>
+            </div>
+        </section>
+
+        <!-- Menú -->
+        <section id="screen-menu" class="screen" aria-labelledby="t-menu">
+            <h1 id="t-menu">El Pedro</h1>
+            <div class="menu">
+                <button class="nav big" data-act="play">Jugar</button>
+                <button class="nav" data-act="practice">Partida de práctica</button>
+                <button class="nav" data-act="rules">Cómo se juega</button>
+                <button class="nav" data-act="options">Opciones</button>
+                <button class="nav" data-act="stats">Estadísticas</button>
+            </div>
+            <p class="version" id="version"></p>
+        </section>
+
+        <!-- Nueva partida -->
+        <section id="screen-setup" class="screen" aria-labelledby="t-setup">
+            <h1 id="t-setup">Nueva partida</h1>
+            <div id="setup-list" class="optlist"></div>
+            <button id="btn-go" class="nav big">Empezar la partida</button>
+            <button class="nav" data-back>Volver</button>
+        </section>
+
+        <!-- Reglas de la casa -->
+        <section id="screen-house" class="screen" aria-labelledby="t-house">
+            <h1 id="t-house">Reglas de la casa</h1>
+            <div id="house-list" class="optlist"></div>
+            <button class="nav" data-back>Volver</button>
+        </section>
+
+        <!-- Opciones -->
+        <section id="screen-options" class="screen" aria-labelledby="t-options">
+            <h1 id="t-options">Opciones</h1>
+            <div id="options-list" class="optlist"></div>
+            <button class="nav" data-back>Volver</button>
+        </section>
+
+        <!-- Estadísticas -->
+        <section id="screen-stats" class="screen" aria-labelledby="t-stats">
+            <h1 id="t-stats">Estadísticas</h1>
+            <div id="stats-text" class="text"></div>
+            <button class="nav" data-back>Volver</button>
+        </section>
+
+        <!-- Cómo se juega -->
+        <section id="screen-rules" class="screen" aria-labelledby="t-rules">
+            <h1 id="t-rules">Cómo se juega</h1>
+            <div class="menu">
+                <button id="btn-rules-listen" class="nav">Escuchar las reglas</button>
+                <button id="btn-suits" class="nav">Escuchar cómo suena cada palo</button>
+                <button id="btn-practice" class="nav">Partida de práctica</button>
+                <button class="nav" data-back>Volver</button>
+            </div>
+            <article id="rules-text" class="text">
+                <h2>El objetivo</h2>
+                <p>Gana la ronda quien tenga menos puntos al final. Cada carta vale su número: el as vale 1 y el rey vale 12. La sota vale 10 y el caballo 11.</p>
+                <p>Si todas tus cartas son del mismo número, por ejemplo tres caballos, valen solo 1 punto.</p>
+                <h2>El reparto</h2>
+                <p>Cada jugador recibe 4 cartas boca abajo. Al empezar solo puedes mirar 2, una vez. ¡Recuérdalas! Las cartas no se cambian de sitio: tu carta 1 sigue siendo tu carta 1.</p>
+                <h2>Tu turno</h2>
+                <p>Robas una carta del mazo. Puedes cambiarla por una de las tuyas, y la tuya va a la mesa, o tirarla a la mesa sin quedártela.</p>
+                <h2>Los poderes</h2>
+                <p>Si robas una figura del mazo y la tiras a la mesa, puedes usar su poder. Es opcional.</p>
+                <ul>
+                    <li>La sota: cambias dos cartas de sitio sin mirarlas. Pueden ser tuyas y de otro, o de dos rivales.</li>
+                    <li>El caballo: miras una carta, tuya o de otro.</li>
+                    <li>El rey: miras una carta y después puedes cambiar dos.</li>
+                </ul>
+                <h2>Quemar</h2>
+                <p>Cada vez que cae una carta en la mesa, quien tenga una carta igual puede quemarla: la suelta en la mesa y se la quita de encima. Puedes quemar tus cartas o las de los demás, si sabes cuáles son.</p>
+                <p>Si quemas la carta de otro, le das una de las tuyas a cambio. Si te equivocas, la carta vuelve a su sitio y te llevas una carta de castigo.</p>
+                <h2>Cantar Pedro</h2>
+                <p>Cuando creas que tienes la suma más baja, canta Pedro al empezar tu turno, antes de robar. Los demás juegan una vez más y, cuando vuelve a ti, se descubren todas las cartas. Desde que cantas, nadie puede tocar tus cartas.</p>
+                <p>Gana la ronda la suma más baja. Cada ronda ganada te da una victoria.</p>
+                <h2>Las teclas</h2>
+                <ul>
+                    <li>R: robar del mazo. P: cantar Pedro.</li>
+                    <li>Del 1 al 4: tus cartas. Con una carta robada, la cambias por esa. T: tirarla a la mesa.</li>
+                    <li>Q: quemar. N: seguir sin quemar.</li>
+                    <li>I: cómo va la partida. C: tus cartas. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
+                </ul>
+                <p>En el móvil, todo tiene su botón en la pantalla.</p>
+                <h2>Los sonidos</h2>
+                <p>Cada palo suena distinto: los oros a monedas, las copas a cristal, las espadas a metal y los bastos a madera. Cuanto más alta es la carta, más agudo suena. Con auriculares, cada rival suena desde su sitio: a tu derecha, enfrente o a tu izquierda.</p>
+            </article>
+        </section>
+
+        <!-- La mesa -->
+        <section id="screen-game" class="screen" aria-label="La mesa">
+            <div id="table">
+                <div id="seat-top" class="seat seat-top" hidden></div>
+                <div id="seat-left" class="seat seat-left" hidden></div>
+                <div class="center">
+                    <div class="pile" id="deck" aria-hidden="true">
+                        <div class="card back"></div>
+                        <span class="pile-cap">Mazo: <span id="deck-count">0</span></span>
+                    </div>
+                    <div class="pile" aria-hidden="true">
+                        <div id="discard"></div>
+                        <span class="pile-cap">Mesa</span>
+                    </div>
+                    <div id="drawn-area" class="pile" aria-hidden="true"></div>
+                </div>
+                <div id="seat-right" class="seat seat-right" hidden></div>
+                <div id="seat-me" class="seat seat-me">
+                    <div class="seat-name" aria-hidden="true">Tú <span id="my-wins" class="wins"></span></div>
+                    <div id="my-hand" class="hand" role="group" aria-label="Tus cartas" tabindex="-1"></div>
+                </div>
+            </div>
+            <div id="actions" class="actions" role="group" aria-label="Acciones">
+                <button id="act-draw" class="nav act main" hidden>Robar <kbd>R</kbd></button>
+                <button id="act-call" class="nav act" hidden>Cantar Pedro <kbd>P</kbd></button>
+                <button id="act-take" class="nav act" hidden>Coger de la mesa <kbd>M</kbd></button>
+                <button id="act-discard" class="nav act main" hidden>Tirar a la mesa <kbd>T</kbd></button>
+                <button id="act-burn" class="nav act main" hidden>Quemar <kbd>Q</kbd></button>
+                <button id="act-pass" class="nav act" hidden>Seguir <kbd>N</kbd></button>
+                <button id="act-info" class="nav act small">Cómo va <kbd>I</kbd></button>
+                <button id="act-cards" class="nav act small">Mis cartas <kbd>C</kbd></button>
+                <button id="act-repeat" class="nav act small">Repetir <kbd>Espacio</kbd></button>
+                <button id="act-menu" class="nav act small">Pausa <kbd>Esc</kbd></button>
+            </div>
+            <p id="caption" aria-hidden="true"></p>
+        </section>
+    </main>
+
+    <div id="dialog" class="dialog" hidden role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-text">
+        <div class="dialog-box">
+            <h2 id="dialog-title"></h2>
+            <p id="dialog-text"></p>
+            <div id="dialog-items" class="dialog-items"></div>
+        </div>
+    </div>
+
+    <script src="js/rules.js?v=20261010a"></script>
+    <script src="js/ai.js?v=20261010a"></script>
+    <script src="js/speech.js?v=20261010a"></script>
+    <script src="js/audio.js?v=20261010a"></script>
+    <script src="js/texts.js?v=20261010a"></script>
+    <script src="js/ui.js?v=20261010a"></script>
+    <script src="js/match.js?v=20261010a"></script>
+    <script src="js/app.js?v=20261010a"></script>
+</body>
+</html>
