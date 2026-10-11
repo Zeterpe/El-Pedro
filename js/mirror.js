@@ -40,7 +40,7 @@ class MirrorGame {
             this.players[i].slots = p.slots.map(b => b ? HIDDEN : null);
         });
         this.power = v.power ? { ...v.power } : null;
-        this.burnWin = v.burn ? { value: v.burn.value, tried: new Set(v.burnTried || []) } : null;
+        this.burnWin = v.burn ? { value: v.burn.value } : null;
         this.give = v.give;
         this.drawnFrom = v.drawnFrom;
         if (v.phase !== 'drawn') this.drawn = null;

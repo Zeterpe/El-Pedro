@@ -7,7 +7,7 @@
    ============================================= */
 'use strict';
 
-const GAME_VERSION = { id: '20261011a', spoken: '11 de octubre de 2026' };
+const GAME_VERSION = { id: '20261011b', spoken: '11 de octubre de 2026' };
 
 const SUITS = ['oros', 'copas', 'espadas', 'bastos'];
 const RANK_NAME = {
@@ -159,7 +159,7 @@ class PedroGame {
     }
 
     canBurn(p) {
-        return this.phase === 'burn' && !this.isFrozen(p) && !this.burnWin.tried.has(p)
+        return this.phase === 'burn' && !this.isFrozen(p)
             && this.targets('burn', p).length > 0;
     }
 
@@ -201,7 +201,6 @@ class PedroGame {
             burn: this.burnWin && { value: this.burnWin.value },
             give: this.give && { by: this.give.by, to: this.give.to },
             drawnFrom: this.drawnFrom,
-            burnTried: this.burnWin ? [...this.burnWin.tried] : [],
             peekPending: this.phase === 'peek' ? [...this.peekPending] : [],
             turns: this.turns,
             winners: this.winners,
@@ -424,7 +423,7 @@ class PedroGame {
 
     _openBurn() {
         if (!this.rules.burn || !this.top) return this._nextTurn();
-        this.burnWin = { value: this.top.rank, tried: new Set() };
+        this.burnWin = { value: this.top.rank };
         this.phase = 'burn';
         this._emit({ t: 'burnOpen', value: this.top.rank, top: this.top });
     }
@@ -432,7 +431,6 @@ class PedroGame {
     _burn({ p, target }) {
         if (this.phase !== 'burn') return 'Ahora no se puede quemar.';
         if (this.isFrozen(p)) return 'Has cantado Pedro: ya no puedes tocar tus cartas.';
-        if (this.burnWin.tried.has(p)) return 'Ya has fallado al quemar esta carta.';
         if (!target || !this._validSlot(target.p, target.s)) return 'Esa carta no existe.';
         if (target.p !== p && !this.rules.burnOthers) return 'Con estas reglas solo puedes quemar tus cartas.';
         if (this.isProtected(target.p) && target.p !== p) return 'Las cartas de quien ha cantado Pedro no se tocan.';
@@ -450,7 +448,7 @@ class PedroGame {
             return null;
         }
         // Falla: la carta se ha visto, vuelve a su sitio y quien falló se lleva castigo.
-        this.burnWin.tried.add(p);
+        // Se puede seguir intentando mientras dure la ventana: cada fallo, otro castigo.
         this._emit({ t: 'burnFail', by: p, target: t, card });
         const slots = [];
         for (let k = 0; k < this.rules.penaltyCards; k++) {
