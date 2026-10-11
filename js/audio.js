@@ -94,10 +94,12 @@ class Synth {
 function seatLayout(n) {
     if (n === 2) return ['me', 'top'];
     if (n === 3) return ['me', 'right', 'left'];
-    return ['me', 'right', 'top', 'left'];
+    if (n === 4) return ['me', 'right', 'top', 'left'];
+    if (n === 5) return ['me', 'right', 'topright', 'topleft', 'left'];
+    return ['me', 'right', 'topright', 'top', 'topleft', 'left'];
 }
-const SEAT_PAN = { me: 0, right: 0.75, top: 0, left: -0.75 };
-const SEAT_WORD = { right: 'a tu derecha', top: 'enfrente', left: 'a tu izquierda' };
+const SEAT_PAN = { me: 0, right: 0.8, topright: 0.4, top: 0, topleft: -0.4, left: -0.8 };
+const SEAT_WORD = { right: 'a tu derecha', topright: 'enfrente, a la derecha', top: 'enfrente', topleft: 'enfrente, a la izquierda', left: 'a tu izquierda' };
 
 class AudioEngine {
     ctx = null;
@@ -146,8 +148,9 @@ class AudioEngine {
     }
 
     // ── Posiciones ────────────────────────────────────
-    setPlayers(n) { this.seats = seatLayout(n); }
-    seatOf(p) { return this.seats[p] || 'top'; }
+    /** me: tu sitio. Los demás se colocan a partir de ti, en el orden del juego. */
+    setPlayers(n, me = 0) { this.seats = seatLayout(n); this.n = n; this.me = me; }
+    seatOf(p) { return this.seats[((p - (this.me || 0)) % this.n + this.n) % this.n] || 'top'; }
     panOf(p) { return SEAT_PAN[this.seatOf(p)]; }
     /** Tus cartas, repartidas de izquierda a derecha. */
     slotPan(s, count) { return count <= 1 ? 0 : -0.6 + 1.2 * (s / Math.max(1, count - 1)); }

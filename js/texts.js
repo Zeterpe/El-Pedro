@@ -35,6 +35,21 @@ const Txt = {
     number(n) { return String(n).replace('.', ','); },
 
     points(n) { return n === 1 ? '1 punto' : `${n} puntos`; },
+
+    /** Las reglas de una mesa, en pocas frases. */
+    rules(r) {
+        const yes = v => v ? 'sí' : 'no';
+        return [
+            `Baraja de ${r.deck} cartas. ${r.handSize} cartas para cada uno; al empezar miras ${r.peekStart}.`,
+            `Poderes de las figuras: ${yes(r.powers)}.`,
+            r.burn ? `Quemar: sí${r.burnOthers ? ', también las cartas de los demás' : ', solo las tuyas'}${r.burnOthers && r.burnGive ? ', y al quemar la de otro le das una tuya' : ''}. Si fallas, ${r.penaltyCards === 1 ? 'una carta' : r.penaltyCards + ' cartas'} de castigo.` : 'Quemar: no.',
+            `Tiempo para quemar: ${r.burnTime ? r.burnTime + ' segundos' : 'sin límite'}.`,
+            `Coger la carta de la mesa: ${yes(r.takeFromTable)}.`,
+            r.allEqualOne ? 'Si todas tus cartas son del mismo número, valen 1 punto.' : '',
+            `Si se acaba el mazo, ${r.deckOut === 'end' ? 'se descubren las cartas' : 'se barajan las de la mesa'}.`,
+            r.winsToWin ? `Gana la partida quien gane ${r.winsToWin === 1 ? 'una ronda' : r.winsToWin + ' rondas'}.` : 'Se juega sin límite de rondas.',
+        ].filter(Boolean).join(' ');
+    },
 };
 
 /**
