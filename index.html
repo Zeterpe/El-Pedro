@@ -6,7 +6,7 @@
     <title>El Pedro</title>
     <meta name="description" content="El Pedro: juego de cartas de memoria con baraja española. Se juega con el oído o con la vista, contra la máquina.">
     <meta name="theme-color" content="#0f3d2a">
-    <link rel="stylesheet" href="css/style.css?v=20261011b">
+    <link rel="stylesheet" href="css/style.css?v=20261011c">
 </head>
 <body data-screen="splash">
     <div id="sr-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
@@ -147,8 +147,9 @@
                     <li>El rey: miras una carta y después puedes cambiar dos.</li>
                 </ul>
                 <h2>Quemar</h2>
-                <p>Cada vez que cae una carta en la mesa, quien tenga una carta igual puede quemarla: la suelta en la mesa y se la quita de encima. Puedes quemar tus cartas o las de los demás, si sabes cuáles son.</p>
-                <p>Si quemas la carta de otro, le das una de las tuyas a cambio. Si te equivocas, la carta vuelve a su sitio y te llevas una carta de castigo. Mientras dure el tiempo para quemar, puedes intentarlo todas las veces que quieras: cada acierto te quita una carta y cada fallo te da una de castigo.</p>
+                <p>Si tienes una carta igual a la de arriba de la mesa, puedes quemarla: la sueltas en la mesa y te la quitas de encima. Puedes quemar en cualquier momento, también en el turno de otro, y tantas veces como quieras. Basta con tocar la carta. Puedes quemar tus cartas o las de los demás, si sabes cuáles son.</p>
+                <p>Si quemas la carta de otro, le das una de las tuyas a cambio. Si te equivocas, la carta vuelve a su sitio y te llevas una carta de castigo.</p>
+                <p>Si alguien se queda sin cartas, gana la ronda al momento y se descubren todas.</p>
                 <h2>Cantar Pedro</h2>
                 <p>Cuando creas que tienes la suma más baja, canta Pedro al empezar tu turno, antes de robar. Los demás juegan una vez más y, cuando vuelve a ti, se descubren todas las cartas. Desde que cantas, nadie puede tocar tus cartas.</p>
                 <p>Gana la ronda la suma más baja. Cada ronda ganada te da una victoria.</p>
@@ -156,7 +157,7 @@
                 <ul>
                     <li>R: robar del mazo. P: cantar Pedro.</li>
                     <li>Del 1 al 4: tus cartas. Con una carta robada, la cambias por esa. T: tirarla a la mesa.</li>
-                    <li>Q: quemar. N: seguir sin quemar.</li>
+                    <li>Para quemar, en cualquier momento: tu carta con su número, o la de otro con las flechas y Enter. Q: te dice qué carta hay en la mesa.</li>
                     <li>I: cómo va la partida. C: tus cartas. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
                 </ul>
                 <p>En el móvil, todo tiene su botón en la pantalla.</p>
@@ -197,7 +198,6 @@
                 <button id="act-call" class="nav act call" hidden>¡Cantar Pedro! <kbd>P</kbd></button>
                 <button id="act-take" class="nav act" hidden>Coger de la mesa <kbd>M</kbd></button>
                 <button id="act-discard" class="nav act main" hidden>Tirar a la mesa <kbd>T</kbd></button>
-                <button id="act-pass" class="nav act" hidden>No tengo ninguna igual <kbd>N</kbd></button>
                 <button id="act-cancel" class="nav act" hidden><span>Cancelar</span> <kbd>Esc</kbd></button>
                 <button id="act-info" class="nav act small talk">Cómo va <kbd>I</kbd></button>
                 <button id="act-cards" class="nav act small talk">Mis cartas <kbd>C</kbd></button>
@@ -216,19 +216,19 @@
         </div>
     </div>
 
-    <script src="js/rules.js?v=20261011b"></script>
-    <script src="js/ai.js?v=20261011b"></script>
-    <script src="js/speech.js?v=20261011b"></script>
-    <script src="js/audio.js?v=20261011b"></script>
-    <script src="js/texts.js?v=20261011b"></script>
-    <script src="js/ui.js?v=20261011b"></script>
-    <script src="js/vendor/peerjs.min.js?v=20261011b"></script>
-    <script src="js/net.js?v=20261011b"></script>
-    <script src="js/mirror.js?v=20261011b"></script>
-    <script src="js/cards.js?v=20261011b"></script>
-    <script src="js/board.js?v=20261011b"></script>
-    <script src="js/match.js?v=20261011b"></script>
-    <script src="js/online.js?v=20261011b"></script>
-    <script src="js/app.js?v=20261011b"></script>
+    <script src="js/rules.js?v=20261011c"></script>
+    <script src="js/ai.js?v=20261011c"></script>
+    <script src="js/speech.js?v=20261011c"></script>
+    <script src="js/audio.js?v=20261011c"></script>
+    <script src="js/texts.js?v=20261011c"></script>
+    <script src="js/ui.js?v=20261011c"></script>
+    <script src="js/vendor/peerjs.min.js?v=20261011c"></script>
+    <script src="js/net.js?v=20261011c"></script>
+    <script src="js/mirror.js?v=20261011c"></script>
+    <script src="js/cards.js?v=20261011c"></script>
+    <script src="js/board.js?v=20261011c"></script>
+    <script src="js/match.js?v=20261011c"></script>
+    <script src="js/online.js?v=20261011c"></script>
+    <script src="js/app.js?v=20261011c"></script>
 </body>
 </html>

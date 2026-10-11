@@ -23,8 +23,6 @@ const DEFAULT_SETTINGS = {
     hints: true,
     quips: true,              // comentarios de los rivales
     memoryHelp: false,        // el juego te recuerda las cartas que has visto
-    burnWindow: 3,            // segundos para quemar (0 = hasta que pulses N)
-    burnTicks: true,
     botSpeed: 'normal',
     rivals: 2,
     difficulty: 'mezcla',
@@ -237,7 +235,6 @@ const App = {
             { label: 'Se puede coger la carta de la mesa', values: [false, true], get: () => r.takeFromTable, set: v => { r.takeFromTable = v; }, text: yes },
             { label: 'Si todas tus cartas son del mismo número, valen 1 punto', values: [true, false], get: () => r.allEqualOne, set: v => { r.allEqualOne = v; }, text: yes },
             { label: 'Si se acaba el mazo', values: ['reshuffle', 'end'], get: () => r.deckOut, set: v => { r.deckOut = v; }, text: v => v === 'reshuffle' ? 'se barajan las cartas de la mesa y se sigue' : 'se descubren las cartas' },
-            { label: 'Tiempo para quemar', values: [2, 3, 4, 6, 8, 12, 0], get: () => r.burnTime, set: v => { r.burnTime = v; }, text: v => v === 0 ? 'sin límite: hasta que todos digan que no tienen' : `${v} segundos` },
             { label: 'Rondas para ganar la partida', values: [1, 3, 5, 0], get: () => r.winsToWin, set: v => { r.winsToWin = v; }, text: v => v === 0 ? 'sin límite' : v === 1 ? '1 ronda' : `${v} rondas` },
             { label: 'Volver a las reglas de siempre', action: () => { this.settings.rules = { ...DEFAULT_RULES }; this.save(); this.houseChanged(); this.speech.say('Reglas de siempre.'); this.openHouse(); } },
         ];
@@ -267,7 +264,6 @@ const App = {
             { label: 'Sonido en mono, para un solo auricular', values: [false, true], get: () => s.mono, set: v => { s.mono = v; this.audio.applySettings(); }, text: v => v ? 'sí' : 'no' },
             { label: 'Anuncios', values: ['normal', 'breve'], get: () => s.verbosity, set: v => { s.verbosity = v; }, text: v => v === 'normal' ? 'completos' : 'breves' },
             { label: 'Decir cuánto valen las figuras', values: [true, false], get: () => s.figureValues, set: v => { s.figureValues = v; }, text: v => v ? 'sí' : 'no' },
-            { label: 'Tictac mientras se puede quemar', values: [true, false], get: () => s.burnTicks, set: v => { s.burnTicks = v; }, text: v => v ? 'sí' : 'no' },
             { label: 'Velocidad de los rivales', values: ['lenta', 'normal', 'rapida'], get: () => s.botSpeed, set: v => { s.botSpeed = v; }, text: v => ({ lenta: 'lenta', normal: 'normal', rapida: 'rápida' })[v] },
             { label: 'Comentarios de los rivales', values: [true, false], get: () => s.quips, set: v => { s.quips = v; }, text: v => v ? 'sí' : 'no' },
             { label: 'Pistas', values: [true, false], get: () => s.hints, set: v => { s.hints = v; }, text: v => v ? 'sí' : 'no' },
@@ -397,7 +393,7 @@ const App = {
     },
 
     bindGameButtons() {
-        const cmd = { 'act-draw': 'draw', 'act-call': 'call', 'act-take': 'take', 'act-discard': 'discard', 'act-pass': 'pass' };
+        const cmd = { 'act-draw': 'draw', 'act-call': 'call', 'act-take': 'take', 'act-discard': 'discard' };
         for (const [id, kind] of Object.entries(cmd)) $(id).addEventListener('click', () => this.match?.input(kind));
         $('act-cancel').addEventListener('click', () => this.match?.cancelPick());
         // Tocar el mazo es robar; tocar la mesa, cogerla (si las reglas lo dejan).

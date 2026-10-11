@@ -25,7 +25,7 @@ Es el primero de una serie de juegos de cartas y de mesa que más adelante se un
 | `js/ui.js` | Pantallas, foco, `Dialog` (preguntas con opciones) y `OptionList` (opciones) |
 | `js/cards.js` | Dibujo SVG propio de las cartas españolas (`CardArt.face`, `CardArt.back`) |
 | `js/board.js` | La mesa que se ve: cada carta es un botón, animaciones (darse la vuelta, volar), bocadillos, cursor de teclado |
-| `js/match.js` | Una partida: turnos, rivales, elegir cartas tocándolas (`pick`), ventana para quemar, lo que se cuenta. Modos `local`, `host` y `client` |
+| `js/match.js` | Una partida: turnos, rivales, elegir cartas tocándolas (`pick`), quemar en cualquier momento, lo que se cuenta. Modos `local`, `host` y `client` |
 | `js/net.js` | Conexión con PeerJS: `HostNet` (abre la sala `elpedro-NNNNN`) y `ClientNet` |
 | `js/mirror.js` | `MirrorGame`: la mesa tal como la ve un invitado, sin cartas ocultas. `eventFor()` quita a cada jugador las cartas que no puede ver |
 | `js/online.js` | Salas: crear, unirse con código o enlace (`?sala=`), sala de espera, reglas de la mesa y reparto de mensajes |
@@ -33,19 +33,23 @@ Es el primero de una serie de juegos de cartas y de mesa que más adelante se un
 
 ### Cómo funcionan las reglas
 
-`PedroGame` es una máquina de estados con estas fases: `peek` → `turn` → `drawn` → `power` → `burn` → … → `roundOver` → `gameOver`.
+`PedroGame` es una máquina de estados con estas fases: `peek` → `turn` → `drawn` → `power` → … → `roundOver` → `gameOver`.
 
 - Cada `act({ type, p, … })` devuelve los **sucesos** que ha provocado (`draw`, `swap`, `burn`, `reveal`…).
 - Un suceso con `secret: true` lleva una carta que solo debe conocer quien la ve. Esto importa para el modo online.
 - Los rivales y la ayuda de memoria solo aprenden de esos sucesos, como en una mesa de verdad.
-- El tiempo para quemar (`rules.burnTime`) no lo cuenta `rules.js`: lo controla `Match.burnWindow()`, que cierra la ventana con `endBurn`.
+- **Quemar no tiene ventana ni tiempo:** se puede en `turn`, `drawn` y `power` (`BURN_PHASES`), también en el turno de otro. La acción `burn` lleva `top`, el id de la carta de la mesa que veía el jugador; si ya ha cambiado, no vale.
+- Si quemas la carta de otro, la fase pasa a `give` y, al dar tu carta, vuelve a la que había.
+- Si alguien se queda sin cartas, se acaba la ronda al momento (`reveal` con `reason: 'empty'`).
+- En `Match`, las quemas van a una cola (`queueBurn`) y el bucle principal las atiende antes que el turno (`processBurns`). Los rivales de la máquina se preparan cada vez que cambia la carta de la mesa (`planBots`).
 - Quien canta Pedro juega su turno; después nadie toca sus cartas (`isProtected`) y esa persona ya no quema (`isFrozen`).
 
 ### Cómo funcionan las salas
 
 - **Quien crea la sala** tiene la baraja (`PedroGame`) y decide todo. Después de cada acción manda a cada jugador un paquete `batch`, con los sucesos filtrados por `eventFor()` y la mesa (`view()`).
 - **Cada invitado** guarda esa mesa en un `MirrorGame` y cuenta los sucesos a su manera, con voz o sin ella. Cuando le toca, manda su jugada (`act`) y el anfitrión la comprueba.
-- **Antes de abrir cada ventana para quemar,** el anfitrión espera a que todos hayan oído la carta (`ack`). Así nadie se queda atrás porque su voz vaya más lenta.
+- **Quemar llega en cualquier momento:** el invitado manda `act` con `type: 'burn'` y el anfitrión lo pone en la cola. Si falla, le contesta con `burnError`.
+- **Antes de que los rivales de la máquina intenten quemar,** el anfitrión espera a que todos hayan oído la carta (`ack`). Así nadie se queda atrás porque su voz vaya más lenta.
 - **Si alguien se va,** juega la máquina por esa persona (`seatLeft`).
 - **Para probar sin internet,** se puede usar un servidor de PeerJS local guardando esto en `localStorage['elpedro.peer']`: `{"host":"127.0.0.1","port":9000,"path":"/myapp","secure":false}`.
 

@@ -311,16 +311,23 @@ class Bot {
 
     /** ¿Quema algo? Devuelve el objetivo y cuánto tarda en reaccionar, o null. */
     chooseBurn(value) {
+        if (!this.game.canBurn(this.me)) return null;
+        if (this.rng.chance(this.level.sloppy)) return null;   // no se da cuenta
+        const target = this.burnTarget(value);
+        if (!target) return null;
+        const [lo, hi] = this.level.react;
+        const delay = this.rng.range(lo, hi) * (target.p === this.me ? 1 : 1.15);
+        return { target, delay };
+    }
+
+    /** La carta que cree que es igual a value: primero las suyas, después las de los demás. */
+    burnTarget(value) {
         const g = this.game, me = this.me;
         if (!g.canBurn(me)) return null;
-        if (this.rng.chance(this.level.sloppy)) return null;   // no se da cuenta
-        const [lo, hi] = this.level.react;
-        const delay = this.rng.range(lo, hi);
-        for (const s of g.slotsOf(me)) if (this.mem.rank(me, s) === value) return { target: { p: me, s }, delay };
-        if (g.rules.burnOthers) {
+        for (const s of g.slotsOf(me)) if (this.mem.rank(me, s) === value) return { p: me, s };
+        if (g.rules.burnOthers && g.countOf(me) > 0) {
             for (const t of g.targets('burn', me)) {
-                if (t.p === me) continue;
-                if (this.mem.rank(t.p, t.s) === value && g.countOf(me) > 0) return { target: t, delay: delay * 1.15 };
+                if (t.p !== me && this.mem.rank(t.p, t.s) === value) return t;
             }
         }
         return null;

@@ -107,7 +107,6 @@ const Board = {
         const g = match.game, me = match.me, reveal = match.lastReveal;
         const pick = match.picking;
         const hl = match.highlight || [];
-        const burnOpen = g.phase === 'burn' && g.canBurn(me) && !match.passedBurn;
         const help = match.settings.memoryHelp || match.practice;
         const faceFor = (p, s) => {
             if (reveal) { const h = reveal.hands[p]?.find(x => x.s === s); if (h) return h.card; }
@@ -148,7 +147,6 @@ const Board = {
                 b.classList.toggle('pickable', !!c && (can || chosen));
                 b.classList.toggle('chosen', !!chosen);
                 b.classList.toggle('hl', hl.some(t => t.p === p && t.s === s));
-                b.classList.toggle('burnable', !!c && burnOpen && !pick && (p === me || (g.rules.burnOthers && !g.isProtected(p))));
                 const known = help && c && p === me && !face ? match.helper.get(me, s) : null;
                 b.querySelector('.memo').textContent = known ? `${known.rank} ${known.suit}` : '';
                 b.disabled = !c;
@@ -165,7 +163,6 @@ const Board = {
         const top = g.top;
         const tk = top ? top.suit + top.rank : '';
         if (table.dataset.k !== tk) { table.dataset.k = tk; table.querySelector('.pile-card').innerHTML = top ? CardArt.face(top) : ''; this.pulse(table, 'land'); }
-        table.classList.toggle('burnable', g.phase === 'burn');
         table.classList.toggle('ready', !!want?.has('take'));
         table.setAttribute('aria-label', top ? `Mesa: ${Txt.cardShort(top)}${want?.has('take') ? '. Coger' : ''}` : 'Mesa vacía');
         const drawn = $('drawn-area');
@@ -189,7 +186,6 @@ const Board = {
         show('act-call', can('call'));
         show('act-take', can('take'));
         show('act-discard', can('discard'));
-        show('act-pass', burnOpen && !pick);
         show('act-cancel', !!pick && pick.cancel != null, pick?.cancelLabel);
         // Si el botón enfocado ha desaparecido, el foco pasa a algo que tenga sentido (sin leerlo).
         const f = document.activeElement;

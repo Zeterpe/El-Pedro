@@ -235,14 +235,6 @@ class AudioEngine {
         this.#go((k, out, t) => { k.tone(out, { t, f: 392, type: 'triangle', dur: 0.1, peak: 0.1, pan }); });
     }
 
-    burnOpen() {
-        this.#go((k, out, t) => { k.tone(out, { t, f: [[0, 300], [0.12, 520]], type: 'triangle', dur: 0.15, peak: 0.06 }); });
-    }
-
-    tick(last = false) {
-        this.#go((k, out, t) => { k.tone(out, { t, f: last ? 700 : 1400, dur: 0.03, peak: last ? 0.06 : 0.035 }); });
-    }
-
     burnOk(pan = 0) {
         this.#go((k, out, t) => {
             k.noise(out, { t, dur: 0.45, a: 0.03, peak: 0.3, filter: { type: 'bandpass', f: [[0, 400], [0.4, 3200]], q: 1.2 }, pan });
