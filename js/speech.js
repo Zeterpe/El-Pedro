@@ -54,8 +54,13 @@ class Speech {
         }
     }
 
+    override = null;      // en la portada se habla con la voz del juego, aunque no se haya elegido aún
+    timeScale = 1;        // pruebas: esperas más cortas
+
     get available() { return !!this.#synth; }
-    get useTTS() { return this.#settings.output !== 'sr' && !!this.#synth; }
+    /** voz: la del juego · sr: el lector de pantalla · visual: nada (se lee en pantalla). */
+    get mode() { return this.override || this.#settings.output; }
+    get useTTS() { return this.mode === 'voz' && !!this.#synth; }
     get busy() { return !!this.#chunkDone || this.#waiting > 0; }
     #waiting = 0;
 
@@ -119,9 +124,12 @@ class Speech {
         if (this.history.length > 300) this.history.splice(0, 100);
         this.onCaption?.(text);
         if (!this.useTTS) {
-            this.#announceLive(text, assertive);
+            // Lector de pantalla: región aria-live. Sin voz: solo se ve; se espera lo que se tarda en leerlo.
+            const visual = this.mode === 'visual';
+            if (!visual) this.#announceLive(text, assertive);
+            const ms = visual ? Math.max(700, String(text).length / 30 * 1000 + 300) : this.estimate(text, rate);
             this.#waiting++;
-            try { await this.#waitMs(this.estimate(text, rate), () => !valid()); } finally { this.#waiting--; }
+            try { await this.#waitMs(ms * this.timeScale, () => !valid()); } finally { this.#waiting--; }
             return;
         }
         for (const chunk of splitSpeech(text)) {

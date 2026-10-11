@@ -89,10 +89,14 @@ const UI = {
         if (h) { this.audio.back(); h(); }
     },
 
+    /** Lo último que se ha dicho, a la vista (sin voz es la única forma de enterarse). */
     caption(text) {
-        const el = $('caption');
-        if (!el) return;
-        el.textContent = text;
+        const el = $('log');
+        if (!el || !text || !text.trim()) return;
+        const li = document.createElement('li');
+        li.textContent = text;
+        el.prepend(li);
+        while (el.children.length > 6) el.lastChild.remove();
     },
 };
 
@@ -134,7 +138,7 @@ const Dialog = {
             this._resolve = resolve;
             const first = UI.navItems(list)[focusIndex] || UI.navItems(list)[0];
             if (speak) {
-                const intro = typeof speak === 'string' ? speak : [title, text].filter(Boolean).join('. ');
+                const intro = typeof speak === 'string' ? speak : [title, text].filter(Boolean).join(/[.?!:]$/.test(title) ? ' ' : '. ');
                 UI.say(intro);
                 UI.focus(first, { queue: true });
             } else UI.focus(first, { silent: true });

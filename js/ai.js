@@ -247,7 +247,9 @@ class Bot {
         const unknown = this.unknownOwn().length;
         if (this.myTurns < 2 && !(mine <= 2 && unknown === 0)) return false;
         if (mine <= 2 && unknown === 0) return true;
-        if (mine <= L.callAt && mine < best - L.margin) return true;
+        // Si la ronda se alarga mucho, se conforma con menos.
+        const patience = Math.max(0, (g.turns - 40) / 8);
+        if (mine <= L.callAt + patience && mine < best - L.margin + patience) return true;
         // Farol: cantar con una mano regular para meter prisa.
         return mine <= L.callAt + 5 && this.rng.chance(L.bluff);
     }
@@ -294,7 +296,7 @@ class Bot {
         }
         // Cambiar: mi peor carta por una buena (o desconocida) de otro.
         const w = this.worstOwn();
-        if (!w || this.game.isProtected(me)) return { type: 'pass', p: me };
+        if (!w) return { type: 'pass', p: me };
         let target = null, gain = 0;
         for (const t of g.targets('swap', me)) {
             if (t.p === me) continue;

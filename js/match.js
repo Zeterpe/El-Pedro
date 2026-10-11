@@ -2,8 +2,14 @@
    EL PEDRO — match.js
    Una partida en la mesa: reparte, da el turno,
    mueve a los rivales de la máquina, abre la
-   ventana para quemar, cuenta lo que pasa con voz
-   y sonido y dibuja la mesa.
+   ventana para quemar y cuenta lo que pasa con
+   voz, sonido y animaciones. También juega en una
+   sala: como anfitrión (la baraja está aquí) o como
+   invitado (el anfitrión manda lo que pasa).
+
+   Tus cartas y las de los demás se eligen tocándolas
+   (o con el teclado): para mirar, cambiar, quemar o
+   dar una carta no hay menús.
    ============================================= */
 'use strict';
 
@@ -13,36 +19,60 @@ const POWER_TEXT = {
     12: 'Si la tiras, puedes mirar una carta y después cambiar dos.',
 };
 
+/** Lo que dura cada momento sin voz (modo visual), en milisegundos. */
+const VISUAL_BEAT = {
+    turn: 250, draw: 450, swap: 850, discard: 750, peek: 900, swapCards: 1100, pass: 450,
+    burn: 950, burnFail: 1400, penalty: 650, give: 850, call: 1500, reshuffle: 900,
+};
+
+/**
+ * mode: 'local' (tú y la máquina), 'host' (has creado una sala: la baraja está en tu navegador)
+ * o 'client' (te has unido a una sala: el anfitrión te manda lo que pasa).
+ * seats: [{ name, kind: 'me' | 'bot' | 'remote', char }] en el orden de la mesa.
+ */
 class Match {
-    constructor(app, { rivals, rules, seed = (Date.now() ^ 0x5eed) >>> 0, practice = false }) {
+    constructor(app, { seats, me = 0, mode = 'local', online = null, rules, seed = (Date.now() ^ 0x5eed) >>> 0, practice = false }) {
         this.app = app;
         this.settings = app.settings;
         this.speech = app.speech;
         this.audio = app.audio;
-        this.rivals = rivals;
+        this.mode = mode;
+        this.online = online;
+        this.seats = seats.map(s => ({ ...s }));
         this.practice = practice;
-        this.me = 0;
-        this.game = new PedroGame({ players: [{ name: 'tú' }, ...rivals.map(c => ({ name: c.name }))], rules, seed });
-        this.names = ['tú', ...rivals.map(c => c.name)];
-        this.v = new Voice(this.names, 0);
-        this.bots = [null, ...rivals.map((c, i) => new Bot(this.game, i + 1, c, makeRng(seed + 101 * (i + 1))))];
-        this.helper = new Memory(0, {});          // memoria perfecta: para la ayuda de memoria
-        this.audio.setPlayers(this.game.n);
+        this.me = me;
+        this.names = this.seats.map((s, i) => i === me ? 'tú' : s.name);
+        this.v = new Voice(this.names, me);
+        this.game = mode === 'client'
+            ? new MirrorGame({ names: this.seats.map(s => s.name), rules, me })
+            : new PedroGame({ players: this.seats.map(s => ({ name: s.name })), rules, seed });
+        this.seed = seed;
+        this.bots = this.seats.map((s, i) => s.kind === 'bot' && mode !== 'client' ? new Bot(this.game, i, s.char, makeRng(seed + 101 * (i + 1))) : null);
+        this.helper = new Memory(me, {});         // memoria perfecta: para la ayuda de memoria
+        this.audio.setPlayers(this.game.n, me);
+        this.inbox = [];                           // anfitrión: lo que mandan los demás jugadores
+        this._wake = null;
+        this.seq = 0;                              // número del último paquete enviado o recibido
+        this.sentFor = -1;                         // invitado: ya ha respondido a este paquete
+        this.prompting = false;
         this.stopped = false;
         this.paused = false;
-        this.want = null;                          // lo que se espera del jugador
-        this.burnReq = null;                       // pidió quemar ('burn') o pasar ('pass')
+        this.want = null;                          // lo que se espera del jugador (teclas o botones)
+        this.picking = null;                       // elegir cartas tocándolas
+        this.burnReq = null;                       // quiere quemar una carta ({ target }) o pasar ('pass')
+        this.passedBurn = false;
         this.shown = new Map();                    // cartas boca arriba un momento: 'p:s' → carta
         this.highlight = null;
         this.hintCount = {};
-        this.turnsPlayed = 0;
         this.lastReveal = null;
-        this.onEnd = null;
+        this.gid = 0;                              // número de partida en la sala (para no mezclar con la anterior)
     }
 
     get timeScale() { return this.app.timeScale; }
     get speed() { return { lenta: 1.6, normal: 1, rapida: 0.55 }[this.settings.botSpeed] ?? 1; }
     get brief() { return this.settings.verbosity === 'breve'; }
+    get visual() { return this.speech.mode === 'visual'; }
+    isHuman(p) { return p === this.me || this.seats[p].kind === 'remote'; }
 
     // ── Tiempo (se para con la pausa y con los diálogos) ──
     async sleep(ms) {
@@ -53,6 +83,8 @@ class Match {
         }
     }
     think(ms) { return this.sleep(ms * this.speed); }
+    /** Sin voz, cada cosa que pasa dura un momento para que se vea. */
+    beat(t) { return this.visual && VISUAL_BEAT[t] ? this.sleep(VISUAL_BEAT[t] * this.speed) : Promise.resolve(); }
 
     async gate() { while ((this.paused || Dialog.active) && !this.stopped) await new Promise(r => setTimeout(r, 50)); }
 
@@ -61,6 +93,12 @@ class Match {
         if (this.stopped || !text) return;
         if (this.justPeeked && !force) keep = false;   // hasta tu primera jugada, Espacio repite tus cartas
         await this.speech.say(text, { interrupt, keep, pitch, rate });
+    }
+
+    /** Lo que tienes que hacer ahora: en la línea de estado y, con voz, dicho. */
+    prompt(status, spoken = null, opts = {}) {
+        Board.status(status);
+        if (spoken !== false && !this.visual) this.say(spoken || status, { keep: true, ...opts });
     }
 
     hint(id, text) {
@@ -73,10 +111,13 @@ class Match {
         this.stopped = true;
         this.speech.cancel();
         if (this.want) { const w = this.want; this.want = null; w.resolve(null); }
+        if (this.picking) { const p = this.picking; this.picking = null; p.resolve(null); }
+        this._wake?.();
     }
 
     // ── Bucle principal ───────────────────────────────
     async run() {
+        if (this.mode === 'client') return this.runClient();
         Board.build(this);
         await this.intro();
         while (!this.stopped) {
@@ -92,8 +133,7 @@ class Match {
             if (g.phase === 'gameOver') { await this.afterGame(); break; }
             if (g.phase === 'peek') { await this.peekPhase(); continue; }
             if (g.phase === 'burn') { await this.burnWindow(); continue; }
-            const p = this.actor();
-            if (p === this.me) await this.humanStep(); else await this.botStep(p);
+            await this.stepFor(this.actor());
         }
     }
 
@@ -104,25 +144,38 @@ class Match {
         return g.current;
     }
 
+    /** Hace jugar a quien le toque (tú, otro jugador de la sala o la máquina). */
+    stepFor(p) {
+        if (p === this.me) return this.humanStep();
+        if (this.seats[p].kind === 'remote') return this.remoteStep(p);
+        return this.botStep(p);
+    }
+
     async intro() {
-        const seats = this.rivals.map((c, i) => {
-            const seat = SEAT_WORD[this.audio.seatOf(i + 1)];
-            return `${c.name}, ${seat}`;
-        });
+        const seats = this.seats.map((s, p) => {
+            if (p === this.me) return null;
+            const bot = this.mode !== 'local' && s.kind === 'bot' ? ', de la máquina' : '';
+            return `${s.name}${bot}, ${SEAT_WORD[this.audio.seatOf(p)]}`;
+        }).filter(Boolean);
         const goal = this.game.rules.winsToWin;
         const goalText = goal > 0 ? ` Gana quien consiga antes ${goal === 1 ? 'una ronda' : goal + ' rondas'}.` : '';
         let text = `Juegas contra ${Txt.list(seats)}.${goalText}`;
         if (this.practice) text = 'Partida de práctica: la ayuda de memoria está activada, así que el juego te recuerda las cartas que has visto. ' + text;
+        Board.status(this.visual ? `Juegas contra ${Txt.list(this.seats.filter((_, p) => p !== this.me).map(s => s.name))}` : '');
         await this.say(text, { keep: true });
     }
 
-    /** Aplica el resultado de una acción: memorias, sonido, voz y dibujo. */
+    /** Aplica el resultado de una acción: memorias, sonido, voz, animaciones y dibujo. */
     async apply(res) {
         if (!res || this.stopped) return res;
-        if (!res.ok) { this.audio.error(); await this.say(res.error, { interrupt: true }); return res; }
+        if (!res.ok) { this.audio.error(); this.prompt(res.error, null, { interrupt: true }); return res; }
         for (const e of res.events) {
             for (const b of this.bots) b?.observe(e);
             this.helper.observe(e);
+        }
+        if (this.mode === 'host' && res.events.length) {
+            this.seq = this.online.broadcast(this, res.events);
+            if (res.events.some(e => e.t === 'burnOpen')) this.burnSeq = this.seq;
         }
         for (const e of res.events) {
             if (this.stopped) break;
@@ -133,47 +186,69 @@ class Match {
         return res;
     }
 
-    act(a) { return this.apply(this.game.act(a)); }
+    act(a) {
+        if (this.mode === 'client') {
+            // El invitado no tiene la baraja: manda su jugada al anfitrión y espera su respuesta.
+            this.sentFor = this.seq;
+            this.online.send({ t: 'act', a, seq: this.seq });
+            return Promise.resolve({ ok: true, events: [] });
+        }
+        return this.apply(this.game.act(a));
+    }
 
-    // ── Lo que pasa, contado ──────────────────────────
-    cardAt(p, s) { return this.game.card(p, s); }
+    // ── Lo que pasa, contado y animado ────────────────
 
-    flash(p, s, card, ms = 3500) {
+    /** Enseña una carta boca arriba unos segundos y vuelve a darle la vuelta. */
+    flash(p, s, card, ms = 5000) {
         const k = p + ':' + s;
         this.shown.set(k, card);
         Board.render(this);
         setTimeout(() => { if (this.shown.get(k) === card) { this.shown.delete(k); Board.render(this); } }, ms * Math.max(0.3, this.timeScale));
     }
 
+    mark(list, ms = 2500) {
+        this.highlight = list;
+        Board.render(this);
+        setTimeout(() => { if (this.highlight === list) { this.highlight = null; Board.render(this); } }, ms * Math.max(0.3, this.timeScale));
+    }
+
     async present(e) {
         const g = this.game, me = this.me, v = this.v, A = this.audio;
         const pan = p => A.panOf(p);
+        const span = (p, s) => p === me ? A.slotPan(s, g.players[me].slots.length) : pan(p);
+        const B = Board;
         switch (e.t) {
             case 'round': {
                 this.shown.clear();
+                this.lastReveal = null;
                 this.justPeeked = false;
+                this.passedBurn = false;
                 A.shuffle();
                 await this.sleep(950);
                 A.deal(g.n, g.rules.handSize);
                 const dealer = e.dealer === me ? 'Repartes tú' : `Reparte ${g.players[e.dealer].name}`;
                 A.card(e.top, 0, 0.4 + g.n * g.rules.handSize * 0.09);
+                B.status(`Ronda ${e.round}`);
                 await this.say(`Ronda ${e.round}. ${dealer}. En la mesa, ${Txt.card(e.top)}.`, { keep: true });
                 break;
             }
             case 'turn': {
+                this.passedBurn = false;
                 if (e.p === me) {
                     A.yourTurn();
-                    this.turnsPlayed++;
                     const last = e.last ? ' Es tu última jugada: alguien ha cantado Pedro.' : '';
                     const top = g.top ? ` En la mesa, ${Txt.card(g.top)}.` : '';
                     const hint = this.hint('turn', g.caller === null
-                        ? 'Pulsa R para robar del mazo, o P para cantar Pedro si crees que tienes la suma más baja.'
-                        : 'Pulsa R para robar.');
-                    this.say(`Tu turno.${last}${top}${hint}`, { keep: true });   // sin esperar: puedes jugar mientras habla
+                        ? 'Pulsa R, o toca el mazo, para robar. Si crees que tienes la suma más baja, canta Pedro con la P antes de robar.'
+                        : 'Pulsa R, o toca el mazo, para robar.');
+                    // Sin esperar: puedes jugar mientras habla.
+                    this.prompt(e.last ? 'Tu última jugada: roba una carta' : (g.caller === null ? 'Tu turno: toca el mazo para robar, o canta Pedro' : 'Tu turno: roba una carta'),
+                        `Tu turno.${last}${top}${hint}`);
                 } else {
                     A.otherTurn(e.p);
-                    const last = e.last ? 'Última vuelta. ' : '';
-                    await this.say(this.brief ? `${last}${cap(v.name(e.p))}.` : `${last}Turno de ${v.name(e.p)}.`);
+                    B.status(`${e.last ? 'Última vuelta. ' : ''}Turno de ${this.names[e.p]}`);
+                    await this.say(this.brief ? `${e.last ? 'Última vuelta. ' : ''}${cap(v.name(e.p))}.` : `${e.last ? 'Última vuelta. ' : ''}Turno de ${v.name(e.p)}.`);
+                    await this.beat('turn');
                 }
                 break;
             }
@@ -182,135 +257,168 @@ class Match {
                     this.justPeeked = false;
                     A.flick(0);
                     A.card(e.card, 0, 0.12);
-                    if (e.from === 'table') {
-                        this.say(`Coges de la mesa ${Txt.card(e.card)}. Elige por cuál de tus cartas la cambias, con los números.`, { keep: true });
-                    } else {
+                    B.fly(e.from === 'table' ? $('table-btn') : $('deck-btn'), $('drawn-area').hidden ? $('seat-me') : $('drawn-area'), e.card, 380);
+                    if (e.from === 'table') this.prompt('Toca la carta tuya por la que la cambias', `Coges de la mesa ${Txt.card(e.card)}. Elige por cuál de tus cartas la cambias: con su número, o tocándola.`);
+                    else {
                         const pw = g.rules.powers && POWER_TEXT[e.card.rank] ? ' ' + POWER_TEXT[e.card.rank] : '';
-                        const hint = this.hint('drawn', 'Pulsa el número de una de tus cartas para cambiarla por esta, o T para tirarla a la mesa.');
-                        this.say(`Has robado ${Txt.card(e.card)}.${pw}${hint}`, { keep: true });
+                        const hint = this.hint('drawn', 'Pulsa el número de una de tus cartas, o tócala, para cambiarla por esta. Con la T, o con el botón Tirar, la tiras a la mesa.');
+                        this.prompt(`Has robado ${Txt.cardShort(e.card)}: toca una de tus cartas para cambiarla, o tírala`, `Has robado ${Txt.card(e.card)}.${pw}${hint}`);
                     }
                 } else {
                     A.flick(pan(e.p));
+                    B.fly(e.from === 'table' ? $('table-btn') : $('deck-btn'), B.seatEl(e.p), e.from === 'table' ? e.card : null, 380);
+                    B.bubble(e.p, e.from === 'table' ? 'Coge de la mesa' : 'Roba');
                     if (e.from === 'table') { A.card(e.card, pan(e.p)); await this.say(`${v.Name(e.p)} coge de la mesa ${Txt.card(e.card)}.`); }
-                    // El sonido ya dice que roba; la frase siguiente cuenta qué hace con la carta.
+                    await this.beat('draw');
                 }
                 break;
             }
             case 'swap': {
                 A.place(0);
                 A.card(e.card, 0, 0.1);
+                B.fly(B.slotEl(e.p, e.slot), $('table-btn'), e.card, 450);
+                this.mark([{ p: e.p, s: e.slot }], 1500);
                 if (e.p === me) await this.say(`Te la quedas en tu sitio ${e.slot + 1} y tiras ${Txt.card(e.card)}.`, { keep: true });
-                else await this.say(this.brief
-                    ? `Cambia su ${e.slot + 1}. Tira ${Txt.card(e.card)}.`
-                    : `${v.Name(e.p)} se la queda en su carta ${e.slot + 1} y tira ${Txt.card(e.card)}.`, { keep: true });
+                else {
+                    B.bubble(e.p, `Cambia su carta ${e.slot + 1}`);
+                    await this.say(this.brief
+                        ? `Cambia su ${e.slot + 1}. Tira ${Txt.card(e.card)}.`
+                        : `${v.Name(e.p)} se la queda en su carta ${e.slot + 1} y tira ${Txt.card(e.card)}.`, { keep: true });
+                    await this.beat('swap');
+                }
                 break;
             }
             case 'discard': {
                 A.place(0);
                 A.card(e.card, 0, 0.1);
+                B.fly(e.p === me ? $('drawn-area') : B.seatEl(e.p), $('table-btn'), e.card, 420);
                 if (e.p === me) await this.say(`Tiras ${Txt.card(e.card)}.`);
-                else await this.say(`${v.Name(e.p)} la tira: ${Txt.card(e.card)}.`, { keep: true });
+                else {
+                    B.bubble(e.p, e.power ? 'Tira y usa el poder' : 'La tira');
+                    await this.say(`${v.Name(e.p)} la tira: ${Txt.card(e.card)}.`, { keep: true });
+                    await this.beat('discard');
+                }
                 break;
             }
-            case 'power': {
-                if (e.p !== me) break;
-                // El jugador elige en humanStep.
-                break;
-            }
+            case 'power': break;   // tú eliges en humanPower; de los demás se cuenta lo que hacen
+            case 'peekAsk': break;
             case 'peekDone': {
                 if (e.p !== me) break;
                 const peeks = this._startPeeks || [];
                 this._startPeeks = [];
-                peeks.forEach((x, i) => { A.card(x.card, A.slotPan(x.target.s, g.players[me].slots.length), i * 0.6); this.flash(me, x.target.s, x.card, 6000); });
+                peeks.forEach((x, i) => { A.card(x.card, A.slotPan(x.target.s, g.players[me].slots.length), i * 0.6); this.flash(me, x.target.s, x.card, 5000); });
                 const text = peeks.map(x => `Tu carta ${x.target.s + 1}: ${Txt.card(x.card)}`).join('. ') + '.';
                 this.justPeeked = true;
+                Board.status('¡Recuérdalas! Se darán la vuelta en 5 segundos');
                 await this.say(`${text} ¡Recuérdalas! Pulsa Espacio para oírlas otra vez.`, { keep: true, interrupt: true, force: true });
-                await this.sleep(500);
+                await this.sleep(this.visual ? 1200 : 500);
                 break;
             }
             case 'peek': {
                 if (e.start) { if (e.by === me) (this._startPeeks ||= []).push(e); break; }
                 const t = e.target;
-                A.peek(t.p === me ? A.slotPan(t.s, g.players[me].slots.length) : pan(t.p));
+                A.peek(span(t.p, t.s));
                 if (e.by === me) {
-                    A.card(e.card, t.p === me ? 0 : pan(t.p), 0.2);
-                    this.flash(t.p, t.s, e.card);
+                    A.card(e.card, span(t.p, t.s), 0.2);
+                    this.flash(t.p, t.s, e.card, 5000);
+                    Board.status(`${cap(v.slot(t.p, t.s, me))}: ${Txt.cardShort(e.card)}`);
                     await this.say(`Miras ${v.slot(t.p, t.s, me)}: ${Txt.card(e.card)}.`, { keep: true });
                 } else {
+                    this.mark([t], 1800);
+                    B.bubble(e.by, t.p === me ? `Mira tu carta ${t.s + 1}` : t.p === e.by ? `Mira su carta ${t.s + 1}` : `Mira una de ${this.names[t.p]}`);
                     await this.say(`${v.Name(e.by)} mira ${v.slot(t.p, t.s, e.by)}.`, { keep: true });
+                    await this.beat('peek');
                 }
                 break;
             }
             case 'swapCards': {
-                const pa = e.a.p === me ? A.slotPan(e.a.s, g.players[me].slots.length) : pan(e.a.p);
-                const pb = e.b.p === me ? A.slotPan(e.b.s, g.players[me].slots.length) : pan(e.b.p);
-                A.swap(pa, pb);
-                this.highlight = [e.a, e.b];
-                setTimeout(() => { this.highlight = null; Board.render(this); }, 2500 * Math.max(0.3, this.timeScale));
+                A.swap(span(e.a.p, e.a.s), span(e.b.p, e.b.s));
+                B.fly(B.slotEl(e.a.p, e.a.s), B.slotEl(e.b.p, e.b.s), null, 600);
+                B.fly(B.slotEl(e.b.p, e.b.s), B.slotEl(e.a.p, e.a.s), null, 600);
+                this.mark([e.a, e.b]);
                 const who = e.by === me ? 'Cambias' : `${v.Name(e.by)} cambia`;
+                if (e.by !== me) B.bubble(e.by, 'Cambia cartas');
                 await this.say(`${who} ${v.slot(e.a.p, e.a.s, e.by)} por ${v.slot(e.b.p, e.b.s, e.by)}.`, { keep: true });
+                if (e.by !== me) await this.beat('swapCards');
                 break;
             }
             case 'pass': {
                 A.pass();
-                const what = e.step === 'look' ? 'no mira ninguna carta' : 'no cambia ninguna carta';
                 if (e.p === me) await this.say(e.step === 'look' ? 'No miras ninguna carta.' : 'No cambias ninguna carta.');
-                else await this.say(`${v.Name(e.p)} ${what}.`);
+                else {
+                    B.bubble(e.p, e.step === 'look' ? 'No mira' : 'No cambia');
+                    await this.say(`${v.Name(e.p)} ${e.step === 'look' ? 'no mira ninguna carta' : 'no cambia ninguna carta'}.`);
+                    await this.beat('pass');
+                }
                 break;
             }
             case 'burnOpen': A.burnOpen(); break;
             case 'burn': {
                 const t = e.target;
-                A.burnOk(t.p === me ? 0 : pan(t.p));
+                A.burnOk(span(t.p, t.s));
                 A.card(e.card, 0, 0.3);
+                B.fly(B.slotEl(t.p, t.s), $('table-btn'), e.card, 450);
+                B.bubble(e.by, '¡Quema!');
                 if (e.by === me) await this.say(`¡Bien! Quemas ${v.slot(t.p, t.s, me)}: ${Txt.card(e.card, { value: false })}.`, { keep: true });
                 else {
                     await this.say(`¡${v.Name(e.by)} quema ${v.slot(t.p, t.s, e.by)}! Era ${Txt.card(e.card, { value: false })}.`, { keep: true });
                     if (t.p !== me && t.p !== e.by) await this.quip(t.p, 'burned', 0.5);
                 }
+                await this.beat('burn');
                 break;
             }
             case 'giveAsk': break;
             case 'give': {
-                const pf = e.by === me ? A.slotPan(e.from, g.players[me].slots.length) : pan(e.by);
-                const pt = e.to.p === me ? A.slotPan(e.to.s, g.players[me].slots.length) : pan(e.to.p);
-                A.swap(pf, pt);
+                A.swap(e.by === me ? A.slotPan(e.from, g.players[me].slots.length) : pan(e.by), span(e.to.p, e.to.s));
+                B.fly(B.seatEl(e.by), B.slotEl(e.to.p, e.to.s), null, 500);
+                this.mark([e.to], 1800);
                 if (e.by === me) await this.say(`Le das tu carta ${e.from + 1} a ${v.name(e.to.p)}.`);
-                else if (e.to.p === me) await this.say(`${v.Name(e.by)} te da su carta ${e.from + 1}. Ahora es tu carta ${e.to.s + 1}, y no sabes cuál es.`, { keep: true });
-                else await this.say(`${v.Name(e.by)} le da su carta ${e.from + 1} a ${v.name(e.to.p)}.`);
+                else if (e.to.p === me) { B.bubble(e.by, 'Te da una carta'); await this.say(`${v.Name(e.by)} te da su carta ${e.from + 1}. Ahora es tu carta ${e.to.s + 1}, y no sabes cuál es.`, { keep: true }); }
+                else { B.bubble(e.by, `Da una carta a ${this.names[e.to.p]}`); await this.say(`${v.Name(e.by)} le da su carta ${e.from + 1} a ${v.name(e.to.p)}.`); }
+                await this.beat('give');
                 break;
             }
             case 'burnFail': {
                 const t = e.target;
                 A.burnFail(e.by === me ? 0 : pan(e.by));
-                A.card(e.card, t.p === me ? 0 : pan(t.p), 0.4);
+                A.card(e.card, span(t.p, t.s), 0.4);
                 this.flash(t.p, t.s, e.card, 2500);
+                B.bubble(e.by, '¡Falla!');
                 if (e.by === me) await this.say(`¡Fallas! ${cap(v.slot(t.p, t.s, me))} era ${Txt.card(e.card, { value: false })}.`, { keep: true });
                 else {
                     await this.say(`${v.Name(e.by)} intenta quemar ${v.slot(t.p, t.s, e.by)} y falla: era ${Txt.card(e.card, { value: false })}.`, { keep: true });
                     await this.quip(e.by, 'burnFail', 0.6);
                 }
+                await this.beat('burnFail');
                 break;
             }
             case 'penalty': {
                 A.penalty(e.p === me ? 0 : pan(e.p));
+                B.fly($('deck-btn'), B.seatEl(e.p), null, 450);
                 const n = e.slots.length;
+                B.bubble(e.p, `+${n} de castigo`);
                 if (e.p === me) await this.say(`Te llevas ${n === 1 ? 'una carta' : n + ' cartas'} de castigo, sin mirarla, en tu sitio ${Txt.list(e.slots.map(s => s + 1))}.`, { keep: true });
                 else await this.say(`${v.Name(e.p)} se lleva ${n === 1 ? 'una carta' : n + ' cartas'} de castigo.`);
+                await this.beat('penalty');
                 break;
             }
             case 'burnClose': break;
             case 'call': {
                 A.call(e.p === me ? 0 : pan(e.p));
                 this.justPeeked = false;
-                if (e.p === me) await this.say('¡Pedro! Has cantado Pedro. Los demás juegan una última vuelta y después se descubren las cartas. Nadie puede tocar tus cartas.', { keep: true });
-                else {
+                B.bubble(e.p, '¡Pedro!', 2600);
+                if (e.p === me) {
+                    this.prompt('¡Pedro! Ahora juega tu turno: roba una carta',
+                        '¡Pedro! Has cantado Pedro. Ahora juega tu turno: roba una carta. Después los demás juegan una vez más y se descubren las cartas. Nadie más puede tocar tus cartas.');
+                } else {
+                    Board.status(`¡${this.names[e.p]} ha cantado Pedro! Última vuelta`);
                     await this.quip(e.p, 'call', 1);
-                    await this.say(`${v.Name(e.p)} canta Pedro. Última vuelta: cada uno juega una vez más. Sus cartas ya no se pueden tocar.`, { keep: true });
+                    await this.say(`${v.Name(e.p)} canta Pedro. Juega su turno y después cada uno jugáis una vez más. Sus cartas ya no se pueden tocar.`, { keep: true });
+                    await this.beat('call');
                 }
                 break;
             }
-            case 'reshuffle': A.shuffle(); await this.say('Se ha acabado el mazo: se barajan las cartas de la mesa.'); break;
+            case 'reshuffle': A.shuffle(); B.bubble(me, 'Se baraja la mesa'); await this.say('Se ha acabado el mazo: se barajan las cartas de la mesa.'); await this.beat('reshuffle'); break;
             case 'reveal': await this.presentReveal(e); break;
             case 'gameOver': break;
         }
@@ -321,15 +429,20 @@ class Match {
         const b = this.bots[p];
         if (!b || !b.rng.chance(chance)) return;
         const q = b.quip(kind);
-        if (q) await this.say(q, { pitch: b.char.pitch, rate: b.char.rate });
+        if (!q) return;
+        if (this.mode === 'host') this.online.broadcastAll({ t: 'quip', p, text: q, pitch: b.char.pitch, rate: b.char.rate });
+        Board.bubble(p, q, 2600);
+        await this.say(q, { pitch: b.char.pitch, rate: b.char.rate });
     }
 
     async presentReveal(e) {
         const g = this.game, me = this.me, v = this.v, A = this.audio;
         this.lastReveal = e;
+        this.shown.clear();
         Board.render(this);
         A.shuffle();
         const why = e.reason === 'call' ? 'Se descubren las cartas.' : 'No quedan cartas: se descubren todas.';
+        Board.status(why);
         await this.say(why);
         const order = [me, ...g.players.map((_, i) => i).filter(i => i !== me)];
         for (const p of order) {
@@ -341,45 +454,50 @@ class Match {
             else {
                 const list = Txt.list(cards.map(c => Txt.cardShort(c)));
                 const allEq = g.rules.allEqualOne && cards.length >= 2 && e.scores[p] === 1 && cards.every(c => c.rank === cards[0].rank);
-                const total = allEq ? 'Todas del mismo número: 1 punto.' : `${p === me ? 'Suman' : 'Suman'} ${Txt.points(e.scores[p])}.`;
+                const total = allEq ? 'Todas del mismo número: 1 punto.' : `Suman ${Txt.points(e.scores[p])}.`;
                 text = `${v.Name(p)}: ${list}. ${total}`;
             }
             await this.say(text);
+            if (this.visual) await this.sleep(500);
         }
         const w = e.winners;
         const best = e.scores[w[0]];
         let res;
         if (w.length === 1) res = w[0] === me ? `¡Ganas la ronda con ${Txt.points(best)}!` : `Gana la ronda ${v.name(w[0])}, con ${Txt.points(best)}.`;
-        else {
-            const names = w.map(p => v.name(p));
-            res = `Empate a ${Txt.points(best)} entre ${Txt.list(names)}. ${w.includes(me) ? 'Ganáis' : 'Ganan'} la ronda.`;
-        }
+        else res = `Empate a ${Txt.points(best)} entre ${Txt.list(w.map(p => v.name(p)))}. ${w.includes(me) ? 'Ganáis' : 'Ganan'} la ronda.`;
         if (e.caller !== null && !w.includes(e.caller)) res += e.caller === me ? ' Cantaste Pedro, pero alguien tenía menos.' : ` ${v.Name(e.caller)} cantó Pedro, pero no tenía la suma más baja.`;
         if (w.includes(me)) A.win(); else A.lose();
         const wins = 'Rondas ganadas: ' + Txt.list(order.map(p => `${v.name(p)} ${e.wins[p]}`)) + '.';
         this.app.recordRound(e.scores[me], w.includes(me));
+        Board.status(res);
         await this.say(`${res} ${wins}`, { keep: true });
-        if (w.includes(me) && w.length === 1) await this.sleep(300);
-        else await this.quip(w.find(p => p !== me), 'win', 0.7);
+        if (this.visual) await this.sleep(1800);
+        if (!(w.includes(me) && w.length === 1)) await this.quip(w.find(p => p !== me), 'win', 0.7);
+    }
+
+    resultText() {
+        const e = this.lastReveal;
+        if (!e) return this.speech.last;
+        const order = [this.me, ...this.game.players.map((_, i) => i).filter(i => i !== this.me)];
+        return order.map(p => `${cap(this.v.name(p))}: ${Txt.points(e.scores[p])}`).join(' · ');
     }
 
     async afterRound() {
         if (this.stopped) return false;
         const r = await Dialog.open({
             title: `Fin de la ronda ${this.game.round}`,
-            text: this.speech.last,
+            text: this.visual ? this.resultText() : this.speech.last,
             speak: `Fin de la ronda ${this.game.round}.`,
             items: [
                 { label: 'Siguiente ronda', value: 'next' },
-                { label: 'Repetir el resultado', value: 'repeat', key: 'r' },
-                { label: 'Salir al menú', value: 'menu' },
+                ...(this.visual ? [] : [{ label: 'Repetir el resultado', value: 'repeat', key: 'r' }]),
+                { label: this.mode === 'host' ? 'Cerrar la sala y salir' : 'Salir al menú', value: 'menu' },
             ],
             cancel: 'menu',
         });
         if (r === 'repeat') { await this.say(this.speech.last, { interrupt: true }); return this.afterRound(); }
-        this.lastReveal = null;
         if (r === 'next') return true;
-        this.app.leaveMatch();
+        this.app.leaveMatch();   // en una sala, la cierra
         return false;
     }
 
@@ -390,46 +508,24 @@ class Match {
         this.app.recordGame(won);
         const who = won ? (g.winners.length > 1 ? '¡Has ganado la partida, empatado con ' + Txt.list(g.winners.filter(p => p !== me).map(p => this.v.name(p))) + '!' : '¡Has ganado la partida!')
             : `Gana la partida ${Txt.list(g.winners.map(p => this.v.name(p)))}.`;
+        Board.status(who);
         await this.say(who, { keep: true });
-        const r = await Dialog.open({
-            title: 'Fin de la partida',
-            text: who,
-            speak: 'Fin de la partida.',
-            items: [
-                { label: 'Jugar otra vez con los mismos rivales', value: 'again' },
-                { label: 'Salir al menú', value: 'menu' },
-            ],
-            cancel: 'menu',
-        });
+        const items = this.mode === 'host'
+            ? [{ label: 'Otra partida en esta mesa', value: 'again' }, { label: 'Volver a la sala', value: 'lobby' }, { label: 'Cerrar la sala y salir', value: 'menu' }]
+            : [{ label: 'Jugar otra vez con los mismos rivales', value: 'again' }, { label: 'Salir al menú', value: 'menu' }];
+        const r = await Dialog.open({ title: 'Fin de la partida', text: who, speak: 'Fin de la partida.', items, cancel: 'menu' });
         if (this.stopped) return;
-        if (r === 'again') this.app.startMatch({ rivals: this.rivals, practice: this.practice });
+        if (this.mode === 'host') {
+            if (r === 'again') this.online.restart();
+            else if (r === 'lobby') this.online.backToLobby();
+            else this.app.leaveMatch();
+            return;
+        }
+        if (r === 'again') this.app.startMatch({ rivals: this.seats.filter(s => s.kind === 'bot').map(s => s.char), practice: this.practice });
         else this.app.leaveMatch();
     }
 
-    // ── Mirar al empezar ──────────────────────────────
-    async peekPhase() {
-        const g = this.game, me = this.me, k = Math.min(g.rules.peekStart, g.rules.handSize);
-        for (const b of this.bots) if (b && g.peekPending.has(b.me)) await this.apply(g.act({ type: 'peekStart', p: b.me, slots: b.choosePeekStart(k) }));
-        if (!g.peekPending.has(me)) return;
-        const slots = [];
-        this.say(`Mira ${k === 1 ? 'una de tus cartas' : ({ 2: 'dos', 3: 'tres' }[k] || k) + ' de tus cartas'}. Elige ${k === 1 ? 'cuál' : 'la primera'} con las teclas del 1 al ${g.players[me].slots.length}, o tocándola.`, { keep: true, interrupt: true });
-        while (slots.length < k && !this.stopped) {
-            const a = await this.wait(['slot']);
-            if (!a) return;
-            if (!g.card(me, a.slot)) { this.audio.error(); await this.say(`No tienes carta ${a.slot + 1}.`, { interrupt: true }); continue; }
-            if (slots.includes(a.slot)) { this.audio.error(); await this.say('Esa ya la has elegido.', { interrupt: true }); continue; }
-            slots.push(a.slot);
-            this.audio.slot(a.slot, g.players[me].slots.length);
-            this.highlight = slots.map(s => ({ p: me, s }));
-            Board.render(this);
-            if (slots.length < k) this.say(`Carta ${a.slot + 1}. Ahora elige otra.`, { interrupt: true });
-        }
-        this.highlight = null;
-        this.speech.cancel();
-        await this.act({ type: 'peekStart', p: me, slots });
-    }
-
-    // ── El jugador ────────────────────────────────────
+    // ═══ El jugador ════════════════════════════════════
 
     /** Espera una entrada del jugador. kinds: lo que vale ahora (slot, draw, call, take, discard). */
     wait(kinds) {
@@ -439,22 +535,106 @@ class Match {
     /** Llega una entrada (tecla o botón). Devuelve true si se ha usado. */
     input(kind, arg = null) {
         if (this.stopped) return false;
-        if (this.game.phase === 'burn' && (kind === 'burn' || kind === 'pass')) {
-            if (kind === 'burn' && !this.game.canBurn(this.me)) {
-                this.audio.error();
-                this.say(this.game.isProtected(this.me) ? 'Has cantado Pedro: no puedes quemar.' : 'Ahora no puedes quemar.', { interrupt: true });
-                return true;
-            }
-            this.burnReq = kind;
+        if (this.game.phase === 'burn' && kind === 'pass') {
+            if (!this.game.canBurn(this.me) || this.passedBurn) return false;
+            this.passedBurn = true;
+            this.audio.pass();
+            if (this.mode === 'client') this.online.send({ t: 'pass', seq: this.seq });
+            else this.burnReq = 'pass';
+            Board.render(this);
             return true;
         }
         const w = this.want;
         if (!w || !w.kinds.has(kind)) return false;
         this.want = null;
-        if (kind !== 'slot' || this.game.phase !== 'peek') this.speech.cancel();   // corta lo que se estaba diciendo
+        this.speech.cancel();   // corta lo que se estaba diciendo
         w.resolve({ kind, ...(arg || {}) });
         Board.render(this);
         return true;
+    }
+
+    /**
+     * Elegir cartas tocándolas (o con el teclado): sin menús.
+     * allowed(p, s, chosen) dice qué cartas valen. count: cuántas. cancel: valor si se cancela (null = no se puede).
+     */
+    pick({ count = 1, allowed, status, spoken, next = null, cancel = null, cancelLabel = 'Cancelar', focus = 'me' }) {
+        return new Promise(resolve => {
+            const pk = this.picking = {
+                count, chosen: [], cancel, cancelLabel, status, spoken, next,
+                allowed: (p, s) => !!this.game.card(p, s) && allowed(p, s, pk.chosen) && !pk.chosen.some(t => t.p === p && t.s === s),
+                resolve,
+            };
+            this.prompt(status, spoken);
+            Board.render(this);
+            const firstP = focus === 'me' ? this.me : null;
+            if (firstP !== null) Board.focusFirst(firstP, (p, s) => pk.allowed(p, s));
+        });
+    }
+
+    cancelPick() {
+        const pk = this.picking;
+        if (!pk || pk.cancel == null) return false;
+        this.picking = null;
+        this.audio.back();
+        Board.render(this);
+        pk.resolve(pk.cancel);
+        return true;
+    }
+
+    /** Has tocado (o elegido con el teclado) una carta. */
+    cardClick(p, s) {
+        if (this.stopped) return;
+        const g = this.game, me = this.me;
+        const pk = this.picking;
+        if (pk) {
+            const i = pk.chosen.findIndex(t => t.p === p && t.s === s);
+            if (i >= 0) {
+                // Te has arrepentido: deja de estar elegida y vuelves a elegir.
+                pk.chosen.splice(i, 1);
+                this.audio.back();
+                this.prompt(pk.status, `${cap(this.v.slot(p, s, me))}, ya no. ${pk.spoken || pk.status}`, { interrupt: true });
+                Board.render(this);
+                return;
+            }
+            if (!pk.allowed(p, s)) {
+                this.audio.error();
+                const why = !g.card(p, s) ? 'Ahí no hay carta.' : (g.isProtected(p) && p !== me) ? 'Las cartas de quien ha cantado Pedro no se tocan.' : 'Esa carta no vale aquí.';
+                this.prompt(pk.status, why, { interrupt: true });
+                return;
+            }
+            pk.chosen.push({ p, s });
+            this.audio.select();
+            if (pk.chosen.length >= pk.count) {
+                this.picking = null;
+                Board.render(this);
+                pk.resolve(pk.chosen.slice());
+                return;
+            }
+            const nx = pk.next?.(pk.chosen) || {};
+            pk.status = nx.status || pk.status;
+            pk.spoken = nx.spoken || pk.spoken;
+            this.prompt(pk.status, pk.spoken, { interrupt: true });
+            Board.render(this);
+            return;
+        }
+        // Ventana para quemar: tocar una carta es intentar quemarla.
+        if (g.phase === 'burn' && g.canBurn(me) && !this.passedBurn) {
+            if (!g.card(p, s)) return;
+            if (p !== me && (!g.rules.burnOthers || g.isProtected(p))) {
+                this.audio.error();
+                const why = g.isProtected(p) ? 'Las cartas de quien ha cantado Pedro no se tocan.' : 'Con estas reglas solo puedes quemar tus cartas.';
+                if (this.visual) Board.status(why); else this.speech.say(why, { interrupt: true });
+                return;
+            }
+            this.audio.select();
+            const target = { p, s };
+            if (this.mode === 'client') this.online.send({ t: 'act', a: { type: 'burn', p: me, target }, seq: this.seq });
+            else this.burnReq = { target };
+            return;
+        }
+        if (p === me && this.input('slot', { slot: s })) return;
+        if (p === me && this.want?.kinds.has('draw')) { this.audio.error(); this.prompt('Primero roba una carta: toca el mazo', 'Primero roba una carta: pulsa R o toca el mazo.', { interrupt: true }); return; }
+        this.describeCard(p, s);
     }
 
     async humanStep() {
@@ -469,12 +649,12 @@ class Match {
                 if (a.kind === 'call') {
                     const ok = await Dialog.open({
                         title: '¿Cantar Pedro?', speak: true,
-                        text: 'Si cantas, ya no robas: los demás juegan una vez más y se descubren las cartas. Gana la suma más baja.',
+                        text: 'Cantas y juegas tu turno. Después los demás juegan una vez más y se descubren las cartas. Gana la suma más baja.',
                         items: [{ label: 'Sí, ¡Pedro!', value: true, key: 'p' }, { label: 'No, seguir jugando', value: false }],
                         cancel: false,
                     });
                     if (ok) await this.act({ type: 'call', p: me });
-                    else await this.say('Vale. Pulsa R para robar.', { interrupt: true });
+                    else this.prompt('Tu turno: toca el mazo para robar', 'Vale. Pulsa R o toca el mazo para robar.', { interrupt: true });
                     return;
                 }
                 await this.act({ type: a.kind, p: me });
@@ -486,15 +666,20 @@ class Match {
                 const a = await this.wait(kinds);
                 if (!a) return;
                 if (a.kind === 'discard') { await this.act({ type: 'discard', p: me }); return; }
-                if (!g.card(me, a.slot)) { this.audio.error(); await this.say(`En el sitio ${a.slot + 1} no tienes carta.`, { interrupt: true }); return; }
+                if (!g.card(me, a.slot)) { this.audio.error(); this.prompt('Ahí no tienes carta', `En el sitio ${a.slot + 1} no tienes carta.`, { interrupt: true }); return; }
                 await this.act({ type: 'swap', p: me, slot: a.slot });
                 return;
             }
             case 'power': return this.humanPower();
             case 'give': {
                 const to = g.give.to;
-                const slot = await this.pickOwn(`¿Qué carta le das a ${this.v.name(to.p)}?`, 'Ocupará el sitio de la carta que has quemado.', false);
-                await this.act({ type: 'give', p: me, slot: slot ?? g.slotsOf(me)[0] });
+                const r = await this.pick({
+                    allowed: p => p === me,
+                    status: `Elige qué carta le das a ${this.names[to.p]}`,
+                    spoken: `Elige qué carta tuya le das a ${this.v.name(to.p)}: con su número, o tocándola.`,
+                });
+                if (!r) return;
+                await this.act({ type: 'give', p: me, slot: r[0].s });
                 return;
             }
         }
@@ -502,67 +687,66 @@ class Match {
 
     async humanPower() {
         const g = this.game, me = this.me, step = g.power.step, rank = g.power.rank;
+        const targets = kind => new Set(g.targets(kind, me).map(t => t.p + ':' + t.s));
         if (step === 'look') {
-            const t = await this.pickCard({
-                title: rank === 12 ? 'Poder del rey: primero, mirar' : 'Poder del caballo: mirar una carta',
-                text: '¿De quién es la carta que quieres mirar?',
-                kind: 'look', none: 'No mirar ninguna',
+            const ok = targets('look');
+            const r = await this.pick({
+                allowed: (p, s) => ok.has(p + ':' + s),
+                status: rank === 12 ? 'Poder del rey: toca la carta que quieres mirar' : 'Poder del caballo: toca la carta que quieres mirar',
+                spoken: `${rank === 12 ? 'Poder del rey: primero, mirar.' : 'Poder del caballo.'} Elige la carta que quieres mirar: tuya, con su número, o de otro, con las flechas y Enter. Escape para no mirar.`,
+                cancel: 'none', cancelLabel: 'No mirar',
             });
-            if (!t) await this.act({ type: 'pass', p: me });
-            else await this.act({ type: 'peek', p: me, target: t });
+            if (!r) return;
+            if (r === 'none') await this.act({ type: 'pass', p: me });
+            else await this.act({ type: 'peek', p: me, target: r[0] });
             return;
         }
-        const title = rank === 12 ? 'Poder del rey: ahora, cambiar' : 'Poder de la sota: cambiar dos cartas';
-        const a = await this.pickCard({ title, text: 'Elige la primera carta del cambio. ¿De quién es?', kind: 'swap', none: 'No cambiar nada' });
-        if (!a) { await this.act({ type: 'pass', p: me }); return; }
-        const b = await this.pickCard({ title, text: `Has elegido ${this.v.slot(a.p, a.s, me)}. ¿Por cuál la cambias? Tiene que ser de otro jugador.`, kind: 'swap', none: 'No cambiar nada', exclude: a.p });
-        if (!b) { await this.act({ type: 'pass', p: me }); return; }
-        await this.act({ type: 'swapCards', p: me, a, b });
+        const ok = targets('swap');
+        const r = await this.pick({
+            count: 2,
+            allowed: (p, s, chosen) => ok.has(p + ':' + s) && (!chosen.length || chosen[0].p !== p),
+            status: rank === 12 ? 'Poder del rey: elige la primera carta del cambio' : 'Poder de la sota: elige la primera carta del cambio',
+            spoken: `${rank === 12 ? 'Poder del rey: ahora, cambiar.' : 'Poder de la sota: cambiar dos cartas.'} Elige la primera carta: tuya, con su número, o de otro, con las flechas y Enter. Escape para no cambiar.`,
+            next: chosen => ({
+                status: 'Ahora toca la carta de otro jugador · Si te equivocas, toca otra vez la tuya',
+                spoken: `Has elegido ${this.v.slot(chosen[0].p, chosen[0].s, me)}. Ahora elige la carta de otro jugador por la que la cambias. Si te has equivocado, vuelve a elegir la misma y quedará libre.`,
+            }),
+            cancel: 'none', cancelLabel: 'No cambiar',
+        });
+        if (!r) return;
+        if (r === 'none') { await this.act({ type: 'pass', p: me }); return; }
+        await this.act({ type: 'swapCards', p: me, a: r[0], b: r[1] });
     }
 
-    /** Elige una carta tuya. Devuelve el sitio o null. */
-    async pickOwn(title, text, cancellable = true) {
-        const g = this.game, me = this.me;
-        const items = g.slotsOf(me).map(s => ({ label: this.ownLabel(s), value: s, key: String(s + 1) }));
-        if (cancellable) items.push({ label: 'Cancelar', value: null });
-        return Dialog.open({ title, text, items, cancel: cancellable ? null : undefined });
-    }
-
-    ownLabel(s) {
-        const known = this.settings.memoryHelp || this.practice ? this.helper.get(this.me, s) : null;
-        return `Tu carta ${s + 1}${known ? ': ' + Txt.cardShort(known) : ''}`;
-    }
-
-    /** Elige una carta de cualquiera, en dos pasos: de quién y cuál. */
-    async pickCard({ title, text, kind, none, exclude = null, burn = false }) {
-        const g = this.game, me = this.me;
-        const targets = g.targets(kind, me).filter(t => t.p !== exclude);
-        const players = [...new Set(targets.map(t => t.p))];
-        for (;;) {
-            const items = [];
-            if (players.includes(me)) {
-                for (const s of targets.filter(t => t.p === me).map(t => t.s)) items.push({ label: this.ownLabel(s), value: { p: me, s }, key: String(s + 1) });
-            }
-            for (const p of players.filter(p => p !== me)) {
-                const n = g.countOf(p);
-                items.push({ label: `Una carta de ${this.names[p]}, que tiene ${n === 1 ? '1 carta' : n + ' cartas'}`, value: { p } });
-            }
-            items.push({ label: none, value: null });
-            const r = await Dialog.open({ title, text, items, cancel: null });
-            if (!r || this.stopped) return null;
-            if (r.s != null) return r;
-            const slots = targets.filter(t => t.p === r.p).map(t => t.s);
-            const items2 = slots.map(s => ({ label: `Carta ${s + 1} de ${this.names[r.p]}`, value: { p: r.p, s }, key: String(s + 1) }));
-            items2.push({ label: 'Volver', value: 'back' });
-            const r2 = await Dialog.open({ title: `Cartas de ${this.names[r.p]}`, text: burn ? '¿Cuál es igual a la de la mesa?' : '¿Cuál?', items: items2, cancel: 'back' });
-            if (this.stopped) return null;
-            if (r2 && r2 !== 'back') return r2;
+    // ── Mirar al empezar ──────────────────────────────
+    async peekPhase() {
+        const g = this.game, me = this.me, k = Math.min(g.rules.peekStart, g.rules.handSize);
+        for (const b of this.bots) if (b && g.peekPending.has(b.me)) await this.apply(g.act({ type: 'peekStart', p: b.me, slots: b.choosePeekStart(k) }));
+        if (!g.peekPending.has(me)) {
+            // Anfitrión: espera a que los demás miren sus cartas.
+            if (this.mode !== 'host') return;
+            const m = this.takeInbox(x => x.t === 'act' && x.a?.type === 'peekStart' && g.peekPending.has(x.p));
+            if (m) await this.apply(g.act({ ...m.a, p: m.p }));
+            else await this.waitInbox(250);
+            return;
         }
+        const word = k === 1 ? 'una de tus cartas' : ({ 2: 'dos', 3: 'tres' }[k] || k) + ' de tus cartas';
+        const r = await this.pick({
+            count: k,
+            allowed: p => p === me,
+            status: `Toca ${word} para mirarlas`,
+            spoken: `Mira ${word}. Elige ${k === 1 ? 'cuál' : 'la primera'} con las teclas del 1 al ${g.players[me].slots.length}, o tocándola.`,
+            next: chosen => ({ status: 'Ahora toca otra', spoken: `Carta ${chosen[chosen.length - 1].s + 1}. Ahora elige otra.` }),
+        });
+        if (!r) return;
+        this.speech.cancel();
+        await this.act({ type: 'peekStart', p: me, slots: r.map(t => t.s) });
     }
 
-    // ── Rivales ───────────────────────────────────────
+    // ── Rivales de la máquina ─────────────────────────
     async botStep(p) {
         const g = this.game, b = this.bots[p];
+        if (!b) return;
         switch (g.phase) {
             case 'turn': await this.think(450); await this.act(b.chooseTurn()); break;
             case 'drawn': await this.think(750); await this.act(b.chooseDrawn(g.drawn)); break;
@@ -574,10 +758,15 @@ class Match {
     // ── Ventana para quemar ───────────────────────────
     async burnWindow() {
         const g = this.game, me = this.me;
-        const W = (this.settings.burnWindow || 0) * 1000;   // 0: hasta que pases
+        const secs = g.rules.burnTime ?? this.settings.burnWindow ?? 4;
+        const W = (secs || 0) * 1000;   // 0: hasta que pasen todos
         let elapsed = 0, deadline = W, lastTick = 0;
-        let passed = false;
+        const passed = new Set();
+        const humans = this.seats.map((_, p) => p).filter(p => this.isHuman(p));
         this.burnReq = null;
+        this.passedBurn = false;
+        // En una sala, la ventana empieza cuando todos han oído qué carta ha caído.
+        if (this.mode === 'host') await this.online.waitAcks(this.seq, 20000);
         const plan = () => {
             const value = g.burnWin?.value;
             return this.bots.filter(Boolean).map(b => {
@@ -586,35 +775,48 @@ class Match {
             }).filter(Boolean).sort((x, y) => x.at - y.at);
         };
         let schedule = plan();
+        const afterBurn = async r => {
+            if (g.phase === 'give') await this.stepFor(g.give.by);
+            if (r.ok) {
+                if (this.mode === 'host') await this.online.waitAcks(this.seq, 8000);
+                schedule = plan();
+                deadline = elapsed + Math.max(W, 1500);
+            }
+        };
         if (g.canBurn(me)) {
-            const hint = this.hint('burn', `Si tienes una carta igual a la de la mesa, ${RANK_NAME[g.burnWin.value]}, pulsa Q para quemarla. Para seguir, pulsa N.`);
-            if (hint) await this.say(hint.trim());
+            const hint = this.hint('burn', `Si tienes una carta igual, ${RANK_NAME[g.burnWin.value]}, pulsa su número o tócala para quemarla. Si es de otro, llega a ella con las flechas y pulsa Enter. Si no tienes ninguna, pulsa N.`);
+            this.prompt(`¿Tienes ${Txt.rankWord(g.burnWin.value)}? Tócala para quemarla`, hint ? hint.trim() : false);
         }
         Board.render(this);
         while (g.phase === 'burn' && !this.stopped) {
             await this.gate();
-            // ¿El jugador quiere quemar?
-            if (this.burnReq === 'burn') {
+            // ¿Quieres quemar una carta (la has tocado)?
+            if (this.burnReq && this.burnReq !== 'pass') {
+                const { target } = this.burnReq;
                 this.burnReq = null;
-                const t = await this.pickBurn();
-                if (t) {
-                    const r = await this.act({ type: 'burn', p: me, target: t });
-                    if (g.phase === 'give') await this.humanStep();
-                    if (r.ok) { schedule = plan(); deadline = elapsed + Math.max(W, 1500); }
+                if (g.canBurn(me)) await afterBurn(await this.act({ type: 'burn', p: me, target }));
+                continue;
+            }
+            if (this.burnReq === 'pass') { this.burnReq = null; passed.add(me); }
+            // ¿Lo quiere otro jugador de la sala? (Lo que llegue de una carta anterior ya no vale.)
+            const isBurnMsg = x => x.t === 'pass' || (x.t === 'act' && x.a?.type === 'burn');
+            this.inbox = this.inbox.filter(x => !isBurnMsg(x) || (x.seq | 0) >= (this.burnSeq | 0));
+            const m = this.takeInbox(isBurnMsg);
+            if (m) {
+                if (m.t === 'pass') passed.add(m.p);
+                else {
+                    const r = g.act({ type: 'burn', p: m.p, target: m.a.target });
+                    if (!r.ok) this.online.sendTo(m.p, { t: 'error', text: r.error });
+                    else { await this.apply(r); await afterBurn(r); }
                 }
                 continue;
             }
-            if (this.burnReq === 'pass') { this.burnReq = null; passed = true; Board.render(this); }
-            const humanCan = g.canBurn(me) && !passed;
-            // Le toca a un rival que ha visto una carta igual.
+            const humanCan = humans.some(p => g.canBurn(p) && !passed.has(p) && this.isHuman(p));
+            // Le toca a un rival de la máquina que ha visto una carta igual.
             if (schedule.length && schedule[0].at <= elapsed && (W === 0 || schedule[0].at <= deadline)) {
                 const { b } = schedule.shift();
-                const d = b.chooseBurn(g.burnWin.value);   // vuelve a pensarlo: algo pudo cambiar
-                if (d) {
-                    const r = await this.act({ type: 'burn', p: b.me, target: d.target });
-                    if (g.phase === 'give') await this.botStep(b.me);
-                    if (r.ok) { schedule = plan(); deadline = elapsed + Math.max(W, 1500); }
-                }
+                const d = this.bots[b.me] === b ? b.chooseBurn(g.burnWin.value) : null;   // vuelve a pensarlo
+                if (d) await afterBurn(await this.act({ type: 'burn', p: b.me, target: d.target }));
                 continue;
             }
             const botsPending = schedule.some(x => W === 0 || x.at <= deadline);
@@ -622,19 +824,182 @@ class Match {
             if (W > 0 && elapsed >= deadline) break;
             await this.sleep(50);
             elapsed += 50;
-            if (humanCan && W > 0 && this.settings.burnTicks && elapsed - lastTick >= 1000) { lastTick = elapsed; this.audio.tick(deadline - elapsed <= 1000); }
+            const mine = g.canBurn(me) && !passed.has(me);
+            if (mine && W > 0 && this.settings.burnTicks && elapsed - lastTick >= 1000) { lastTick = elapsed; this.audio.tick(deadline - elapsed <= 1000); }
         }
         this.burnReq = null;
         if (g.phase === 'burn') await this.apply(g.act({ type: 'endBurn' }));
     }
 
-    async pickBurn() {
-        const g = this.game, top = g.top;
-        const text = `En la mesa, ${Txt.cardShort(top)}. ¿Qué carta es igual?`;
-        return this.pickCard({ title: 'Quemar', text, kind: 'burn', none: 'Cancelar', burn: true });
+    // ═══ Anfitrión: los demás jugadores de la sala ═════
+    onRemote(p, msg) {
+        this.inbox.push({ ...msg, p });   // el sitio sale de la conexión, no de lo que diga el mensaje
+        const w = this._wake; this._wake = null; w?.();
     }
 
-    // ── Información a petición ────────────────────────
+    takeInbox(pred) {
+        const i = this.inbox.findIndex(pred);
+        return i < 0 ? null : this.inbox.splice(i, 1)[0];
+    }
+
+    waitInbox(ms = 200) {
+        return new Promise(r => { this._wake = r; setTimeout(r, ms); });
+    }
+
+    async remoteStep(p) {
+        const g = this.game;
+        const phase = g.phase, round = g.round, turns = g.turns;
+        while (!this.stopped && this.seats[p].kind === 'remote' && g.phase === phase && g.round === round && g.turns === turns && this.actor() === p) {
+            await this.gate();
+            const m = this.takeInbox(x => x.p === p && x.t === 'act');
+            if (m) {
+                if (m.a?.type === 'burn' || m.a?.type === 'peekStart') continue;   // llegó tarde: ya no vale
+                const res = g.act({ ...m.a, p });
+                if (!res.ok) { this.online.sendTo(p, { t: 'error', text: res.error }); continue; }
+                await this.apply(res);
+                return;
+            }
+            await this.waitInbox(250);
+        }
+    }
+
+    /** Un jugador se ha ido de la sala: juega la máquina por esa persona. */
+    async seatLeft(p) {
+        const s = this.seats[p];
+        if (!s || s.kind !== 'remote') return;
+        s.kind = 'bot';
+        s.char = { id: 'ausente', name: s.name, level: 'normal', pitch: 1, rate: 1, quips: {} };
+        const b = this.bots[p] = new Bot(this.game, p, s.char, makeRng(this.seed + 977 * (p + 1)));
+        b.myTurns = 3;   // empieza sin recordar nada, pero puede cantar Pedro
+        const w = this._wake; this._wake = null; w?.();
+        this.online?.broadcastAll({ t: 'left', p });
+        Board.bubble(p, 'Se ha ido');
+        await this.say(`${cap(s.name)} se ha ido de la mesa. Juega la máquina por esa persona.`);
+    }
+
+    // ═══ Invitado: lo que manda el anfitrión ═══════════
+    async runClient() {
+        Board.build(this);
+        await this.intro();
+        while (!this.stopped) {
+            const msg = await this.online.next();
+            if (!msg || this.stopped) break;
+            switch (msg.t) {
+                case 'batch': {
+                    if (this.waitDialog) { this.waitDialog = false; Dialog.close('auto'); }
+                    this.game.setView(msg.view);
+                    for (const e of msg.events) { this.game.observe(e); this.helper.observe(e); }
+                    this.seq = msg.seq;
+                    for (const e of msg.events) {
+                        if (this.stopped) break;
+                        await this.present(e);
+                        Board.render(this);
+                    }
+                    if (this.game.phase !== 'roundOver' && this.game.phase !== 'gameOver') this.lastReveal = null;
+                    Board.render(this);
+                    if (!this.stopped) this.online.send({ t: 'ack', seq: msg.seq, gid: this.gid });
+                    this.clientPrompt();
+                    break;
+                }
+                case 'quip':
+                    Board.bubble(msg.p, msg.text, 2600);
+                    if (this.settings.quips) await this.say(msg.text, { pitch: msg.pitch, rate: msg.rate });
+                    break;
+                case 'error':
+                    this.audio.error();
+                    this.prompt(msg.text, null, { interrupt: true });
+                    this.sentFor = -1;
+                    this.clientPrompt();
+                    break;
+                case 'left': {
+                    if (this.seats[msg.p]) this.seats[msg.p].kind = 'bot';
+                    Board.bubble(msg.p, 'Se ha ido');
+                    await this.say(`${cap(this.names[msg.p])} se ha ido de la mesa. Juega la máquina por esa persona.`);
+                    break;
+                }
+            }
+        }
+    }
+
+    /** Después de cada paquete: ¿te toca hacer algo? */
+    clientPrompt() {
+        if (this.prompting || this.stopped || this.sentFor === this.seq) return;
+        const g = this.game, me = this.me;
+        let task = null;
+        if (g.phase === 'peek' && g.peekPending.has(me)) task = () => this.peekPhase();
+        else if (['turn', 'drawn', 'power', 'give'].includes(g.phase) && this.actor() === me) task = () => this.humanStep();
+        else if (g.phase === 'roundOver' || g.phase === 'gameOver') task = () => this.clientWait();
+        if (!task) return;
+        this.prompting = true;
+        Promise.resolve().then(task).catch(err => console.error(err)).finally(() => {
+            this.prompting = false;
+            setTimeout(() => this.clientPrompt(), 0);   // por si la mesa cambió mientras tanto
+        });
+    }
+
+    /** Fin de ronda o de partida en una sala: decide el anfitrión. */
+    async clientWait() {
+        const g = this.game, host = this.names[0];
+        const phase = g.phase, round = g.round;
+        const over = phase === 'gameOver';
+        if (over && !this._recorded) {
+            this._recorded = true;
+            const won = (g.winners || []).includes(this.me);
+            this.app.recordGame(won);
+            const who = won ? '¡Has ganado la partida!' : `Gana la partida ${Txt.list((g.winners || []).map(p => this.v.name(p)))}.`;
+            Board.status(who);
+            await this.say(who, { keep: true });
+        }
+        this.waitDialog = true;
+        const r = await Dialog.open({
+            title: over ? 'Fin de la partida' : `Fin de la ronda ${g.round}`,
+            text: `${this.visual ? this.resultText() : this.speech.last} Espera a que ${host} ${over ? 'decida si jugáis otra' : 'empiece la siguiente ronda'}.`,
+            speak: `${over ? 'Fin de la partida' : 'Fin de la ronda'}. Espera a que ${host} ${over ? 'decida si jugáis otra' : 'empiece la siguiente'}.`,
+            items: [
+                ...(this.visual ? [] : [{ label: 'Repetir el resultado', value: 'repeat', key: 'r' }]),
+                { label: 'Salir de la sala', value: 'leave' },
+            ],
+        });
+        this.waitDialog = false;
+        if (r === 'repeat') {
+            await this.say(this.speech.last, { interrupt: true });
+            if (!this.stopped && g.phase === phase && g.round === round) return this.clientWait();
+        }
+        if (r === 'leave') this.app.leaveMatch();
+    }
+
+    // ═══ Información a petición ════════════════════════
+
+    /** Cómo se lee cada carta (lector de pantalla y voz al moverse por la mesa). */
+    cardLabel(p, s) {
+        const g = this.game, me = this.me;
+        if (!g.card(p, s)) return p === me ? `Sitio ${s + 1}, sin carta` : `Sitio ${s + 1} de ${this.names[p]}, sin carta`;
+        const face = this.lastReveal ? this.lastReveal.hands[p]?.find(x => x.s === s)?.card : this.shown.get(p + ':' + s);
+        let label = p === me ? `Tu carta ${s + 1}` : `${cap(this.names[p])}, carta ${s + 1}`;
+        if (face) label += `: ${Txt.cardShort(face)}`;
+        else if (p === me && (this.settings.memoryHelp || this.practice)) {
+            const k = this.helper.get(me, s);
+            if (k) label += `: ${Txt.cardShort(k)}`;
+        }
+        if (this.picking?.allowed(p, s)) label += '. Elegir';
+        else if (this.picking?.chosen.some(t => t.p === p && t.s === s)) label += '. Elegida';
+        else if (p === me && this.want?.kinds.has('slot') && g.phase === 'drawn') label += '. Cambiar por la robada';
+        else if (g.phase === 'burn' && g.canBurn(me) && !this.passedBurn && (p === me || (g.rules.burnOthers && !g.isProtected(p)))) label += '. Quemar';
+        return label;
+    }
+
+    describeTable() {
+        const top = this.game.top;
+        if (!this.visual) this.speech.say(top ? `En la mesa, ${Txt.card(top)}.` : 'La mesa está vacía.', { interrupt: true });
+    }
+
+    describeCard(p, s) {
+        const g = this.game;
+        if (p === this.me) this.audio.slot(s, g.players[this.me].slots.length);
+        if (this.visual) return;
+        this.speech.say(this.cardLabel(p, s).replace(/\. (Quemar|Elegir|Cambiar por la robada)$/, '') + '.', { interrupt: true });
+    }
+
     info() {
         const g = this.game, v = this.v, me = this.me;
         const parts = [`Ronda ${g.round}.`];
@@ -668,21 +1033,15 @@ class Match {
         this.speech.say(text, { interrupt: true });
     }
 
-    describeSlot(s) {
-        const g = this.game, me = this.me;
-        this.audio.slot(s, g.players[me].slots.length);
-        if (!g.card(me, s)) { this.speech.say(`En el sitio ${s + 1} no tienes carta.`, { interrupt: true }); return; }
-        this.speech.say(this.ownLabel(s) + '.', { interrupt: true });
-    }
-
     keysHelp() {
         const g = this.game;
         const t = [
-            'R: robar del mazo.', 'P: cantar Pedro, antes de robar.',
+            'R: robar del mazo. P: cantar Pedro, antes de robar.',
             g.rules.takeFromTable ? 'M: coger la carta de la mesa.' : '',
-            'Del 1 al 4: tus cartas. Con una carta robada, la cambias por esa.', 'T: tirar la carta robada.',
-            'Q: quemar una carta igual a la de la mesa. N: seguir sin quemar.',
-            'I: cómo va la partida. C: tus cartas. Espacio: repetir lo último. Escape: pausa.',
+            'Del 1 al 6: tus cartas. Con una carta robada, la cambias por esa. T: tirar la carta robada.',
+            'Flechas: moverte por las cartas de la mesa; arriba y abajo cambian de jugador. Enter: elegir la carta.',
+            'Para quemar, justo cuando cae una carta en la mesa, elige la tuya con su número o la de otro con Enter. N: no tengo ninguna.',
+            'I: cómo va la partida. C: tus cartas. Espacio: repetir lo último. Escape: cancelar o pausa.',
         ].filter(Boolean);
         this.speech.say(t.join(' '), { interrupt: true });
     }
@@ -695,9 +1054,8 @@ class Match {
             title: 'Pausa', speak: true,
             items: [
                 { label: 'Seguir jugando', value: 'go' },
-                { label: 'Teclas', value: 'keys' },
-                { label: 'Cómo va la partida', value: 'info' },
-                { label: 'Salir al menú', value: 'menu' },
+                ...(this.visual ? [] : [{ label: 'Teclas', value: 'keys' }, { label: 'Cómo va la partida', value: 'info' }]),
+                { label: this.mode === 'host' ? 'Cerrar la sala y salir' : this.mode === 'client' ? 'Salir de la sala' : 'Salir al menú', value: 'menu' },
             ],
             cancel: 'go',
         });
@@ -705,20 +1063,34 @@ class Match {
         if (r === 'keys') this.keysHelp();
         else if (r === 'info') this.info();
         else if (r === 'menu') this.app.leaveMatch();
-        else this.speech.say('Seguimos.', { interrupt: true });
+        else if (!this.visual) this.speech.say('Seguimos.', { interrupt: true });
     }
 
     // ── Teclado ───────────────────────────────────────
     onKey(e) {
         const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-        if (k === 'Escape') { e.preventDefault(); this.pause(); return true; }
+        if (k === 'Escape') { e.preventDefault(); if (!this.cancelPick()) this.pause(); return true; }
         if (/^[1-9]$/.test(k)) {
             e.preventDefault();
             const s = +k - 1;
-            if (!this.input('slot', { slot: s })) this.describeSlot(s);
+            if (s < this.game.players[this.me].slots.length) this.cardClick(this.me, s);
+            else { this.audio.error(); this.speech.say(`No tienes carta ${s + 1}.`, { interrupt: true }); }
             return true;
         }
-        const map = { r: 'draw', p: 'call', m: 'take', t: 'discard', q: 'burn', n: 'pass' };
+        if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown') {
+            e.preventDefault();
+            Board.moveCursor(k === 'ArrowRight' ? 1 : k === 'ArrowLeft' ? -1 : 0, k === 'ArrowDown' ? 1 : k === 'ArrowUp' ? -1 : 0);
+            return true;
+        }
+        if (k === 'q') {
+            e.preventDefault();
+            if (this.game.phase === 'burn' && this.game.canBurn(this.me) && !this.passedBurn) {
+                Board.focusFirst(this.me);
+                this.speech.say('Elige la carta que quieres quemar: la tuya con su número, o la de otro con las flechas y Enter.', { interrupt: true });
+            } else { this.audio.error(); this.explainCant('burn'); }
+            return true;
+        }
+        const map = { r: 'draw', p: 'call', m: 'take', t: 'discard', n: 'pass' };
         if (map[k]) {
             e.preventDefault();
             if (!this.input(map[k])) { this.audio.error(); this.explainCant(map[k]); }
@@ -739,130 +1111,8 @@ class Match {
         else if ((kind === 'draw' || kind === 'call') && g.current !== me) t = `No es tu turno: juega ${this.v.name(g.current)}.`;
         else if (kind === 'discard' && g.drawnFrom === 'table') t = 'La carta de la mesa tienes que cambiarla por una tuya.';
         else if (kind === 'take') t = g.rules.takeFromTable ? 'Solo al empezar tu turno.' : 'Con estas reglas no se coge de la mesa.';
-        else if (kind === 'burn' || kind === 'pass') t = 'Solo justo después de que caiga una carta en la mesa.';
+        else if (kind === 'burn' || kind === 'pass') t = g.isFrozen?.(me) ? 'Has cantado Pedro: ya no quemas.' : 'Solo justo después de que caiga una carta en la mesa.';
+        if (this.visual) { Board.status(t); return; }
         if (this.speech.history[this.speech.history.length - 1] !== t) this.speech.say(t, { interrupt: false });   // sin cortar lo que se está contando
     }
 }
-
-// ═══════════════════════════════════════════════════════
-// Board: dibuja la mesa (para quien ve) y los botones.
-// ═══════════════════════════════════════════════════════
-
-const Board = {
-    match: null,
-
-    build(match) {
-        this.match = match;
-        const n = match.game.n;
-        for (const seat of ['top', 'left', 'right']) { $('seat-' + seat).innerHTML = ''; $('seat-' + seat).hidden = true; }
-        for (let p = 1; p < n; p++) {
-            const seat = match.audio.seatOf(p);
-            const el = $('seat-' + seat);
-            el.hidden = false;
-            el.innerHTML = `<div class="seat-name"><span class="nm"></span> <span class="wins"></span></div><div class="hand rival" aria-hidden="true"></div>`;
-            el.querySelector('.nm').textContent = cap(match.names[p]);
-        }
-        document.body.dataset.players = n;
-        this.render(match);
-    },
-
-    cardEl(card, { back = false, small = false, label = null, empty = false } = {}) {
-        const d = document.createElement('div');
-        d.className = 'card' + (back ? ' back' : '') + (small ? ' small' : '') + (empty ? ' empty' : '');
-        if (empty) return d;
-        if (back || !card) {
-            if (label) { const l = document.createElement('span'); l.className = 'memo'; l.textContent = label; d.appendChild(l); }
-            return d;
-        }
-        d.classList.add('face', 's-' + card.suit);
-        d.innerHTML = `<span class="rank">${card.rank}</span><svg class="suit" aria-hidden="true"><use href="#suit-${card.suit}"/></svg><span class="rname">${RANK_NAME[card.rank]}</span>`;
-        return d;
-    },
-
-    render(match = this.match) {
-        if (!match || match !== this.match) return;
-        const g = match.game, me = match.me, reveal = match.lastReveal;
-        const hl = k => match.highlight?.some(t => t.p + ':' + t.s === k);
-        const faceFor = (p, s) => {
-            if (reveal) { const h = reveal.hands[p].find(x => x.s === s); if (h) return h.card; }
-            return match.shown.get(p + ':' + s) || null;
-        };
-        // Rivales
-        for (let p = 1; p < g.n; p++) {
-            const el = $('seat-' + match.audio.seatOf(p));
-            if (!el) continue;
-            el.classList.toggle('active', (g.phase === 'turn' || g.phase === 'drawn' || g.phase === 'power') && match.actor() === p);
-            el.classList.toggle('caller', g.caller === p);
-            el.querySelector('.wins').textContent = '★'.repeat(g.players[p].wins);
-            const hand = el.querySelector('.hand');
-            hand.innerHTML = '';
-            g.players[p].slots.forEach((c, s) => {
-                const face = c && faceFor(p, s);
-                const ce = this.cardEl(face, { back: !face, small: true, empty: !c });
-                if (hl(p + ':' + s)) ce.classList.add('hl');
-                hand.appendChild(ce);
-            });
-        }
-        // Centro
-        $('deck-count').textContent = g.deck.length;
-        const disc = $('discard');
-        disc.innerHTML = '';
-        disc.appendChild(g.top ? this.cardEl(g.top) : this.cardEl(null, { empty: true }));
-        disc.classList.toggle('burnable', g.phase === 'burn');
-        const drawn = $('drawn-area');
-        drawn.innerHTML = '';
-        if (g.drawn && g.phase === 'drawn') {
-            const mine = g.current === me;
-            const ce = this.cardEl(mine || g.drawnFrom === 'table' ? g.drawn : null, { back: !(mine || g.drawnFrom === 'table') });
-            drawn.appendChild(ce);
-            const cap2 = document.createElement('span'); cap2.className = 'drawn-cap';
-            cap2.textContent = mine ? 'Tu carta robada' : `Robada por ${match.names[g.current]}`;
-            drawn.appendChild(cap2);
-        }
-        // Tu mano (se reutilizan los botones para no perder el foco)
-        const help = match.settings.memoryHelp || match.practice;
-        const hand = $('my-hand');
-        const want = match.want?.kinds;
-        const slots = g.players[me].slots;
-        while (hand.children.length > slots.length) hand.lastChild.remove();
-        slots.forEach((c, s) => {
-            let b = hand.children[s];
-            if (!b) {
-                b = document.createElement('button');
-                b.className = 'slot nav';
-                b.dataset.slot = s;
-                b.addEventListener('click', () => { const m = this.match; if (m && !m.input('slot', { slot: s })) m.describeSlot(s); });
-                hand.appendChild(b);
-            }
-            const face = c && faceFor(me, s);
-            const known = help && c ? match.helper.get(me, s) : null;
-            const ce = this.cardEl(face, { back: !face, empty: !c, label: known ? `${known.rank} ${known.suit}` : null });
-            if (hl(me + ':' + s)) ce.classList.add('hl');
-            const num = document.createElement('span'); num.className = 'slot-num'; num.textContent = s + 1;
-            b.replaceChildren(ce, num);
-            let label = c ? match.ownLabel(s) : `Sitio ${s + 1}, sin carta`;
-            if (want?.has('slot') && c) label += g.phase === 'drawn' ? '. Cambiar por la robada' : '. Elegir';
-            b.setAttribute('aria-label', label);
-            b.disabled = !c;
-        });
-        $('seat-me').classList.toggle('active', match.actor() === me && ['turn', 'drawn', 'power', 'give'].includes(g.phase));
-        $('seat-me').classList.toggle('caller', g.caller === me);
-        $('my-wins').textContent = '★'.repeat(g.players[me].wins);
-        // Botones
-        const can = k => !!want?.has(k);
-        const show = (id, on) => { const el = $(id); if (el) el.hidden = !on; };
-        show('act-draw', can('draw'));
-        show('act-call', can('call'));
-        show('act-take', can('take'));
-        show('act-discard', can('discard'));
-        const burnOpen = g.phase === 'burn' && g.canBurn(me);
-        show('act-burn', burnOpen);
-        show('act-pass', burnOpen);
-        // Si el botón enfocado ha desaparecido, el foco pasa al siguiente que tenga sentido (sin leerlo).
-        const f = document.activeElement;
-        if (UI.current === 'game' && !Dialog.active && (!f || f === document.body || f.hidden || f.disabled || !document.contains(f))) {
-            const next = [...document.querySelectorAll('#actions .act.main')].find(x => !x.hidden) || $('my-hand');
-            UI.focus(next, { silent: true });
-        }
-    },
-};

@@ -7,7 +7,7 @@
    ============================================= */
 'use strict';
 
-const GAME_VERSION = { id: '20261010a', spoken: '10 de octubre de 2026' };
+const GAME_VERSION = { id: '20261011a', spoken: '11 de octubre de 2026' };
 
 const SUITS = ['oros', 'copas', 'espadas', 'bastos'];
 const RANK_NAME = {
@@ -30,13 +30,20 @@ const DEFAULT_RULES = {
     burnOthers: true,      // también las cartas de los demás
     burnGive: true,        // al quemar la carta de otro, le das una tuya
     penaltyCards: 1,       // cartas de castigo por quemar mal
-    protectCaller: true,   // nadie toca las cartas de quien canta Pedro
+    protectCaller: true,   // nadie toca las cartas de quien canta Pedro (ni esa persona quema fuera de su turno)
     takeFromTable: false,  // poder coger la carta de la mesa en vez de robar
     allEqualOne: true,     // si todas tus cartas son del mismo número, valen 1 punto
     winsToWin: 3,          // rondas ganadas para ganar la partida (0 = sin límite)
+    deckOut: 'reshuffle',  // si se acaba el mazo: 'reshuffle' (se baraja la mesa) o 'end' (se descubren las cartas)
+    burnTime: 4,           // segundos para quemar tras cada carta (0 = hasta que todos pasen)
 };
 
+const MAX_PLAYERS = 6;     // con 48 cartas y 4 por jugador, a partir de 6 el mazo se queda corto
+
 const MAX_TURNS = 400;     // red de seguridad: ninguna ronda real llega a tanto
+
+/** Las únicas acciones que puede pedir un jugador (en una sala llegan de otros navegadores). */
+const ACTIONS = new Set(['peekStart', 'draw', 'take', 'call', 'swap', 'discard', 'peek', 'swapCards', 'pass', 'burn', 'give', 'endBurn']);
 
 // ── Azar con semilla (mulberry32) ─────────────────────
 function makeRng(seed) {
@@ -129,14 +136,17 @@ class PedroGame {
     /** Índices de los sitios con carta de un jugador. */
     slotsOf(p) { return this.players[p].slots.map((c, i) => c ? i : -1).filter(i => i >= 0); }
     countOf(p) { return this.slotsOf(p).length; }
+    /** Las cartas de quien ha cantado Pedro: nadie más puede tocarlas. */
     isProtected(p) { return this.rules.protectCaller && this.caller !== null && p === this.caller; }
+    /** Quien ha cantado Pedro juega su turno; después ya no toca nada (ni quema). */
+    isFrozen(p) { return this.isProtected(p) && !(this.current === p && ['turn', 'drawn', 'power', 'burn', 'give'].includes(this.phase)); }
     scoreOf(p) { return scoreCards(this.players[p].slots.filter(Boolean), this.rules); }
 
     /** Cartas a las que se puede apuntar para mirar, cambiar o quemar. */
     targets(kind, by) {
         const out = [];
         for (let p = 0; p < this.n; p++) {
-            if (kind !== 'look' && this.isProtected(p)) continue;
+            if (kind !== 'look' && this.isProtected(p) && p !== by) continue;
             if (kind === 'burn' && p !== by && !this.rules.burnOthers) continue;
             for (const s of this.slotsOf(p)) out.push({ p, s });
         }
@@ -149,7 +159,7 @@ class PedroGame {
     }
 
     canBurn(p) {
-        return this.phase === 'burn' && !this.isProtected(p) && !this.burnWin.tried.has(p)
+        return this.phase === 'burn' && !this.isFrozen(p) && !this.burnWin.tried.has(p)
             && this.targets('burn', p).length > 0;
     }
 
@@ -191,6 +201,10 @@ class PedroGame {
             burn: this.burnWin && { value: this.burnWin.value },
             give: this.give && { by: this.give.by, to: this.give.to },
             drawnFrom: this.drawnFrom,
+            burnTried: this.burnWin ? [...this.burnWin.tried] : [],
+            peekPending: this.phase === 'peek' ? [...this.peekPending] : [],
+            turns: this.turns,
+            winners: this.winners,
         };
     }
 
@@ -255,7 +269,7 @@ class PedroGame {
     /** Si el mazo se acaba, se barajan las cartas de la mesa menos la de arriba. */
     _refill() {
         if (this.deck.length) return true;
-        if (this.table.length <= 1) return false;
+        if (this.rules.deckOut === 'end' || this.table.length <= 1) return false;
         const top = this.table.pop();
         this.deck = this.rng.shuffle(this.table);
         this.table = [top];
@@ -288,10 +302,8 @@ class PedroGame {
     // ── Acciones ──────────────────────────────────────
     act(a) {
         return this._run(() => {
-            if (!a || !a.type) return 'Acción no válida.';
-            const fn = this['_' + a.type];
-            if (typeof fn !== 'function' || a.type.startsWith('_')) return 'Acción no válida.';
-            return fn.call(this, a);
+            if (!a || !ACTIONS.has(a.type)) return 'Acción no válida.';
+            return this['_' + a.type](a);
         });
     }
 
@@ -331,9 +343,9 @@ class PedroGame {
     _call({ p }) {
         if (this.phase !== 'turn' || p !== this.current) return 'Solo puedes cantar Pedro al empezar tu turno.';
         if (this.caller !== null) return 'Ya se ha cantado Pedro.';
+        // Quien canta juega su turno; los demás juegan una vez más y, al volver a quien cantó, se descubren.
         this.caller = p;
         this._emit({ t: 'call', p });
-        this._nextTurn();
         return null;
     }
 
@@ -395,7 +407,7 @@ class PedroGame {
         if (this.phase !== 'power' || p !== this.power.by || this.power.step !== 'swap') return 'Ahora no puedes cambiar cartas.';
         if (!a || !b || !this._validSlot(a.p, a.s) || !this._validSlot(b.p, b.s)) return 'Esa carta no existe.';
         if (a.p === b.p) return 'Las dos cartas tienen que ser de jugadores distintos.';
-        if (this.isProtected(a.p) || this.isProtected(b.p)) return 'Las cartas de quien ha cantado Pedro no se tocan.';
+        if ((this.isProtected(a.p) && a.p !== p) || (this.isProtected(b.p) && b.p !== p)) return 'Las cartas de quien ha cantado Pedro no se tocan.';
         const A = this.players[a.p].slots, B = this.players[b.p].slots;
         [A[a.s], B[b.s]] = [B[b.s], A[a.s]];
         this._emit({ t: 'swapCards', by: p, a: { p: a.p, s: a.s }, b: { p: b.p, s: b.s } });
@@ -419,11 +431,11 @@ class PedroGame {
 
     _burn({ p, target }) {
         if (this.phase !== 'burn') return 'Ahora no se puede quemar.';
-        if (this.isProtected(p)) return 'Has cantado Pedro: ya no puedes tocar tus cartas.';
+        if (this.isFrozen(p)) return 'Has cantado Pedro: ya no puedes tocar tus cartas.';
         if (this.burnWin.tried.has(p)) return 'Ya has fallado al quemar esta carta.';
         if (!target || !this._validSlot(target.p, target.s)) return 'Esa carta no existe.';
         if (target.p !== p && !this.rules.burnOthers) return 'Con estas reglas solo puedes quemar tus cartas.';
-        if (this.isProtected(target.p)) return 'Las cartas de quien ha cantado Pedro no se tocan.';
+        if (this.isProtected(target.p) && target.p !== p) return 'Las cartas de quien ha cantado Pedro no se tocan.';
         const card = this.card(target.p, target.s);
         const t = { p: target.p, s: target.s };
         if (card.rank === this.burnWin.value) {
@@ -475,5 +487,5 @@ class PedroGame {
 
 // Para las pruebas con Node (en el navegador no hace nada).
 if (typeof module !== 'undefined') {
-    module.exports = { GAME_VERSION, SUITS, RANK_NAME, POWERS, DEFAULT_RULES, makeRng, makeDeck, deckRanks, averageRank, scoreCards, sameSlot, PedroGame };
+    module.exports = { GAME_VERSION, MAX_PLAYERS, SUITS, RANK_NAME, POWERS, DEFAULT_RULES, makeRng, makeDeck, deckRanks, averageRank, scoreCards, sameSlot, PedroGame };
 }
