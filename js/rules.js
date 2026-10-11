@@ -7,7 +7,7 @@
    ============================================= */
 'use strict';
 
-const GAME_VERSION = { id: '20261011b', spoken: '11 de octubre de 2026' };
+const GAME_VERSION = { id: '20261011c', spoken: '11 de octubre de 2026' };
 
 const SUITS = ['oros', 'copas', 'espadas', 'bastos'];
 const RANK_NAME = {
@@ -35,7 +35,6 @@ const DEFAULT_RULES = {
     allEqualOne: true,     // si todas tus cartas son del mismo número, valen 1 punto
     winsToWin: 3,          // rondas ganadas para ganar la partida (0 = sin límite)
     deckOut: 'reshuffle',  // si se acaba el mazo: 'reshuffle' (se baraja la mesa) o 'end' (se descubren las cartas)
-    burnTime: 4,           // segundos para quemar tras cada carta (0 = hasta que todos pasen)
 };
 
 const MAX_PLAYERS = 6;     // con 48 cartas y 4 por jugador, a partir de 6 el mazo se queda corto
@@ -43,7 +42,9 @@ const MAX_PLAYERS = 6;     // con 48 cartas y 4 por jugador, a partir de 6 el ma
 const MAX_TURNS = 400;     // red de seguridad: ninguna ronda real llega a tanto
 
 /** Las únicas acciones que puede pedir un jugador (en una sala llegan de otros navegadores). */
-const ACTIONS = new Set(['peekStart', 'draw', 'take', 'call', 'swap', 'discard', 'peek', 'swapCards', 'pass', 'burn', 'give', 'endBurn']);
+const ACTIONS = new Set(['peekStart', 'draw', 'take', 'call', 'swap', 'discard', 'peek', 'swapCards', 'pass', 'burn', 'give']);
+/** Momentos de la ronda en los que se puede quemar. */
+const BURN_PHASES = ['turn', 'drawn', 'power'];
 
 // ── Azar con semilla (mulberry32) ─────────────────────
 function makeRng(seed) {
@@ -100,7 +101,8 @@ const sameSlot = (a, b) => a && b && a.p === b.p && a.s === b.s;
 // La partida
 // ═══════════════════════════════════════════════════════
 //
-// Fases: idle → peek → turn → drawn → (power) → burn → turn …
+// Fases: idle → peek → turn → drawn → (power) → turn …
+//        Quemar se puede en turn, drawn y power; si quemas la carta de otro, give y vuelta.
 //        … → roundOver → (startRound) … → gameOver
 //
 // Cada acción devuelve los sucesos que ha provocado. Un suceso con
@@ -119,7 +121,7 @@ class PedroGame {
         this.deck = []; this.table = [];
         this.current = 0; this.caller = null;
         this.drawn = null; this.drawnFrom = null;
-        this.power = null; this.burnWin = null; this.give = null;
+        this.power = null; this.give = null;
         this.peekPending = new Set();
         this.turns = 0;
         this.result = null;
@@ -139,7 +141,7 @@ class PedroGame {
     /** Las cartas de quien ha cantado Pedro: nadie más puede tocarlas. */
     isProtected(p) { return this.rules.protectCaller && this.caller !== null && p === this.caller; }
     /** Quien ha cantado Pedro juega su turno; después ya no toca nada (ni quema). */
-    isFrozen(p) { return this.isProtected(p) && !(this.current === p && ['turn', 'drawn', 'power', 'burn', 'give'].includes(this.phase)); }
+    isFrozen(p) { return this.isProtected(p) && !(this.current === p && ['turn', 'drawn', 'power', 'give'].includes(this.phase)); }
     scoreOf(p) { return scoreCards(this.players[p].slots.filter(Boolean), this.rules); }
 
     /** Cartas a las que se puede apuntar para mirar, cambiar o quemar. */
@@ -158,34 +160,35 @@ class PedroGame {
         return new Set(t.map(x => x.p)).size >= 2;
     }
 
+    /** Se puede quemar en cualquier momento de la ronda, mientras haya carta en la mesa. */
     canBurn(p) {
-        return this.phase === 'burn' && !this.isFrozen(p)
+        return BURN_PHASES.includes(this.phase) && !!this.top && !this.isFrozen(p)
             && this.targets('burn', p).length > 0;
     }
 
     /** Lo que un jugador puede hacer ahora mismo. */
     legal(p) {
+        const burn = this.canBurn(p) ? ['burn'] : [];
         switch (this.phase) {
             case 'peek': return this.peekPending.has(p) ? ['peekStart'] : [];
             case 'turn': {
-                if (p !== this.current) return [];
-                const a = ['draw'];
+                if (p !== this.current) return burn;
+                const a = ['draw', ...burn];
                 if (this.caller === null) a.push('call');
                 if (this.rules.takeFromTable && this.top && this.countOf(p) > 0) a.push('take');
                 return a;
             }
             case 'drawn': {
-                if (p !== this.current) return [];
-                const a = [];
+                if (p !== this.current) return burn;
+                const a = [...burn];
                 if (this.countOf(p) > 0) a.push('swap');
                 if (this.drawnFrom === 'deck') a.push('discard');
                 return a;
             }
             case 'power': {
-                if (p !== this.power.by) return [];
-                return [this.power.step === 'look' ? 'peek' : 'swapCards', 'pass'];
+                if (p !== this.power.by) return burn;
+                return [this.power.step === 'look' ? 'peek' : 'swapCards', 'pass', ...burn];
             }
-            case 'burn': return this.canBurn(p) ? ['burn'] : [];
             case 'give': return p === this.give.by ? ['give'] : [];
             default: return [];
         }
@@ -198,7 +201,6 @@ class PedroGame {
             caller: this.caller, deckCount: this.deck.length, tableCount: this.table.length, top: this.top,
             players: this.players.map(p => ({ name: p.name, wins: p.wins, slots: p.slots.map(c => !!c) })),
             power: this.power && { rank: this.power.rank, by: this.power.by, step: this.power.step },
-            burn: this.burnWin && { value: this.burnWin.value },
             give: this.give && { by: this.give.by, to: this.give.to },
             drawnFrom: this.drawnFrom,
             peekPending: this.phase === 'peek' ? [...this.peekPending] : [],
@@ -238,7 +240,7 @@ class PedroGame {
             this.table.push(this.deck.pop());
             this.current = (this.dealer + 1) % this.n;
             this.caller = null; this.drawn = null; this.drawnFrom = null;
-            this.power = null; this.burnWin = null; this.give = null;
+            this.power = null; this.give = null;
             this.turns = 0; this.result = null;
             this._emit({ t: 'round', round: this.round, dealer: this.dealer, first: this.current, top: this.top });
             const k = Math.min(this.rules.peekStart, this.rules.handSize);
@@ -257,7 +259,7 @@ class PedroGame {
     }
 
     _nextTurn() {
-        this.drawn = null; this.drawnFrom = null; this.power = null; this.burnWin = null; this.give = null;
+        this.drawn = null; this.drawnFrom = null; this.power = null; this.give = null;
         this.turns++;
         if (this.turns >= MAX_TURNS) return this._reveal('limit');
         this.current = (this.current + 1) % this.n;
@@ -282,7 +284,9 @@ class PedroGame {
         const best = Math.min(...scores);
         const winners = scores.map((v, i) => v === best ? i : -1).filter(i => i >= 0);
         for (const w of winners) this.players[w].wins++;
-        this.result = { hands, scores, winners, caller: this.caller, reason };
+        const empty = this.players.filter(p => !p.slots.some(Boolean)).map(p => p.index);
+        this.result = { hands, scores, winners, caller: this.caller, reason, empty };
+        this.drawn = null; this.drawnFrom = null; this.power = null; this.give = null;
         this.phase = 'roundOver';
         this._emit({ t: 'reveal', ...this.result, wins: this.players.map(p => p.wins) });
         const goal = this.rules.winsToWin;
@@ -357,7 +361,7 @@ class PedroGame {
         this.table.push(old);
         this._emit({ t: 'swap', p, slot, card: old, drawn, from: this.drawnFrom, secret: this.drawnFrom === 'deck' });
         this.drawn = null;
-        this._openBurn();
+        this._nextTurn();
         return null;
     }
 
@@ -376,7 +380,7 @@ class PedroGame {
             this.power = { rank: card.rank, by: p, steps, step: steps[0] };
             this.phase = 'power';
             this._emit({ t: 'power', p, rank: card.rank, step: this.power.step });
-        } else this._openBurn();
+        } else this._nextTurn();
         return null;
     }
 
@@ -390,7 +394,7 @@ class PedroGame {
             this._emit({ t: 'power', p: pw.by, rank: pw.rank, step: next });
         } else {
             this.power = null;
-            this._openBurn();
+            this._nextTurn();
         }
     }
 
@@ -421,30 +425,33 @@ class PedroGame {
         return null;
     }
 
-    _openBurn() {
-        if (!this.rules.burn || !this.top) return this._nextTurn();
-        this.burnWin = { value: this.top.rank };
-        this.phase = 'burn';
-        this._emit({ t: 'burnOpen', value: this.top.rank, top: this.top });
-    }
 
-    _burn({ p, target }) {
-        if (this.phase !== 'burn') return 'Ahora no se puede quemar.';
+    /**
+     * Quemar: se puede en cualquier momento de la ronda (también en el turno de otro).
+     * top: la carta de la mesa que veía quien quema; si ya ha cambiado, no vale.
+     */
+    _burn({ p, target, top }) {
+        if (!BURN_PHASES.includes(this.phase) || !this.top) return 'Ahora no se puede quemar.';
+        if (!Number.isInteger(p) || !this.players[p]) return 'Ese jugador no existe.';
+        if (top != null && top !== this.top.id) return 'La carta de la mesa ya ha cambiado.';
         if (this.isFrozen(p)) return 'Has cantado Pedro: ya no puedes tocar tus cartas.';
         if (!target || !this._validSlot(target.p, target.s)) return 'Esa carta no existe.';
         if (target.p !== p && !this.rules.burnOthers) return 'Con estas reglas solo puedes quemar tus cartas.';
         if (this.isProtected(target.p) && target.p !== p) return 'Las cartas de quien ha cantado Pedro no se tocan.';
         const card = this.card(target.p, target.s);
         const t = { p: target.p, s: target.s };
-        if (card.rank === this.burnWin.value) {
+        if (card.rank === this.top.rank) {
             this.players[t.p].slots[t.s] = null;
             this.table.push(card);
             this._emit({ t: 'burn', by: p, target: t, card });
             if (t.p !== p && this.rules.burnGive && this.countOf(p) > 0) {
-                this.give = { by: p, to: t };
+                // Quien quema la carta de otro le da una suya. Después la ronda sigue donde estaba.
+                this.give = { by: p, to: t, back: this.phase };
                 this.phase = 'give';
                 this._emit({ t: 'giveAsk', by: p, to: t });
+                return null;
             }
+            this._checkEmpty();
             return null;
         }
         // Falla: la carta se ha visto, vuelve a su sitio y quien falló se lleva castigo.
@@ -470,20 +477,19 @@ class PedroGame {
         this.players[to.p].slots[to.s] = this.card(p, slot);
         this.players[p].slots[slot] = null;
         this._emit({ t: 'give', by: p, from: slot, to: { p: to.p, s: to.s } });
+        this.phase = this.give.back;
         this.give = null;
-        this.phase = 'burn';
+        this._checkEmpty();
         return null;
     }
 
-    _endBurn() {
-        if (this.phase !== 'burn') return 'No hay ninguna carta para quemar.';
-        this._emit({ t: 'burnClose' });
-        this._nextTurn();
-        return null;
+    /** Quien se queda sin cartas gana: se acaba la ronda y se descubren todas. */
+    _checkEmpty() {
+        if (this.players.some(pl => !pl.slots.some(Boolean))) this._reveal('empty');
     }
 }
 
 // Para las pruebas con Node (en el navegador no hace nada).
 if (typeof module !== 'undefined') {
-    module.exports = { GAME_VERSION, MAX_PLAYERS, SUITS, RANK_NAME, POWERS, DEFAULT_RULES, makeRng, makeDeck, deckRanks, averageRank, scoreCards, sameSlot, PedroGame };
+    module.exports = { GAME_VERSION, MAX_PLAYERS, SUITS, RANK_NAME, POWERS, DEFAULT_RULES, makeRng, makeDeck, deckRanks, averageRank, scoreCards, sameSlot, PedroGame, BURN_PHASES };
 }

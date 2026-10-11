@@ -20,7 +20,7 @@ class MirrorGame {
         this.round = 0; this.dealer = 0; this.current = 0; this.caller = null;
         this.deck = { length: 0 }; this.table = { length: 0 };
         this.top = null;
-        this.power = null; this.burnWin = null; this.give = null;
+        this.power = null; this.give = null;
         this.drawn = null; this.drawnFrom = null;
         this.peekPending = new Set();
         this.turns = 0;
@@ -40,7 +40,6 @@ class MirrorGame {
             this.players[i].slots = p.slots.map(b => b ? HIDDEN : null);
         });
         this.power = v.power ? { ...v.power } : null;
-        this.burnWin = v.burn ? { value: v.burn.value } : null;
         this.give = v.give;
         this.drawnFrom = v.drawnFrom;
         if (v.phase !== 'drawn') this.drawn = null;
