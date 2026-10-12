@@ -5,6 +5,6 @@
         "turn:global.relay.metered.ca:443",
         "turns:global.relay.metered.ca:443?transport=tcp"
     ],
-    "username": "",
-    "credential": ""
+    "username": "4bb28517e0f8e428735472d6",
+    "credential": "moPYhnviENJ0vUua"
 }
