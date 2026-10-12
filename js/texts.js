@@ -22,10 +22,10 @@ const Txt = {
         return s;
     },
 
-    /** En la Brisca: «el as de oros», y «, triunfo» si es del palo que triunfa. */
     /** El palo con su artículo: «los oros», «las copas». */
     suitArt(suit) { return (suit === 'oros' || suit === 'bastos' ? 'los ' : 'las ') + suit; },
 
+    /** En la Brisca: «el as de oros», y «, triunfo» si es del palo que triunfa. */
     bcard(c, trump = null) {
         if (!c) return 'ninguna carta';
         return this.card(c, { value: false }) + (trump && c.suit === trump ? ', triunfo' : '');
@@ -64,7 +64,7 @@ const Txt = {
         return [
             `Baraja de ${r.deck} cartas, 3 cartas para cada uno.`,
             r.pairs ? 'Con 4 o 6 jugadores, por parejas.' : 'Cada uno por su cuenta.',
-            r.swapTrump === 'no' ? 'La muestra no se cambia.' : r.swapTrump === 'siete' ? 'La muestra se cambia con el siete de triunfo.' : 'La muestra se cambia con el siete o el dos de triunfo.',
+            r.swapTrump === 'no' ? 'La muestra no se cambia.' : `La muestra se cambia con ${r.swapTrump === 'siete' ? 'el siete' : 'el siete o el dos'} de triunfo, ${r.swapWhen === 'salir' ? 'solo al salir' : 'en tu turno'}.`,
             r.cantes ? 'Se cantan las 20 y las 40.' : '',
             r.arrastre ? 'Con arrastre: al acabarse el mazo, hay que asistir y montar.' : '',
             r.lastTen ? 'Diez de últimas.' : '',

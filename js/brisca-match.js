@@ -178,9 +178,17 @@ class BriscaMatch extends Match {
         // Botones
         const want = this.want?.kinds;
         Board.showAct('play', !!want?.has('play') && this.sel != null && this.settings.confirmPlay);
-        Board.showAct('swapTrump', !!want?.has('swapTrump'));
+        Board.showAct('swapTrump', !!want?.has('swapTrump'), want?.has('swapTrump') ? this.swapLabel() : null);
         Board.showAct('cante', !!want?.has('cante'), want?.has('cante') ? this.canteLabel() : null);
         Board.showAct('advice', this.practice && !!want);
+    }
+
+    /** «Cambiar tu siete por el as»: con qué carta y por cuál. */
+    swapLabel() {
+        const g = this.game, mine = g.handOf(this.me)[g.swapSlot(this.me)], m = g.trump;
+        if (!mine || !m) return null;
+        const name = c => `${FEMININE_RANK[c.rank] ? 'la' : 'el'} ${RANK_NAME[c.rank]}`;
+        return `Cambiar tu ${RANK_NAME[mine.rank]} por ${name(m)}`;
     }
 
     canteLabel() {
@@ -232,9 +240,10 @@ class BriscaMatch extends Match {
                     let spoken;
                     if (e.lead) spoken = `Tu turno: sales tú.${this.hint('lead', ' Elige una carta con su número, o tocándola.' + (this.settings.confirmPlay ? ' La primera vez te la digo y la segunda la juegas.' : ''))}`;
                     else spoken = `Tu turno. ${this.trickText(S2.trick)}`;
-                    if (g.canSwapTrump(me)) spoken += ' Puedes cambiar la muestra con la X.';
+                    const swap = g.canSwapTrump(me) ? this.swapLabel() : null;
+                    if (swap) spoken += ` Puedes ${swap.toLowerCase()} de la muestra, con la X.`;
                     if (g.canteSuits(me).length) spoken += ` Puedes ${this.canteLabel().toLowerCase()} con la V.`;
-                    this.prompt(e.lead ? 'Tu turno: sales tú. Elige una carta' : 'Tu turno: elige una carta', spoken);
+                    this.prompt(`${e.lead ? 'Tu turno: sales tú. Elige una carta' : 'Tu turno: elige una carta'}${swap ? `, o ${swap.replace('Cambiar', 'cambia')} de la muestra` : ''}`, spoken);
                 } else {
                     A.otherTurn(e.p);
                     B.status(`Turno de ${this.names[e.p]}`);

@@ -12,6 +12,7 @@ const BRISCA_DEFAULT_RULES = {
     deck: 40,                 // 40: sin ochos ni nueves (la de siempre) · 48: del 1 al 12
     pairs: true,              // con 4 o 6 jugadores, por parejas: cada uno con el de enfrente
     swapTrump: 'sieteYDos',   // cambiar la muestra: 'sieteYDos' · 'siete' · 'no'
+    swapWhen: 'turno',        // cuándo: 'turno' (en cualquier turno tuyo, antes de jugar) · 'salir' (solo al salir)
     cantes: false,            // cantar las 20 y las 40 (rey y caballo del mismo palo)
     arrastre: false,          // al acabarse el mazo, hay que asistir y montar (o fallar)
     lastTen: false,           // diez de últimas: la última baza vale 10 puntos más
@@ -139,7 +140,8 @@ class BriscaGame {
     /** ¿Puede p cambiar su siete (o su dos) de triunfo por la muestra? Devuelve el sitio de esa carta o -1. */
     swapSlot(p) {
         const r = this.rules.swapTrump;
-        if (r === 'no' || this.phase !== 'turn' || this.current !== p || this.trick.length || !this.trump || this.deck.length <= 1) return -1;
+        if (r === 'no' || this.phase !== 'turn' || this.current !== p || !this.trump || this.deck.length <= 1) return -1;
+        if (this.rules.swapWhen === 'salir' && this.trick.length) return -1;
         const hand = this.handOf(p), muestra = this.trump;
         const seven = hand.findIndex(c => c && c.suit === this.trumpSuit && c.rank === 7);
         const two = hand.findIndex(c => c && c.suit === this.trumpSuit && c.rank === 2);

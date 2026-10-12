@@ -69,6 +69,7 @@ const ruleSets = [
     { cantes: true, lastTen: true },
     { swapTrump: 'siete', pairs: false },
     { swapTrump: 'no', showPoints: false, winsToWin: 3 },
+    { swapWhen: 'salir', cantes: true },
 ];
 for (let n = 2; n <= 6; n++) {
     for (const rules of ruleSets) {
@@ -103,5 +104,21 @@ assert(hard > easy * 1.4, 'el rival difícil juega mejor');
     const p = g.current;
     const res = g.act({ type: 'swapTrump', p });
     assert(res.ok && g.players[p].hand[0].rank === 5 && g.deck[0].rank === 2 && g.trump.rank === 2);
+}
+
+// Cuándo se cambia: en cualquier turno tuyo, o solo al salir
+for (const swapWhen of ['turno', 'salir']) {
+    const g = new BriscaGame({ players: [{ name: 'A' }, { name: 'B' }], rules: { swapWhen }, seed: 9 });
+    g.startRound();
+    const lead = g.current, other = 1 - lead;
+    const res = g.act({ type: 'play', p: lead, slot: g.playable(lead)[0] });
+    assert(res.ok && g.current === other && g.trick.length === 1, 'ya hay una carta en la mesa');
+    g.trump = c(1, 'copas'); g.trumpSuit = 'copas'; g.deck[0] = g.trump;
+    g.players[other].hand[1] = c(7, 'copas');
+    assert.strictEqual(g.canSwapTrump(other), swapWhen === 'turno', `con «${swapWhen}», cambiar el siete sin salir`);
+    if (swapWhen === 'turno') {
+        assert(g.act({ type: 'swapTrump', p: other }).ok && g.players[other].hand[1].rank === 1 && g.current === other, 'cambia y sigue siendo su turno');
+        assert(!g.canSwapTrump(other), 'el siete ya no está en la mano');
+    }
 }
 console.log('Brisca: todo bien.');

@@ -53,7 +53,7 @@ Cada juego es una máquina de estados con `act()` y `view(seat)`. Cada `act` dev
 
 **La Brisca.** `BriscaGame` tiene las fases `turn` → `roundOver` → `gameOver`.
 
-- Las acciones son `play` (con `slot`), `swapTrump` (cambiar la muestra) y `cante` (las 20 o las 40). `legal(p)` y `playable(p)` dicen lo que vale; con arrastre, `playable` obliga a asistir y montar.
+- Las acciones son `play` (con `slot`), `swapTrump` (cambiar la muestra) y `cante` (las 20 o las 40). La regla `swapWhen` dice si la muestra se cambia en cualquier turno tuyo (`turno`) o solo al salir (`salir`). `legal(p)` y `playable(p)` dicen lo que vale; con arrastre, `playable` obliga a asistir y montar.
 - Cada mano tiene sus sucesos: `round` (triunfo y cartas quitadas para repartir igual), `deal`, `play`, `trick`, `draw`, `deckOut`, `swapTrump`, `cante` y `handOver`.
 - Por parejas (4 o 6 jugadores con `pairs`), el equipo de cada uno es `p % 2`: vas con quien tienes enfrente.
 - `BriscaMatch` cuenta los sucesos con algo de retraso respecto al juego, así que dibuja desde su propia copia (`this.shown`), que se pone al día suceso a suceso.
