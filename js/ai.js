@@ -102,6 +102,9 @@ const CHARACTERS = [
             cut: ['¡Toma triunfo!', 'Uy, que tenía triunfo.'],
             bigTrick: ['¡Mira lo que me llevo!', 'Esto pesa, esto pesa.'],
             cante: ['¡Que canto! ¿Se canta así?'],
+            eat: ['¡Ñam! ¿Era tuya?', 'Uy, me la he comido sin querer.'],
+            eaten: ['¿Otra vez a casa? Si acababa de salir.'],
+            meta: ['¡Una dentro! No sé ni cómo.'],
         },
     },
     {
@@ -115,6 +118,9 @@ const CHARACTERS = [
             cut: ['Fallo, y sin pestañear.'],
             bigTrick: ['Para el saco.', 'Muy rica esta baza.'],
             cante: ['Las tenía guardadas.'],
+            eat: ['¡Te pillé!', 'Veinte para mí.'],
+            eaten: ['Vale, vale, me la apunto.'],
+            meta: ['Una menos.', 'Para dentro.'],
         },
     },
     {
@@ -128,6 +134,9 @@ const CHARACTERS = [
             cut: ['Triunfo, hijo, triunfo.'],
             bigTrick: ['Esto para la abuela.', 'Ay, qué bien me viene.'],
             cante: ['Las cuarenta, como en los buenos tiempos.'],
+            eat: ['Lo siento, cariño, pero a casa.', 'Ay, hijo, que te la estaba viendo venir.'],
+            eaten: ['Bien comida, bien comida.'],
+            meta: ['Despacito y buena letra.'],
         },
     },
     {
@@ -141,6 +150,9 @@ const CHARACTERS = [
             cut: ['¡Zas! Fallo.', 'Os lo esperabais, ¿eh?'],
             bigTrick: ['¿Quién da más?', 'Baza gorda para Toni.'],
             cante: ['¡Cantando, que es gerundio!'],
+            eat: ['¡Zas! A casa.', '¿Quién dijo miedo?'],
+            eaten: ['Era un farol. Quería que me la comieras.'],
+            meta: ['¡Toni mete otra!'],
         },
     },
     {
@@ -154,6 +166,9 @@ const CHARACTERS = [
             cut: ['Fallo calculado.'],
             bigTrick: ['Todo según lo previsto.'],
             cante: ['Cante. Puntos asegurados.'],
+            eat: ['Una probabilidad entre seis. Me ha salido.', 'Cuento veinte.'],
+            eaten: ['Riesgo asumido.'],
+            meta: ['Una más en la meta. Según lo previsto.'],
         },
     },
     {
@@ -167,6 +182,9 @@ const CHARACTERS = [
             cut: ['¿Esto es fallar? ¡Pues fallo!'],
             bigTrick: ['¡Me la llevo yo! ¿Verdad?'],
             cante: ['¿Puedo cantar? ¡Pues canto!'],
+            eat: ['¿Me la puedo comer? ¡Me la como!'],
+            eaten: ['¿Ya? ¿Tan pronto?'],
+            meta: ['¡Ha llegado! ¿Ha llegado?'],
         },
     },
 ];

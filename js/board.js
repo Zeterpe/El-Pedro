@@ -28,6 +28,7 @@ const Board = {
         me.dataset.p = match.me;
         me.className = 'seat seat-me';
         $('my-hand').innerHTML = '';
+        $('my-hand').setAttribute('aria-label', 'Tus cartas');
         $('my-extra').innerHTML = '';
         $('my-name').textContent = match.seats[match.me]?.name || 'Tú';
         for (let p = 0; p < n; p++) {

@@ -93,6 +93,7 @@ const GAMES = {
         rivalsKey: 'briscaRivals',
         roundWord: 'mano',
         maxPlayers: 6,
+        pairs: (r, n) => !!r.pairs && n >= 4 && n % 2 === 0,
         get Match() { return BriscaMatch; },
         summary: r => Txt.briscaRules({ ...BRISCA_DEFAULT_RULES, ...r }),
         practice(r) { return { ...r, winsToWin: 1, showPoints: true }; },
@@ -144,6 +145,74 @@ const GAMES = {
             </ul>
             <p>En el móvil, todo tiene su botón en la pantalla.</p>`,
     },
+
+    parchis: {
+        id: 'parchis',
+        name: 'El Parchís',
+        kind: 'Juego de tablero',
+        tagline: 'Sal con un 5, come y cuenta 20, mete tus fichas en la meta y cuenta 10. Cada uno por su cuenta o por parejas.',
+        players: 'De 2 a 4 jugadores, también por parejas',
+        art: () => ParchisArt.tile(),
+        defaults: PARCHIS_DEFAULT_RULES,
+        rulesKey: 'parchisRules',
+        rivalsKey: 'parchisRivals',
+        roundWord: null,
+        maxPlayers: 4,
+        pairs: (r, n) => !!r.pairs && n === 4,
+        get Match() { return ParchisMatch; },
+        summary: r => Txt.parchisRules({ ...PARCHIS_DEFAULT_RULES, ...r }),
+        practice(r) { return { ...r, pieces: 2 }; },
+        setupDefs(s, r) {
+            return [
+                { label: 'Con 3 rivales, por parejas', values: [false, true], get: () => r.pairs, set: v => { r.pairs = v; }, text: v => v ? 'sí: tu pareja es el de enfrente' : 'no, cada uno por su cuenta' },
+                { label: 'Fichas para cada uno', values: [4, 3, 2], get: () => r.pieces, set: v => { r.pieces = v; }, text: v => v === 4 ? '4, las de siempre' : `${v}, para una partida más corta` },
+                { label: 'Tocar dos veces para mover una ficha', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice adónde va' : 'no: se mueve al tocarla' },
+            ];
+        },
+        houseDefs(r) {
+            return [
+                { label: 'Fichas para cada uno', values: [4, 3, 2], get: () => r.pieces, set: v => { r.pieces = v; }, text: v => v === 4 ? '4, las de siempre' : `${v}, para una partida más corta` },
+                { label: 'Con 4 jugadores, por parejas', values: [false, true], get: () => r.pairs, set: v => { r.pairs = v; }, text: v => v ? 'sí: cada uno con el de enfrente' : 'no' },
+                { label: 'Al comer una ficha, cuentas', values: [20, 10, 0], get: () => r.eatCount, set: v => { r.eatCount = v; }, text: v => v ? String(v) : 'nada' },
+                { label: 'Al meter una ficha en la meta, cuentas', values: [10, 20, 0], get: () => r.metaCount, set: v => { r.metaCount = v; }, text: v => v ? String(v) : 'nada' },
+                { label: 'Sin fichas en casa, el 6 cuenta 7', values: [true, false], get: () => r.sixSeven, set: v => { r.sixSeven = v; }, text: yesNo },
+                { label: 'Al tercer 6 seguido, la última ficha movida vuelve a casa', values: [true, false], get: () => r.threeSixes, set: v => { r.threeSixes = v; }, text: yesNo },
+                { label: 'Con un 6, hay que abrir tu barrera', values: [true, false], get: () => r.openBarrier, set: v => { r.openBarrier = v; }, text: yesNo },
+                { label: 'Para entrar en la meta', values: [true, false], get: () => r.exact, set: v => { r.exact = v; }, text: v => v ? 'con la cuenta justa' : 'si te pasas, rebotas' },
+            ];
+        },
+        rulesHtml: `
+            <h2>El objetivo</h2>
+            <p>Llevar tus cuatro fichas desde tu casa hasta la meta, en el centro del tablero, dando la vuelta entera. Gana quien las mete todas primero. Por parejas, gana la pareja que mete antes todas las suyas.</p>
+            <h2>El tablero</h2>
+            <p>Hay 68 casillas numeradas. Cada color tiene su casa en una esquina, su salida, y un pasillo de 7 casillas de su color que lleva a la meta. Las fichas avanzan en sentido contrario a las agujas del reloj. En el juego, tu casa está siempre abajo a la derecha.</p>
+            <p>Los seguros son las casillas con un círculo, y también las salidas: ahí no te pueden comer.</p>
+            <h2>Tu turno</h2>
+            <p>Tiras el dado y mueves una ficha lo que marca. Si puedes mover, tienes que hacerlo. Con un 6 vuelves a tirar; si no te quedan fichas en casa, el 6 cuenta 7. Al tercer 6 seguido, la última ficha que has movido vuelve a casa, salvo si ya está en el pasillo.</p>
+            <h2>Salir de casa</h2>
+            <p>Las fichas salen de casa con un 5: si tienes fichas en casa y sacas un 5, hay que sacar una. Si en tu salida ya hay dos fichas y una es de otro color, te la comes.</p>
+            <h2>Comer</h2>
+            <p>Si tu ficha cae en una casilla donde hay una sola ficha de otro color, y no es un seguro, te la comes: vuelve a su casa y tú cuentas 20, es decir, avanzas 20 casillas con la ficha que quieras.</p>
+            <h2>Las barreras</h2>
+            <p>Dos fichas en la misma casilla forman una barrera: nadie puede pasar por ella, ni siquiera tú. En una casilla caben como mucho dos fichas. Si tienes una barrera y sacas un 6, tienes que abrirla.</p>
+            <h2>La meta</h2>
+            <p>A la meta se entra con la cuenta justa. Cuando metes una ficha, cuentas 10 con otra. Si no puedes contar con ninguna ficha, la cuenta se pierde.</p>
+            <h2>Por parejas</h2>
+            <p>Con 4 jugadores se puede jugar por parejas: vas con el de enfrente. A tu pareja no te la puedes comer, y podéis hacer barrera juntos. Cuando metes todas tus fichas, sigues tirando y mueves las de tu pareja.</p>
+            <h2>Reglas de la casa</h2>
+            <p>Puedes jugar con 3 o 2 fichas para que la partida sea más corta, cambiar lo que se cuenta al comer y al llegar a la meta, quitar el 7 del seis, el castigo del tercer 6 o la obligación de abrir la barrera, y jugar con rebote en la meta.</p>
+            <h2>Las teclas</h2>
+            <ul>
+                <li>T: tirar el dado.</li>
+                <li>Del 1 al 4: tus fichas. La primera vez te dice adónde va y la segunda la mueve. Enter mueve la elegida. Si solo puedes mover una, se mueve sola.</li>
+                <li>M: dónde está cada ficha. P: peligros, las fichas que tienes cerca por detrás y por delante. D: el último dado.</li>
+                <li>I: cómo va la partida. C: tus fichas. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
+            </ul>
+            <p>En el móvil, todo tiene su botón en la pantalla. También puedes tocar el dado y tus fichas en el tablero.</p>`,
+    },
 };
+
+/** El dibujo de cada juego: un abanico de cartas o su tablero. */
+const gameArt = (G, spread) => G.art ? G.art() : CardArt.fan(G.fan, { spread });
 
 const GAME_IDS = Object.keys(GAMES);

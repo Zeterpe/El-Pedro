@@ -214,9 +214,21 @@ class Match {
             // El invitado no tiene la baraja: manda su jugada al anfitrión y espera su respuesta.
             this.sentFor = this.seq;
             this.online.send({ t: 'act', a, seq: this.seq });
+            this.watchReply();
             return Promise.resolve({ ok: true, events: [] });
         }
         return this.apply(this.game.act(a));
+    }
+
+    /** Invitado: si tu jugada no tiene respuesta, se pide la mesa otra vez (por si se perdió por el camino). */
+    watchReply() {
+        clearTimeout(this.replyTimer);
+        const seq = this.seq;
+        this.replyTimer = setTimeout(() => {
+            if (this.stopped || this.sentFor !== seq || this.seq !== seq) return;
+            this.online.send({ t: 'resync', seq });
+            this.watchReply();
+        }, 8000);
     }
 
     async quip(p, kind, chance) {
@@ -282,9 +294,9 @@ class Match {
         if (!ws.length) return 'La partida acaba en empate.';
         if (won) {
             const others = ws.filter(p => p !== me);
-            return others.length ? `¡Has ganado la partida, con ${Txt.list(others.map(p => this.v.name(p)))}!` : '¡Has ganado la partida!';
+            return others.length ? `¡Habéis ganado la partida, ${Txt.list([...others.map(p => this.v.name(p)), 'tú'])}!` : '¡Has ganado la partida!';
         }
-        return `Gana la partida ${Txt.list(ws.map(p => this.v.name(p)))}.`;
+        return `${ws.length > 1 ? 'Ganan' : 'Gana'} la partida ${Txt.list(ws.map(p => this.v.name(p)))}.`;
     }
 
     // ═══ El jugador ════════════════════════════════════
@@ -330,10 +342,17 @@ class Match {
 
     // ═══ Anfitrión: los demás jugadores de la sala ═════
     onRemote(p, msg) {
+        if (msg.t === 'resync') { this.resync(p); return; }
         if (this.remoteInstant(p, msg)) return;
         if (msg.t === 'pass') return;
         this.inbox.push({ ...msg, p });   // el sitio sale de la conexión, no de lo que diga el mensaje
         const w = this._wake; this._wake = null; w?.();
+    }
+
+    /** Un invitado no ha tenido respuesta a su jugada: se le manda la mesa como está y si su jugada ya ha llegado. */
+    resync(p) {
+        const pending = this.inbox.some(x => x.p === p && x.t === 'act');
+        this.online.sendTo(p, { t: 'batch', seq: this.online.seq, events: [], view: this.game.view(p), sync: true, pending });
     }
 
     /** Mensajes que se atienden al momento (en el Pedro, quemar). */
@@ -411,7 +430,10 @@ class Match {
                 case 'batch': {
                     if (this.waitDialog) { this.waitDialog = false; Dialog.close('auto'); }
                     this.game.setView(msg.view);
-                    if (msg.sync) this.syncShown?.();   // has vuelto a la sala: la mesa se pone como está
+                    if (msg.sync) {
+                        this.syncShown?.();   // has vuelto a la sala: la mesa se pone como está
+                        if (!msg.pending) this.sentFor = -1;   // tu jugada no llegó: se te vuelve a preguntar
+                    }
                     for (const e of msg.events) { this.game.observe(e); this.observe(e); }
                     this.seq = msg.seq;
                     for (const e of msg.events) {

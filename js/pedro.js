@@ -675,7 +675,7 @@ class PedroMatch extends Match {
         const phase = g.phase;
         await this.think({ turn: 450, drawn: 750, power: 700, give: 500 }[phase] || 0);
         // Si mientras pensaba alguien ha quemado, primero eso; después vuelve a pensar.
-        if (this.stopped || g.phase !== phase || this.actor() !== p || this.burnsWaiting()) return;
+        if (this.stopped || g.phase !== phase || this.actor() !== p || this.bots[p] !== b || this.burnsWaiting()) return;
         switch (phase) {
             case 'turn': await this.act(b.chooseTurn()); break;
             case 'drawn': await this.act(b.chooseDrawn(g.drawn)); break;

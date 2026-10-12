@@ -126,7 +126,7 @@ const Online = {
                 const s = match.seats[seat];
                 if (s.left) match.seatBack(seat, conn); else s.conn = conn;
                 this.sendStart(seat, true);
-                this.net.send(conn, { t: 'batch', seq: this.seq, events: [], view: match.game.view(seat), sync: true });
+                this.net.send(conn, { t: 'batch', seq: this.seq, events: [], view: match.game.view(seat), sync: true, pending: match.inbox.some(x => x.p === seat && x.t === 'act') });
                 return;
             }
             this.sendLobby(old);
@@ -477,12 +477,12 @@ const Online = {
         return Txt.list(this.playersOf().map(p => p.me ? 'tú' : p.kind === 'bot' ? `${p.name}, de la máquina` : p.name));
     },
 
-    /** En la Brisca por parejas, quién va con quién (sitios alternos). */
+    /** Por parejas (en la Brisca o el Parchís), quién va con quién (sitios alternos). */
     pairsText() {
         const id = this.role === 'host' ? this.game : this.lobby?.game;
         const rules = this.role === 'host' ? this.rules : this.lobby?.rules;
         const ps = this.playersOf();
-        if (id !== 'brisca' || !rules?.pairs || ps.length < 4 || ps.length % 2) return '';
+        if (!rules || !GAMES[id]?.pairs?.(rules, ps.length)) return '';
         const name = p => p.me ? 'tú' : p.name;
         const a = ps.filter((_, i) => i % 2 === 0).map(name), b = ps.filter((_, i) => i % 2 === 1).map(name);
         return `Parejas: ${Txt.list(a)} contra ${Txt.list(b)}.`;
@@ -514,7 +514,7 @@ const Online = {
         const card = $('lobby-game-card');
         if (card.dataset.game !== G.id) {
             card.dataset.game = G.id;
-            card.innerHTML = `${CardArt.fan(G.fan, { spread: 12 })}<span class="lgc-text"><strong></strong><span class="lgc-tag"></span></span>`;
+            card.innerHTML = `${gameArt(G, 12)}<span class="lgc-text"><strong></strong><span class="lgc-tag"></span></span>`;
             card.querySelector('strong').textContent = G.name;
             card.querySelector('.lgc-tag').textContent = G.tagline;
         }
