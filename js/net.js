@@ -10,19 +10,36 @@
 const NET_PREFIX = 'elpedro-';
 
 const Net = {
+    /** Servidor de rebote propio (TURN), leído de turn.json. null si no hay. */
+    turn: null,
+    turnLoaded: false,
+
+    /** Lee turn.json una vez. Se pide sin caché: así se puede cambiar la contraseña sin subir la versión. */
+    async loadTurn() {
+        if (this.turnLoaded) return;
+        this.turnLoaded = true;
+        try {
+            const r = await fetch(`turn.json?u=${Date.now()}`, { cache: 'no-store' });
+            const t = r.ok ? await r.json() : null;
+            if (t?.username && t?.credential && t?.urls?.length) this.turn = { urls: t.urls, username: t.username, credential: t.credential };
+        } catch (_) { /* sin turn.json: se usan los servidores públicos */ }
+    },
+
     /** Opciones de PeerJS. Para pruebas se pueden cambiar en localStorage['elpedro.peer']. */
     options() {
         let o = {};
         try { o = JSON.parse(localStorage.getItem('elpedro.peer') || '{}'); } catch (_) { o = {}; }
         // Para conectar dos casas distintas hacen falta servidores que digan a cada navegador cómo
         // le ven desde fuera (STUN). Se añaden varios públicos a los que trae PeerJS (que incluyen
-        // su servidor de rebote, TURN, para cuando no se puede conectar directamente).
+        // su servidor de rebote, TURN, para cuando no se puede conectar directamente) y, si turn.json
+        // tiene usuario y contraseña, un servidor de rebote propio, más fiable.
         const base = window.peerjs?.util?.defaultConfig || { iceServers: [] };
         const config = {
             ...base,
             iceServers: [
                 { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
                 { urls: 'stun:stun.cloudflare.com:3478' },
+                ...(this.turn ? [this.turn] : []),
                 ...base.iceServers.filter(x => !String(x.urls).startsWith('stun:')),
             ],
         };
@@ -32,12 +49,17 @@ const Net = {
     /** Código de sala: 5 cifras, fácil de dictar y de escribir en el móvil. */
     newCode() { return String(10000 + Math.floor(Math.random() * 90000)); },
     explain(err) {
-        const t = err?.type || '';
+        const t = Net.kind(err);
         if (t === 'peer-unavailable') return 'No hay ninguna sala abierta con ese código. Comprueba el código y que quien creó la sala tiene el juego abierto en pantalla.';
         if (t === 'ice') return 'Se ha encontrado la sala, pero vuestras conexiones no han conseguido unirse. Probad otra vez; si sigue fallando, probad con otra red, por ejemplo los datos del móvil.';
         if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') return 'No se ha podido conectar con el servidor de salas. Comprueba tu conexión a internet.';
         if (t === 'browser-incompatible') return 'Este navegador no permite jugar online.';
-        return 'No se ha podido conectar.';
+        return `No se ha podido conectar. Código del fallo: ${t || 'desconocido'}.`;
+    },
+    /** Tipo de fallo. Si la sala se encontró pero las conexiones no se unieron, PeerJS lo llama de varias formas: aquí todas son 'ice'. */
+    kind(err) {
+        const t = err?.type || '';
+        return ['negotiation-failed', 'webrtc'].includes(t) ? 'ice' : t;
     },
 };
 
@@ -50,6 +72,7 @@ class HostNet {
     }
 
     async open() {
+        await Net.loadTurn();
         for (let attempt = 0; attempt < 5; attempt++) {
             const code = Net.newCode();
             try {
@@ -115,9 +138,10 @@ class ClientNet {
 
     /** Se une a la sala. Si no la encuentra, lo reintenta un par de veces (quien la creó puede estar reconectando). */
     async connect(code) {
+        await Net.loadTurn();
         for (let attempt = 0; ; attempt++) {
             try { return await this.#connectOnce(code); } catch (e) {
-                if (this.closed || attempt >= 2 || (e?.type !== 'peer-unavailable' && e?.type !== 'ice')) throw e;
+                if (this.closed || attempt >= 2 || !['peer-unavailable', 'ice'].includes(Net.kind(e))) throw e;
                 await new Promise(r => setTimeout(r, 2500));
                 if (this.closed) throw e;
             }
