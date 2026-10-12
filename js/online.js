@@ -69,14 +69,19 @@ const Online = {
         return name + ' ' + Math.floor(Math.random() * 90 + 10);
     },
 
-    refuse(conn, text) {
-        this.net.send(conn, { t: 'refused', text });
+    refuse(conn, text, extra = {}) {
+        this.net.send(conn, { t: 'refused', text, ...extra });
         setTimeout(() => { try { conn.close(); } catch (_) { /* nada */ } }, 600);
     },
 
     hostMessage(conn, m) {
         if (m.t === 'hello') {
-            if (m.v !== GAME_VERSION.id) return this.refuse(conn, 'Tenéis versiones distintas del juego. Recargad la página los dos y volved a intentarlo.');
+            if (m.v !== GAME_VERSION.id) {
+                // Quien tenga la versión antigua la actualiza: el invitado, solo; si es la tuya, se te avisa.
+                if (String(m.v) < GAME_VERSION.id) return this.refuse(conn, 'Tu juego era más antiguo que el de la sala. Recarga la página y vuelve a unirte.', { update: GAME_VERSION.id });
+                UI.say('Alguien ha intentado entrar con una versión más nueva del juego. Cierra la sala, recarga la página y créala otra vez.', { interrupt: false });
+                return this.refuse(conn, 'Quien ha creado la sala tiene una versión más antigua del juego. Pídele que recargue la página y cree la sala otra vez.');
+            }
             if (this.app.match && this.app.match.mode === 'host') return this.refuse(conn, 'La partida de esa sala ya ha empezado. Espera a que acabe.');
             if (this.table.length >= MAX_PLAYERS) return this.refuse(conn, `La mesa está llena: caben ${MAX_PLAYERS} jugadores.`);
             if (this.table.some(s => s.conn === conn)) return;
@@ -258,11 +263,18 @@ const Online = {
                 this.showLobby(false, first);
                 break;
             }
-            case 'refused':
-                this.app.audio.error();
+            case 'refused': {
+                const code = this.code;
                 this.close();
+                // Tu versión es la antigua: se recarga sola con la nueva y vuelve a entrar en la sala.
+                if (m.update && String(m.update) > GAME_VERSION.id && this.app.reloadFor(String(m.update), code)) {
+                    UI.say('Tu juego era más antiguo que el de la sala. Se actualiza y vuelves a entrar.');
+                    break;
+                }
+                this.app.audio.error();
                 this.app.openFriends(m.text);
                 break;
+            }
             case 'start':
                 this.dropWaiter();
                 this.queue = [];

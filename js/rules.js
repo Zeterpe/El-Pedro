@@ -7,7 +7,7 @@
    ============================================= */
 'use strict';
 
-const GAME_VERSION = { id: '20261011c', spoken: '11 de octubre de 2026' };
+const GAME_VERSION = { id: '20261012a', spoken: '12 de octubre de 2026' };
 
 const SUITS = ['oros', 'copas', 'espadas', 'bastos'];
 const RANK_NAME = {

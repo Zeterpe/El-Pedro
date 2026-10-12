@@ -14,14 +14,27 @@ const Net = {
     options() {
         let o = {};
         try { o = JSON.parse(localStorage.getItem('elpedro.peer') || '{}'); } catch (_) { o = {}; }
-        return { debug: 0, ...o };
+        // Para conectar dos casas distintas hacen falta servidores que digan a cada navegador cómo
+        // le ven desde fuera (STUN). Se añaden varios públicos a los que trae PeerJS (que incluyen
+        // su servidor de rebote, TURN, para cuando no se puede conectar directamente).
+        const base = window.peerjs?.util?.defaultConfig || { iceServers: [] };
+        const config = {
+            ...base,
+            iceServers: [
+                { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+                { urls: 'stun:stun.cloudflare.com:3478' },
+                ...base.iceServers.filter(x => !String(x.urls).startsWith('stun:')),
+            ],
+        };
+        return { debug: 0, config, ...o };
     },
     available() { return typeof Peer === 'function'; },
     /** Código de sala: 5 cifras, fácil de dictar y de escribir en el móvil. */
     newCode() { return String(10000 + Math.floor(Math.random() * 90000)); },
     explain(err) {
         const t = err?.type || '';
-        if (t === 'peer-unavailable') return 'No hay ninguna sala abierta con ese código.';
+        if (t === 'peer-unavailable') return 'No hay ninguna sala abierta con ese código. Comprueba el código y que quien creó la sala tiene el juego abierto en pantalla.';
+        if (t === 'ice') return 'Se ha encontrado la sala, pero vuestras conexiones no han conseguido unirse. Probad otra vez; si sigue fallando, probad con otra red, por ejemplo los datos del móvil.';
         if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') return 'No se ha podido conectar con el servidor de salas. Comprueba tu conexión a internet.';
         if (t === 'browser-incompatible') return 'Este navegador no permite jugar online.';
         return 'No se ha podido conectar.';
@@ -100,23 +113,41 @@ class ClientNet {
         this.peer = null; this.conn = null; this.closed = false;
     }
 
-    connect(code) {
+    /** Se une a la sala. Si no la encuentra, lo reintenta un par de veces (quien la creó puede estar reconectando). */
+    async connect(code) {
+        for (let attempt = 0; ; attempt++) {
+            try { return await this.#connectOnce(code); } catch (e) {
+                if (this.closed || attempt >= 2 || (e?.type !== 'peer-unavailable' && e?.type !== 'ice')) throw e;
+                await new Promise(r => setTimeout(r, 2500));
+                if (this.closed) throw e;
+            }
+        }
+    }
+
+    #connectOnce(code) {
         return new Promise((resolve, reject) => {
             const peer = this.peer = new Peer(Net.options());
-            let done = false;
-            const fail = err => { if (!done) { done = true; clearTimeout(timer); this.close(); reject(err); } };
-            const timer = setTimeout(() => fail({ type: 'timeout' }), 15000);
+            let done = false, found = false;
+            const fail = err => { if (!done) { done = true; clearTimeout(timer); this.#teardown(); reject(err); } };
+            // Por un servidor de rebote la conexión puede tardar: se espera hasta 25 segundos.
+            const timer = setTimeout(() => fail({ type: found ? 'ice' : 'timeout' }), 25000);
             peer.on('error', fail);
             peer.on('open', () => {
+                found = true;
                 const conn = this.conn = peer.connect(NET_PREFIX + code, { reliable: true, serialization: 'json' });
-                conn.on('open', () => { if (!done) { done = true; clearTimeout(timer); resolve(); } });
+                let joined = false;
+                conn.on('open', () => { if (!done) { done = joined = true; clearTimeout(timer); resolve(); } });
                 conn.on('data', d => { if (d && typeof d === 'object') this.onMessage?.(d); });
-                const gone = () => { if (!this.closed) { this.closed = true; this.onClose?.(); } };
+                // Solo se avisa de que se ha perdido la sala si ya estabas dentro (un intento fallido no cuenta).
+                const gone = () => { if (joined && !this.closed) { this.closed = true; this.onClose?.(); } };
                 conn.on('close', gone);
                 conn.on('error', e => { if (!done) fail(e); else gone(); });
                 const watch = () => {
                     const pc = conn.peerConnection;
-                    if (pc) pc.addEventListener('connectionstatechange', () => { if (['failed', 'closed'].includes(pc.connectionState)) gone(); });
+                    if (pc) pc.addEventListener('connectionstatechange', () => {
+                        if (pc.connectionState === 'failed' && !done) fail({ type: 'ice' });
+                        else if (['failed', 'closed'].includes(pc.connectionState)) gone();
+                    });
                 };
                 setTimeout(watch, 0);
             });
@@ -128,8 +159,13 @@ class ClientNet {
 
     close() {
         this.closed = true;
-        try { this.conn?.close(); } catch (_) { /* nada */ }
-        try { this.peer?.destroy(); } catch (_) { /* nada */ }
+        this.#teardown();
+    }
+
+    #teardown() {
+        const conn = this.conn, peer = this.peer;
         this.conn = null; this.peer = null;
+        try { conn?.close(); } catch (_) { /* nada */ }
+        try { peer?.destroy(); } catch (_) { /* nada */ }
     }
 }
