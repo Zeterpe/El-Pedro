@@ -51,6 +51,7 @@ Es el primero de una serie de juegos de cartas y de mesa que más adelante se un
 - **Quemar llega en cualquier momento:** el invitado manda `act` con `type: 'burn'` y el anfitrión lo pone en la cola. Si falla, le contesta con `burnError`.
 - **Antes de que los rivales de la máquina intenten quemar,** el anfitrión espera a que todos hayan oído la carta (`ack`). Así nadie se queda atrás porque su voz vaya más lenta.
 - **Si alguien se va,** juega la máquina por esa persona (`seatLeft`).
+- **Servidor de rebote (TURN):** para unir casas cuyas redes no se conectan directamente. Su usuario y contraseña van en `turn.json` (cuenta gratuita de Metered). Se lee sin caché, así que cambiarlo no obliga a subir la versión. Si está vacío, se usan solo los servidores públicos.
 - **Para probar sin internet,** se puede usar un servidor de PeerJS local guardando esto en `localStorage['elpedro.peer']`: `{"host":"127.0.0.1","port":9000,"path":"/myapp","secure":false}`.
 
 ## Cómo probarlo

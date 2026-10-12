@@ -10,19 +10,36 @@
 const NET_PREFIX = 'elpedro-';
 
 const Net = {
+    /** Servidor de rebote propio (TURN), leído de turn.json. null si no hay. */
+    turn: null,
+    turnLoaded: false,
+
+    /** Lee turn.json una vez. Se pide sin caché: así se puede cambiar la contraseña sin subir la versión. */
+    async loadTurn() {
+        if (this.turnLoaded) return;
+        this.turnLoaded = true;
+        try {
+            const r = await fetch(`turn.json?u=${Date.now()}`, { cache: 'no-store' });
+            const t = r.ok ? await r.json() : null;
+            if (t?.username && t?.credential && t?.urls?.length) this.turn = { urls: t.urls, username: t.username, credential: t.credential };
+        } catch (_) { /* sin turn.json: se usan los servidores públicos */ }
+    },
+
     /** Opciones de PeerJS. Para pruebas se pueden cambiar en localStorage['elpedro.peer']. */
     options() {
         let o = {};
         try { o = JSON.parse(localStorage.getItem('elpedro.peer') || '{}'); } catch (_) { o = {}; }
         // Para conectar dos casas distintas hacen falta servidores que digan a cada navegador cómo
         // le ven desde fuera (STUN). Se añaden varios públicos a los que trae PeerJS (que incluyen
-        // su servidor de rebote, TURN, para cuando no se puede conectar directamente).
+        // su servidor de rebote, TURN, para cuando no se puede conectar directamente) y, si turn.json
+        // tiene usuario y contraseña, un servidor de rebote propio, más fiable.
         const base = window.peerjs?.util?.defaultConfig || { iceServers: [] };
         const config = {
             ...base,
             iceServers: [
                 { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
                 { urls: 'stun:stun.cloudflare.com:3478' },
+                ...(this.turn ? [this.turn] : []),
                 ...base.iceServers.filter(x => !String(x.urls).startsWith('stun:')),
             ],
         };
@@ -55,6 +72,7 @@ class HostNet {
     }
 
     async open() {
+        await Net.loadTurn();
         for (let attempt = 0; attempt < 5; attempt++) {
             const code = Net.newCode();
             try {
@@ -120,6 +138,7 @@ class ClientNet {
 
     /** Se une a la sala. Si no la encuentra, lo reintenta un par de veces (quien la creó puede estar reconectando). */
     async connect(code) {
+        await Net.loadTurn();
         for (let attempt = 0; ; attempt++) {
             try { return await this.#connectOnce(code); } catch (e) {
                 if (this.closed || attempt >= 2 || !['peer-unavailable', 'ice'].includes(Net.kind(e))) throw e;
