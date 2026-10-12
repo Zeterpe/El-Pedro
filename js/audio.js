@@ -337,6 +337,39 @@ class AudioEngine {
         });
     }
 
+    // ── Trivial ───────────────────────────────────────
+    /** Sale una pregunta: dos notas, distintas para cada categoría. */
+    question(k = 0) {
+        const base = [523, 587, 659, 698, 784, 880][k] || 523;
+        this.#go((k2, out, t) => {
+            k2.bell(out, { t, f: base, partials: [[1, 1, 0.45], [2, 0.35, 0.25]], peak: 0.12 });
+            k2.bell(out, { t: t + 0.16, f: base * 1.5, partials: [[1, 1, 0.6], [2, 0.3, 0.3]], peak: 0.12 });
+        });
+    }
+
+    /** Respuesta correcta. */
+    right() {
+        this.#go((k, out, t) => {
+            [659, 831, 988, 1319].forEach((f, i) => k.tone(out, { t: t + i * 0.07, f, type: 'triangle', dur: 0.28, peak: 0.13 }));
+        });
+    }
+
+    /** Respuesta equivocada. */
+    wrong() {
+        this.#go((k, out, t) => {
+            k.tone(out, { t, f: [[0, 220], [0.35, 150]], type: 'sawtooth', dur: 0.4, peak: 0.11, filter: { type: 'lowpass', f: 900 } });
+            k.tone(out, { t: t + 0.02, f: [[0, 226], [0.35, 154]], type: 'sawtooth', dur: 0.4, peak: 0.07, filter: { type: 'lowpass', f: 700 } });
+        });
+    }
+
+    /** Un quesito más. */
+    wedge() {
+        this.#go((k, out, t) => {
+            [523, 659, 784, 1047, 1319].forEach((f, i) => k.bell(out, { t: t + i * 0.08, f, partials: [[1, 1, 0.5], [2.76, 0.3, 0.2]], peak: 0.11 }));
+            k.noise(out, { t: t + 0.35, dur: 0.5, a: 0.05, peak: 0.08, filter: { type: 'highpass', f: 6000 } });
+        });
+    }
+
     pass() {
         this.#go((k, out, t) => { k.tone(out, { t, f: [[0, 330], [0.12, 247]], dur: 0.14, peak: 0.08 }); });
     }

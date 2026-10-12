@@ -1,0 +1,249 @@
+// Pruebas del Trivial sin navegador: node tests/trivial.test.js
+'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+require('../js/rules.js');
+const T = require('../js/trivial.js');
+const { TrivialBot } = require('../js/trivial-ai.js');
+const { CHARACTERS } = require('../js/ai.js');
+
+const { TrivialGame, TrivialMirror, TRIVIAL_BOARD, TRIVIAL_CATS, TRIVIAL_HUB, TRIVIAL_DIST, trivialMoves, trivialHq, tvRing, tvSpoke } = T;
+
+// ── El banco de preguntas ───────────────────────────
+const dir = path.join(__dirname, '..', 'js', 'trivial');
+for (const f of fs.readdirSync(dir)) require(path.join(dir, f));
+const BANK = globalThis.TRIVIAL_BANK || {};
+let total = 0;
+const texts = new Set();
+for (const cat of TRIVIAL_CATS) {
+    const list = BANK[cat];
+    assert(Array.isArray(list) && list.length >= 50, `faltan preguntas de ${cat}`);
+    list.forEach((q, i) => {
+        const where = `${cat} ${i + 1}: ${q[0]}`;
+        assert.strictEqual(q.length, 6, `${where}: pregunta, cuatro respuestas y nivel`);
+        assert(q.slice(0, 5).every(s => typeof s === 'string' && s.trim() === s && s.length > 0), `${where}: textos vacíos o con espacios de más`);
+        assert.strictEqual(new Set(q.slice(1, 5).map(s => s.toLowerCase())).size, 4, `${where}: respuestas repetidas`);
+        assert([1, 2, 3].includes(q[5]), `${where}: el nivel es 1, 2 o 3`);
+        assert(!texts.has(q[0].toLowerCase()), `${where}: pregunta repetida`);
+        assert(!/[()]|\b(km|kg|etc)\b|%/.test(q.slice(0, 5).join(' ')), `${where}: sin paréntesis, abreviaturas ni símbolos`);
+        texts.add(q[0].toLowerCase());
+    });
+    total += list.length;
+}
+console.log(`Banco: ${total} preguntas (${TRIVIAL_CATS.map(c => `${c} ${BANK[c].length}`).join(', ')}).`);
+
+// ── El tablero ──────────────────────────────────────
+assert.strictEqual(TRIVIAL_BOARD.length, 73, '73 casillas');
+for (const node of TRIVIAL_BOARD) for (const nb of node.nb) assert(TRIVIAL_BOARD[nb].nb.includes(node.id), `las casillas ${node.id} y ${nb} se tocan en los dos sentidos`);
+assert.strictEqual(TRIVIAL_BOARD[TRIVIAL_HUB].nb.length, 6, 'del centro salen seis radios');
+const count = k => TRIVIAL_BOARD.filter(x => x.kind === k).length;
+assert.strictEqual(count('hq'), 6, 'seis quesitos');
+assert.strictEqual(count('roll'), 12, 'doce casillas de volver a tirar');
+for (const cat of TRIVIAL_CATS) {
+    assert.strictEqual(TRIVIAL_BOARD[trivialHq(cat)].cat, cat);
+    assert.strictEqual(TRIVIAL_BOARD.filter(x => x.kind === 'cat' && x.cat === cat).length, 9, `${cat}: 4 casillas en el anillo y 5 en los radios`);
+    assert.strictEqual(TRIVIAL_DIST[TRIVIAL_HUB][trivialHq(cat)], 6, 'del centro a cada quesito hay 6');
+}
+for (let k = 0; k < 6; k++) assert(!TRIVIAL_BOARD.filter(x => x.zone === 'spoke' && x.k === k).some(x => x.cat === TRIVIAL_CATS[k]), 'en un radio no está la categoría de su quesito');
+assert.strictEqual(trivialMoves(TRIVIAL_HUB, 6).length, 6, 'del centro con un 6: los seis quesitos');
+assert(trivialMoves(TRIVIAL_HUB, 6).every(m => TRIVIAL_BOARD[m.to].kind === 'hq'));
+assert.deepStrictEqual(trivialMoves(tvRing(3), 1).map(m => m.to).sort((a, b) => a - b), [tvRing(2), tvRing(4)], 'en el anillo, uno a cada lado');
+{   // Pasando por un quesito se puede entrar en su radio; pasando por el centro, salir por cualquier radio.
+    const dests = trivialMoves(tvRing(1), 3).map(m => m.to);
+    assert(dests.includes(tvSpoke(0, 2)), 'por el quesito, al radio');
+    const viaHub = trivialMoves(tvSpoke(2, 5), 2).map(m => m.to);
+    assert.strictEqual(viaHub.length, 6, 'por el centro: los otros cinco radios y hacia fuera');
+    for (const m of trivialMoves(tvSpoke(2, 3), 5)) assert(new Set([tvSpoke(2, 3), ...m.path]).size === m.path.length + 1, 'no se vuelve atrás');
+}
+
+// ── Situaciones concretas ───────────────────────────
+const MINI = {};
+for (const cat of TRIVIAL_CATS) MINI[cat] = Array.from({ length: 8 }, (_, i) => [`¿${cat} ${i}?`, 'Bien', 'Mal uno', 'Mal dos', 'Mal tres', 1 + (i % 3)]);
+function setup(n = 3, rules = {}) {
+    const g = new TrivialGame({ players: Array.from({ length: n }, (_, i) => ({ name: 'J' + i })), rules, seed: 11, bank: MINI });
+    g.startRound();
+    g.current = 0;
+    g.phase = 'roll';
+    return g;
+}
+const act = (g, a) => { const r = g.act(a); assert(r.ok, r.error); return r; };
+const kinds = r => r.events.map(e => e.t);
+const roll = (g, v) => { g.nextDice.push(v); return act(g, { type: 'roll', p: g.current }); };
+const goTo = (g, to) => act(g, { type: 'move', p: g.current, to });
+const answer = (g, ok) => act(g, { type: 'answer', p: g.current, choice: ok ? g.answerIdx : (g.answerIdx + 1) % 4 });
+
+{   // Del centro con un 6 al quesito de Historia: si aciertas, te lo llevas y vuelves a tirar.
+    const g = setup();
+    roll(g, 6);
+    assert.strictEqual(g.phase, 'move');
+    let r = goTo(g, trivialHq('historia'));
+    assert.deepStrictEqual(kinds(r), ['move', 'question']);
+    assert.strictEqual(g.q.cat, 'historia');
+    assert(g.q.wedge, 'pregunta de quesito');
+    assert(!('correct' in r.events[1]) && !('answer' in g.view()) && !JSON.stringify(g.view()).includes('"answerIdx"'), 'la respuesta no se ve en la mesa');
+    assert.strictEqual(g.view().q.options.filter(o => o === 'Bien').length, 1);
+    r = answer(g, true);
+    assert.deepStrictEqual(kinds(r), ['answer', 'wedge', 'turn']);
+    assert.deepStrictEqual(g.tokens[0].wedges, ['historia']);
+    assert.strictEqual(g.current, 0, 'acierta: vuelve a tirar');
+    // Otra vez en el quesito de Historia: ya lo tiene, no se lo lleva otra vez.
+    roll(g, 1); goTo(g, tvRing(15));
+    answer(g, true);
+    roll(g, 1); goTo(g, trivialHq('historia'));
+    assert(!g.q.wedge);
+    r = answer(g, true);
+    assert.deepStrictEqual(kinds(r), ['answer', 'turn']);
+    assert.strictEqual(g.tokens[0].wedges.length, 1);
+    // Falla: pasa el turno.
+    roll(g, 1); goTo(g, tvRing(13));
+    r = answer(g, false);
+    assert.deepStrictEqual(kinds(r), ['answer', 'turn']);
+    assert.strictEqual(g.current, 1);
+    assert.strictEqual(r.events[0].answerText, 'Bien', 'al fallar se dice la correcta');
+    assert.strictEqual(g.tokens[0].missed[TRIVIAL_BOARD[tvRing(13)].cat], 1);
+}
+{   // Casilla de volver a tirar: no hay pregunta.
+    const g = setup();
+    g.tokens[0].at = tvRing(0);
+    roll(g, 2);
+    const r = goTo(g, tvRing(2));
+    assert.strictEqual(TRIVIAL_BOARD[tvRing(2)].kind, 'roll');
+    assert.deepStrictEqual(kinds(r), ['move', 'turn']);
+    assert(r.events[1].again);
+    assert.strictEqual(g.phase, 'roll');
+}
+{   // En el centro sin todos los quesitos: eliges tú la categoría.
+    const g = setup();
+    g.tokens[0].at = tvSpoke(1, 4);
+    roll(g, 2);
+    let r = goTo(g, TRIVIAL_HUB);
+    assert.deepStrictEqual(kinds(r), ['move', 'pickCat']);
+    assert.strictEqual(g.actor, 0);
+    assert(!g.act({ type: 'pick', p: 1, cat: 'arte' }).ok, 'no elige otro');
+    r = act(g, { type: 'pick', p: 0, cat: 'arte' });
+    assert.strictEqual(g.q.cat, 'arte');
+    assert.strictEqual(g.q.kind, 'hub');
+}
+{   // Con todos los quesitos, al centro: elige la categoría el siguiente rival. Si aciertas, ganas.
+    const g = setup(3);
+    g.tokens[0].wedges = TRIVIAL_CATS.slice();
+    g.tokens[0].at = tvSpoke(3, 5);
+    roll(g, 1);
+    let r = goTo(g, TRIVIAL_HUB);
+    assert.strictEqual(g.phase, 'pick');
+    assert.strictEqual(g.actor, 1, 'elige el rival de después');
+    assert.deepStrictEqual(g.legal(1), ['pick']);
+    act(g, { type: 'pick', p: 1, cat: 'deportes' });
+    assert.strictEqual(g.q.kind, 'final');
+    assert(!g.act({ type: 'answer', p: 1, choice: 0 }).ok, 'contesta quien juega');
+    r = answer(g, true);
+    assert.strictEqual(g.phase, 'gameOver');
+    assert.deepStrictEqual(g.winners, [0]);
+    assert(kinds(r).includes('gameOver'));
+}
+{   // Falla la final: pasa el turno y tendrá que volver al centro.
+    const g = setup(2, { finalPick: 'azar' });
+    g.tokens[0].wedges = TRIVIAL_CATS.slice();
+    g.tokens[0].at = tvSpoke(0, 4);
+    roll(g, 2);
+    goTo(g, TRIVIAL_HUB);
+    assert.strictEqual(g.q.kind, 'final', 'al azar: pregunta directa');
+    answer(g, false);
+    assert.strictEqual(g.phase, 'roll');
+    assert.strictEqual(g.current, 1);
+}
+{   // Partida corta: con 3 quesitos y sin final, ganas al conseguir el tercero.
+    const g = setup(2, { wedges: 3, hubFinal: false });
+    g.tokens[0].wedges = ['arte', 'ciencia'];
+    g.tokens[0].at = TRIVIAL_HUB;
+    roll(g, 6);
+    goTo(g, trivialHq('deportes'));
+    const r = answer(g, true);
+    assert.deepStrictEqual(kinds(r), ['answer', 'wedge', 'gameOver']);
+}
+{   // Sin volver a tirar al acertar.
+    const g = setup(2, { rollAgain: false });
+    g.tokens[0].at = tvRing(1);
+    roll(g, 3);
+    goTo(g, trivialMoves(tvRing(1), 3).find(m => TRIVIAL_BOARD[m.to].kind === 'cat').to);
+    answer(g, true);
+    assert.strictEqual(g.current, 1);
+}
+{   // Por equipos: una ficha por equipo, la mueven sus jugadores por turnos.
+    const g = setup(4, { teams: true });
+    assert(g.teamPlay);
+    assert.strictEqual(g.tokens.length, 2);
+    assert.deepStrictEqual(g.tokens[0].members, [0, 2]);
+    roll(g, 6);
+    goTo(g, trivialHq('geografia'));
+    answer(g, true);
+    assert.deepStrictEqual(g.tokens[0].wedges, ['geografia']);
+    roll(g, 1);
+    goTo(g, trivialMoves(g.tokens[0].at, 1).find(m => TRIVIAL_BOARD[m.to].kind === 'cat').to);
+    answer(g, false);
+    assert.strictEqual(g.current, 1);
+    roll(g, 6);
+    assert.strictEqual(g.tokens[1].at, TRIVIAL_HUB, 'el otro equipo sigue en el centro');
+    goTo(g, trivialHq('arte'));
+    answer(g, false);
+    assert.strictEqual(g.current, 2, 'le toca al compañero del primero');
+    assert.strictEqual(g.tokenOf(2), g.tokens[0], 'y mueve la ficha de su equipo');
+    // La final la elige un rival del otro equipo.
+    g.tokens[0].wedges = TRIVIAL_CATS.slice();
+    assert.strictEqual(g.finalChooser(2), 3);
+    assert.strictEqual(g.finalChooser(0), 1);
+}
+{   // Preguntas fáciles: solo las de nivel 1.
+    const g = setup(2, { level: 'faciles' });
+    assert(g.decks.arte.every(i => MINI.arte[i][5] === 1));
+    const h = setup(2, { level: 'dificiles' });
+    assert(h.decks.arte.every(i => MINI.arte[i][5] >= 2));
+}
+{   // Las preguntas que ya han salido en otras partidas van al final del montón.
+    const seen = MINI.arte.map((_, i) => `arte:${i}`).filter((_, i) => i !== 5);
+    const g = new TrivialGame({ players: [{ name: 'a' }, { name: 'b' }], seed: 3, bank: MINI, seen });
+    assert.strictEqual(g.decks.arte[0], 5);
+}
+{   // Errores.
+    const g = setup();
+    assert(!g.act({ type: 'move', p: 0, to: 1 }).ok, 'primero se tira');
+    assert(!g.act({ type: 'roll', p: 1 }).ok, 'no es su turno');
+    roll(g, 3);
+    assert(!g.act({ type: 'move', p: 0, to: trivialHq('arte') }).ok, 'no se llega con un 3');
+    assert(!g.act({ type: 'nada', p: 0 }).ok);
+}
+
+// ── Partidas enteras con la máquina, y la mesa del invitado ──
+function playGame(seed, n, rules = {}, bank = BANK) {
+    const g = new TrivialGame({ players: Array.from({ length: n }, (_, i) => ({ name: 'J' + i })), rules, seed, bank });
+    const bots = Array.from({ length: n }, (_, i) => new TrivialBot(g, i, CHARACTERS[(seed + i) % CHARACTERS.length], R.makeRng(seed * 31 + i)));
+    const mirror = new TrivialMirror({ names: g.players.map(p => p.name), rules });
+    let r = g.startRound();
+    assert(r.ok);
+    let steps = 0;
+    while (g.phase !== 'gameOver') {
+        assert(++steps < 20000, 'la partida se acaba');
+        const a = bots[g.actor].chooseTurn();
+        r = g.act(a);
+        assert(r.ok, `${r.error} (${JSON.stringify(a)}, fase ${g.phase})`);
+        for (const e of r.events) {
+            if (e.t === 'question') { assert(!('correct' in e)); assert.strictEqual(e.options.length, 4); }
+            if (e.t === 'answer') assert.strictEqual(e.ok, e.choice === e.correct);
+        }
+        mirror.setView(JSON.parse(JSON.stringify(g.view())));
+        assert.strictEqual(mirror.actor, g.actor);
+        assert.deepStrictEqual(mirror.legal(g.actor), g.legal(g.actor));
+    }
+    const win = g.tokens[g.side(g.winners[0])];
+    assert(win.wedges.length >= g.rules.wedges, 'gana quien tiene los quesitos');
+    if (g.rules.hubFinal) assert.strictEqual(win.at, TRIVIAL_HUB, 'y en el centro');
+    return steps;
+}
+const R = require('../js/rules.js');
+let games = 0, steps = 0;
+for (let s = 1; s <= 60; s++) { steps += playGame(s, 2 + (s % 5)); games++; }
+for (let s = 1; s <= 20; s++) { playGame(100 + s, 4, { teams: true }); playGame(200 + s, 6, { teams: true, finalPick: 'tu' }); games += 2; }
+for (let s = 1; s <= 20; s++) { playGame(300 + s, 3, { wedges: 3, hubFinal: false, rollAgain: false, level: 'faciles' }); playGame(400 + s, 2, { wedges: 4, finalPick: 'azar', level: 'dificiles' }); games += 2; }
+console.log(`${games} partidas de Trivial con la máquina (unas ${Math.round(steps / 60)} jugadas cada una).`);
+console.log('Trivial: todo bien.');

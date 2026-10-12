@@ -105,6 +105,9 @@ const CHARACTERS = [
             eat: ['¡Ñam! ¿Era tuya?', 'Uy, me la he comido sin querer.'],
             eaten: ['¿Otra vez a casa? Si acababa de salir.'],
             meta: ['¡Una dentro! No sé ni cómo.'],
+            right: ['¡Lo sabía! Bueno, casi.', '¡Toma ya!'],
+            wrong: ['Pues yo habría jurado que era esa.', 'Me la sabía, me la sabía…'],
+            wedge: ['¡Un quesito! ¡Qué rico!', '¡Este para la colección!'],
         },
     },
     {
@@ -121,6 +124,9 @@ const CHARACTERS = [
             eat: ['¡Te pillé!', 'Veinte para mí.'],
             eaten: ['Vale, vale, me la apunto.'],
             meta: ['Una menos.', 'Para dentro.'],
+            right: ['¡Facilísima!', 'Esa la vi el otro día en una serie.'],
+            wrong: ['¡Anda ya! ¿En serio?', 'Vale, esa no.'],
+            wedge: ['¡Quesito para mí!', 'Uno más, uno más.'],
         },
     },
     {
@@ -137,6 +143,9 @@ const CHARACTERS = [
             eat: ['Lo siento, cariño, pero a casa.', 'Ay, hijo, que te la estaba viendo venir.'],
             eaten: ['Bien comida, bien comida.'],
             meta: ['Despacito y buena letra.'],
+            right: ['Eso lo aprendí yo en la escuela, hijo.', 'Muy fácil, cariño.'],
+            wrong: ['Ay, qué cabeza la mía.', 'Eso antes no lo enseñaban.'],
+            wedge: ['Otro quesito para la abuela.', 'Ay, qué bien, otro quesito.'],
         },
     },
     {
@@ -153,6 +162,9 @@ const CHARACTERS = [
             eat: ['¡Zas! A casa.', '¿Quién dijo miedo?'],
             eaten: ['Era un farol. Quería que me la comieras.'],
             meta: ['¡Toni mete otra!'],
+            right: ['¿Lo dudabais?', 'Pregunta de primero.'],
+            wrong: ['La pregunta estaba mal hecha.', 'Os he dejado ganar esa.'],
+            wedge: ['¡Quesito para Toni!', '¿Quién da más?'],
         },
     },
     {
@@ -169,6 +181,9 @@ const CHARACTERS = [
             eat: ['Una probabilidad entre seis. Me ha salido.', 'Cuento veinte.'],
             eaten: ['Riesgo asumido.'],
             meta: ['Una más en la meta. Según lo previsto.'],
+            right: ['Dato correcto.', 'Evidente.'],
+            wrong: ['Tomo nota. No volverá a pasar.', 'Interesante. Lo repasaré.'],
+            wedge: ['Quesito asegurado.', 'Uno más. Según lo previsto.'],
         },
     },
     {
@@ -185,6 +200,9 @@ const CHARACTERS = [
             eat: ['¿Me la puedo comer? ¡Me la como!'],
             eaten: ['¿Ya? ¿Tan pronto?'],
             meta: ['¡Ha llegado! ¿Ha llegado?'],
+            right: ['¿He acertado? ¡He acertado!', 'Lo he puesto a suerte, ¿eh?'],
+            wrong: ['¿No era esa? Vaya.', 'Esa no me la sabía.'],
+            wedge: ['¿Esto es un quesito? ¡Qué bonito!'],
         },
     },
 ];

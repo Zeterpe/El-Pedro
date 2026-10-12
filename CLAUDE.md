@@ -2,16 +2,16 @@
 
 Salón de juegos de cartas con baraja española, **en español**, pensado para personas ciegas y jugable por cualquiera. Se publica con GitHub Pages desde `main`: <https://zeterpe.github.io/El-Pedro/>.
 
-Hay tres juegos: **El Pedro** (memoria), **la Brisca** (bazas) y **el Parchís** (dado y fichas). Los sonidos, la voz, la mesa y las salas son comunes; cada juego pone sus reglas, sus rivales y cómo se cuenta lo que pasa. Para añadir otro juego, mira «Cómo se añade un juego».
+Hay cuatro juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís** (dado y fichas) y **el Trivial** (preguntas y quesitos). Los sonidos, la voz, la mesa y las salas son comunes; cada juego pone sus reglas, sus rivales y cómo se cuenta lo que pasa. Para añadir otro juego, mira «Cómo se añade un juego».
 
 **Prioridades, por este orden:** que se pueda jugar sin ver la pantalla, que sea divertido, y lo demás.
 
 ## Tecnología
 
 - HTML + CSS + JavaScript **sin compilación ni dependencias**.
-- Los archivos de `js/` son *scripts clásicos* que comparten el ámbito global, así que **el orden de los `<script>` en `index.html` importa**: rules → brisca → ai → brisca-ai → parchis → parchis-ai → speech → audio → texts → ui → vendor/peerjs → net → mirror → cards → board → match → pedro → brisca-match → parchis-match → games → online → app.
+- Los archivos de `js/` son *scripts clásicos* que comparten el ámbito global, así que **el orden de los `<script>` en `index.html` importa**: rules → brisca → ai → brisca-ai → parchis → parchis-ai → trivial/(geografia, espectaculos, historia, arte, ciencia, deportes) → trivial → trivial-ai → speech → audio → texts → ui → vendor/peerjs → net → mirror → cards → board → match → pedro → brisca-match → parchis-match → trivial-match → games → online → app.
 - Única dependencia: PeerJS (MIT), copiada en `js/vendor/peerjs.min.js`. No se carga de ningún CDN.
-- `rules.js`, `ai.js`, `brisca.js`, `brisca-ai.js`, `parchis.js` y `parchis-ai.js` no tocan la pantalla y también se cargan con Node (`require`), para probarlos sin navegador. `node tests/brisca.test.js` juega cientos de partidas de Brisca y comprueba puntos, bazas y lo que ve cada jugador; `node tests/parchis.test.js` prueba cada regla del Parchís con tableros preparados y juega más de cien partidas.
+- `rules.js`, `ai.js`, `brisca.js`, `brisca-ai.js`, `parchis.js`, `parchis-ai.js`, `trivial.js`, `trivial-ai.js` y las preguntas de `js/trivial/` no tocan la pantalla y también se cargan con Node (`require`), para probarlos sin navegador. `node tests/brisca.test.js` juega cientos de partidas de Brisca y comprueba puntos, bazas y lo que ve cada jugador; `node tests/parchis.test.js` prueba cada regla del Parchís con tableros preparados y juega más de cien partidas; `node tests/trivial.test.js` revisa el banco de preguntas, el tablero y cada regla del Trivial, y juega más de cien partidas.
 - Sonido: todo se sintetiza con Web Audio en `js/audio.js`. No hay archivos de audio.
 - Voz: `speechSynthesis` o el lector de pantalla (regiones `aria-live`), en `js/speech.js`.
 
@@ -23,6 +23,9 @@ Hay tres juegos: **El Pedro** (memoria), **la Brisca** (bazas) y **el Parchís**
 | `js/brisca-ai.js` | Rivales de la Brisca (`BriscaBot`): cuentan cartas, cargan puntos y guardan triunfos según la dificultad |
 | `js/parchis.js` | Reglas del Parchís (`ParchisGame`, `PARCHIS_DEFAULT_RULES`): tablero, salidas, seguros, barreras, comer y contar, meta, parejas. También la mesa del invitado (`ParchisMirror`); en el Parchís no hay nada oculto |
 | `js/parchis-ai.js` | Rivales del Parchís (`ParchisBot`): puntúan cada jugada (comer, meta, salir, peligro) según la dificultad |
+| `js/trivial.js` | Reglas del Trivial (`TrivialGame`, `TRIVIAL_DEFAULT_RULES`): la rueda (`TRIVIAL_BOARD`), los movimientos (`trivialMoves`), las preguntas por categoría, quesitos, equipos y la final. También la mesa del invitado (`TrivialMirror`); la respuesta buena solo la sabe el anfitrión hasta que se contesta |
+| `js/trivial-ai.js` | Rivales del Trivial (`TrivialBot`): aciertan más o menos según la dificultad y su categoría favorita, y eligen casilla buscando quesitos |
+| `js/trivial/*.js` | El banco de preguntas, un archivo por categoría (`TRIVIAL_BANK`): `[pregunta, buena, mala, mala, mala, nivel]`, nivel de 1 (fácil) a 3 (difícil) |
 | `js/audio.js` | Sonidos: palo de cada carta, sitios de la mesa, momentos del juego |
 | `js/speech.js` | Voz del juego o lector de pantalla |
 | `js/texts.js` | Cómo se dicen las cartas y los sitios («la sota de oros», «tu carta 2») |
@@ -33,6 +36,7 @@ Hay tres juegos: **El Pedro** (memoria), **la Brisca** (bazas) y **el Parchís**
 | `js/pedro.js` | `PedroMatch`: la mesa de El Pedro. Elegir cartas tocándolas (`pick`), quemar en cualquier momento, poderes y lo que se cuenta |
 | `js/brisca-match.js` | `BriscaMatch`: la mesa de la Brisca. Mazo con la muestra, baza en el centro, tocar dos veces para jugar, consejos en la práctica |
 | `js/parchis-match.js` | `ParchisMatch` y `ParchisArt`: el tablero en SVG (girado para que tu casa quede abajo a la derecha), fichas que andan casilla a casilla, dado, peligros y consejos |
+| `js/trivial-match.js` | `TrivialMatch` y `TrivialArt`: la rueda en SVG, la tarjeta de la pregunta con sus cuatro respuestas, elegir casilla y los quesitos de cada uno |
 | `js/games.js` | `GAMES`: cada juego con su nombre, reglas de la casa, opciones de la partida y el texto de «Cómo se juega» |
 | `js/net.js` | Conexión con PeerJS: `HostNet` (abre la sala `elpedro-NNNNN`) y `ClientNet` |
 | `js/mirror.js` | `MirrorGame`: la mesa tal como la ve un invitado, sin cartas ocultas. `eventFor()` quita a cada jugador las cartas que no puede ver |
@@ -40,6 +44,7 @@ Hay tres juegos: **El Pedro** (memoria), **la Brisca** (bazas) y **el Parchís**
 | `js/app.js` | Portada (cómo jugar), nombre, salón, menú de cada juego, ajustes guardados (`DEFAULT_SETTINGS`), estadísticas por juego y teclado |
 | `tests/brisca.test.js` | Pruebas de la Brisca con Node |
 | `tests/parchis.test.js` | Pruebas del Parchís con Node |
+| `tests/trivial.test.js` | Pruebas del Trivial con Node |
 
 ### Cómo funcionan las reglas
 
@@ -74,11 +79,20 @@ Cada juego es una máquina de estados con `act()` y `view(seat)`. Cada `act` dev
 - Sucesos: `round`, `turn`, `roll`, `noMove`, `move` (`kind`: `out`, `roll` o `bonus`), `capture`, `meta`, `bonus`, `bonusLost`, `penalty`, `finished` y `gameOver`.
 - Como la Brisca, `ParchisMatch` dibuja desde `this.shown` y mueve las fichas casilla a casilla mientras lo cuenta.
 
+**El Trivial.** `TrivialGame` tiene las fases `roll` → `move` → (`pick`) → `answer` → … → `gameOver`.
+
+- **El tablero** (`TRIVIAL_BOARD`, 73 casillas): el centro es la 0; el anillo, de la 1 a la 42, con un quesito cada 7 casillas; los seis radios, de la 43 a la 72, cinco casillas cada uno. En el anillo hay casillas de «vuelve a tirar». Se mueve la cuenta justa sin volver atrás (`trivialMoves`).
+- **Las categorías**, en orden: geografía (azul), espectáculos (rosa), historia (amarillo), arte y literatura (marrón), ciencia (verde) y deportes (naranja). Cada una tiene su mazo; las preguntas ya vistas en este aparato (`localStorage['elpedro.trivial.seen']`) van al final.
+- **Las acciones** son `roll`, `move` (con `to`), `pick` (con `cat`, en el centro o la final) y `answer` (con `choice`, de 0 a 3). El suceso `question` no lleva la respuesta buena; la dice `answer` al contestar.
+- **Quesitos y final.** Se gana el quesito acertando en su casilla. Con `wedges` quesitos se va al centro y, con `hubFinal`, se gana acertando la final; la categoría la eligen los rivales, el azar o tú (`finalPick`).
+- **Por equipos** (4 o 6 jugadores con `teams`), el equipo es `p % 2` y cada equipo lleva una sola ficha; contestan por turnos.
+- Como el Parchís, `TrivialMatch` dibuja desde `this.shown` y mueve la ficha casilla a casilla.
+
 ### Cómo funcionan las salas
 
 - **En la sala se elige el juego** (`Online.game`). Al acabar una partida, quien la ha creado puede volver a la sala (`backToLobby`) y elegir otro, sin crear una sala nueva.
-- **Quien crea la sala** tiene la partida (`PedroGame`, `BriscaGame` o `ParchisGame`) y decide todo. Después de cada acción manda a cada jugador un paquete `batch`, con los sucesos filtrados por `eventFor()` y la mesa (`view()`).
-- **Cada invitado** guarda esa mesa en un `MirrorGame` (o `BriscaMirror`, `ParchisMirror`) y cuenta los sucesos a su manera, con voz o sin ella. Cuando le toca, manda su jugada (`act`) y el anfitrión la comprueba.
+- **Quien crea la sala** tiene la partida (`PedroGame`, `BriscaGame`, `ParchisGame` o `TrivialGame`) y decide todo. Después de cada acción manda a cada jugador un paquete `batch`, con los sucesos filtrados por `eventFor()` y la mesa (`view()`).
+- **Cada invitado** guarda esa mesa en un `MirrorGame` (o `BriscaMirror`, `ParchisMirror`, `TrivialMirror`) y cuenta los sucesos a su manera, con voz o sin ella. Cuando le toca, manda su jugada (`act`) y el anfitrión la comprueba.
 - **Quemar llega en cualquier momento:** el invitado manda `act` con `type: 'burn'` y el anfitrión lo pone en la cola. Si falla, le contesta con `burnError`.
 - **Antes de que los rivales de la máquina intenten quemar,** el anfitrión espera a que todos hayan oído la carta (`ack`). Así nadie se queda atrás porque su voz vaya más lenta.
 - **Si alguien se va,** juega la máquina por esa persona (`seatLeft`).
@@ -108,14 +122,15 @@ d.setTimeScale(0.1)   // todo más rápido para probar
 d.play()              // empezar partida de El Pedro con los ajustes actuales
 d.brisca()            // empezar partida de Brisca
 d.parchis()           // empezar partida de Parchís
+d.trivial()           // empezar partida de Trivial
 d.practice('brisca')  // partida de práctica de un juego
 d.online              // la sala (Online): code, table, role
 ```
 
 **Comprobación mínima antes de subir un cambio:**
-- `node tests/brisca.test.js` y `node tests/parchis.test.js`.
+- `node tests/brisca.test.js`, `node tests/parchis.test.js` y `node tests/trivial.test.js`.
 - Juega una ronda de cada juego en cada modo: con voz (teclado), con lector de pantalla y sin voz (tocando).
-- En El Pedro, usa una carta de poder, quema una carta y canta Pedro. En la Brisca, juega por parejas y prueba el cambio de muestra y los cantes. En el Parchís, juega por parejas y solo, come una ficha y mete otra en la meta.
+- En El Pedro, usa una carta de poder, quema una carta y canta Pedro. En la Brisca, juega por parejas y prueba el cambio de muestra y los cantes. En el Parchís, juega por parejas y solo, come una ficha y mete otra en la meta. En el Trivial, juega por equipos, gana un quesito y llega a la final.
 - Prueba una sala con dos navegadores: cambia de juego en la sala y recarga la página de un invitado a mitad de partida.
 - Prueba también en el móvil o con el modo móvil del navegador, y comprueba que la consola no muestra errores.
 
@@ -131,7 +146,7 @@ d.online              // la sala (Online): code, table, role
    - Respeta los ajustes: modo lector de pantalla (`settings.output === 'sr'`), mono, anuncios breves y velocidad de la voz.
 3. **Justo para todos.** El juego no recuerda tus cartas salvo con la «ayuda de memoria», que es opcional. Lo que ve en pantalla quien ve debe poder oírlo quien no ve, y al revés: una carta mirada se enseña unos segundos y también se dice, y se puede repetir con Espacio.
 4. **Azar.** En la lógica de juego usa el `rng` con semilla de `rules.js` (`makeRng`). `Math.random` solo para efectos de sonido.
-5. **No romper partidas guardadas.** Los ajustes nuevos van en `DEFAULT_SETTINGS` (`js/app.js`) y las reglas nuevas en `DEFAULT_RULES` (`js/rules.js`), `BRISCA_DEFAULT_RULES` (`js/brisca.js`) o `PARCHIS_DEFAULT_RULES` (`js/parchis.js`); `loadSaved()` rellena lo que falte.
+5. **No romper partidas guardadas.** Los ajustes nuevos van en `DEFAULT_SETTINGS` (`js/app.js`) y las reglas nuevas en `DEFAULT_RULES` (`js/rules.js`), `BRISCA_DEFAULT_RULES` (`js/brisca.js`), `PARCHIS_DEFAULT_RULES` (`js/parchis.js`) o `TRIVIAL_DEFAULT_RULES` (`js/trivial.js`); `loadSaved()` rellena lo que falte.
 6. **Textos en español**, tuteando al jugador y escritos para el oído: frases claras, sin símbolos ni abreviaturas.
 
 ## Cómo se añade un juego

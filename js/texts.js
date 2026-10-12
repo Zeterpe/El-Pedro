@@ -58,6 +58,17 @@ const Txt = {
         ].filter(Boolean).join(' ');
     },
 
+    /** Las reglas de una mesa de Trivial, en pocas frases. */
+    trivialRules(r) {
+        return [
+            `Hay que conseguir ${r.wedges} quesitos${r.hubFinal ? ' y acertar la pregunta final en el centro' : ''}.`,
+            r.teams ? 'Con 4 o 6 jugadores, por equipos.' : '',
+            r.hubFinal ? `La categoría de la final la elige${({ rivales: 'n los rivales', azar: ' el azar', tu: 's tú' })[r.finalPick]}.` : '',
+            r.rollAgain ? 'Si aciertas, vuelves a tirar.' : 'Aciertes o no, pasa el turno.',
+            ({ todas: '', faciles: 'Solo preguntas fáciles.', dificiles: 'Solo preguntas medias y difíciles.' })[r.level],
+        ].filter(Boolean).join(' ');
+    },
+
     /** Las reglas de una mesa, en pocas frases. */
     rules(r) {
         const yes = v => v ? 'sí' : 'no';

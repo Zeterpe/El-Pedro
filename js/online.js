@@ -485,7 +485,7 @@ const Online = {
         if (!rules || !GAMES[id]?.pairs?.(rules, ps.length)) return '';
         const name = p => p.me ? 'tú' : p.name;
         const a = ps.filter((_, i) => i % 2 === 0).map(name), b = ps.filter((_, i) => i % 2 === 1).map(name);
-        return `Parejas: ${Txt.list(a)} contra ${Txt.list(b)}.`;
+        return `${GAMES[id].teamWord || 'Parejas'}: ${Txt.list(a)} contra ${Txt.list(b)}.`;
     },
 
     renderLobby() {

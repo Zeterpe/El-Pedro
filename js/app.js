@@ -31,14 +31,16 @@ const DEFAULT_SETTINGS = {
     game: 'pedro',            // el último juego elegido
     briscaRivals: 1,
     briscaRules: { ...BRISCA_DEFAULT_RULES },
-    confirmPlay: true,        // Brisca y Parchís: el primer toque dice la carta (o la ficha) y el segundo la juega
+    confirmPlay: true,        // Brisca, Parchís y Trivial: el primer toque dice la carta (la ficha o la respuesta) y el segundo la juega
     parchisRivals: 3,
     parchisRules: { ...PARCHIS_DEFAULT_RULES },
+    trivialRivals: 2,
+    trivialRules: { ...TRIVIAL_DEFAULT_RULES },
     cardSize: 'normal',       // normal · grande
     contrast: 'normal',       // normal · alto
 };
 
-const DEFAULT_GAME_STATS = { games: 0, gamesWon: 0, rounds: 0, roundsWon: 0, best: null };
+const DEFAULT_GAME_STATS = { games: 0, gamesWon: 0, rounds: 0, roundsWon: 0, best: null, answered: 0, right: 0 };
 
 function loadSaved() {
     let raw = null;
@@ -47,6 +49,7 @@ function loadSaved() {
     settings.rules = { ...DEFAULT_RULES, ...(raw?.settings?.rules || {}) };
     settings.briscaRules = { ...BRISCA_DEFAULT_RULES, ...(raw?.settings?.briscaRules || {}) };
     settings.parchisRules = { ...PARCHIS_DEFAULT_RULES, ...(raw?.settings?.parchisRules || {}) };
+    settings.trivialRules = { ...TRIVIAL_DEFAULT_RULES, ...(raw?.settings?.trivialRules || {}) };
     if (!GAMES[settings.game]) settings.game = 'pedro';
     settings.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
     // Las estadísticas eran solo de El Pedro: pasan a su juego.
@@ -371,6 +374,7 @@ const App = {
         const G = GAMES[id];
         $('rules-title').textContent = `Cómo se juega: ${G.name}`;
         $('rules-text').innerHTML = G.rulesHtml;
+        $('btn-suits').hidden = !!G.art;   // los palos, solo en los juegos de cartas
         UI.show('rules', { intro: `Cómo se juega ${G.name}. Puedes escuchar las reglas, oír cómo suena cada palo o jugar una partida de práctica. Las reglas están debajo de los botones.` });
     },
 
@@ -395,7 +399,7 @@ const App = {
             { label: 'Contraste', values: ['normal', 'alto'], get: () => s.contrast, set: v => { s.contrast = v; this.applyLook(); }, text: v => v === 'alto' ? 'alto: números grandes en las cartas y bordes marcados' : 'normal' },
             { label: 'Anuncios', values: ['normal', 'breve'], get: () => s.verbosity, set: v => { s.verbosity = v; }, text: v => v === 'normal' ? 'completos' : 'breves' },
             { label: 'Decir cuánto valen las figuras en El Pedro', values: [true, false], get: () => s.figureValues, set: v => { s.figureValues = v; }, text: yesNo },
-            { label: 'Brisca y Parchís: tocar dos veces para jugar', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice la carta o adónde va la ficha' : 'no: se juega al tocarla' },
+            { label: 'Brisca, Parchís y Trivial: tocar dos veces para jugar', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice la carta, adónde va la ficha o la respuesta' : 'no: se juega al tocarla' },
             { label: 'Velocidad de los rivales', values: ['lenta', 'normal', 'rapida'], get: () => s.botSpeed, set: v => { s.botSpeed = v; }, text: v => ({ lenta: 'lenta', normal: 'normal', rapida: 'rápida' })[v] },
             { label: 'Comentarios de los rivales', values: [true, false], get: () => s.quips, set: v => { s.quips = v; }, text: yesNo },
             { label: 'Pistas', values: [true, false], get: () => s.hints, set: v => { s.hints = v; }, text: yesNo },
@@ -413,7 +417,9 @@ const App = {
             const lines = [
                 `Partidas jugadas: ${st.games}. Ganadas: ${st.gamesWon}${st.games ? pct(st.gamesWon, st.games) : ''}.`,
             ];
-            // El Parchís no tiene rondas ni manos: solo partidas.
+            // El Trivial cuenta también las preguntas.
+            if (st.answered) lines.push(`Preguntas contestadas: ${st.answered}. Acertadas: ${st.right}${pct(st.right, st.answered)}.`);
+            // El Parchís y el Trivial no tienen rondas ni manos: solo partidas.
             if (w) lines.push(
                 st.rounds ? `${cap(w)}s jugadas: ${st.rounds}. Ganadas: ${st.roundsWon}${pct(st.roundsWon, st.rounds)}.` : `Aún no has jugado ninguna ${w}.`,
                 st.best == null ? (st.rounds ? `Aún no has ganado ninguna ${w}.` : '') : id === 'pedro' ? `Tu mejor ronda ganada: ${Txt.points(st.best)}.` : `Tu mejor mano: ${Txt.points(st.best)}.`,
@@ -503,6 +509,15 @@ const App = {
         this.save();
     },
 
+    /** Trivial: una pregunta que has contestado tú. */
+    recordAnswer(game, ok) {
+        const st = this.stats[game];
+        if (!st) return;
+        st.answered = (st.answered || 0) + 1;
+        if (ok) st.right = (st.right || 0) + 1;
+        this.save();
+    },
+
     recordGame(game, won) {
         const st = this.stats[game];
         if (!st) return;
@@ -565,6 +580,7 @@ const App = {
             play: opts => app.startMatch(opts || {}),
             brisca: opts => app.startMatch({ game: 'brisca', ...(opts || {}) }),
             parchis: opts => app.startMatch({ game: 'parchis', ...(opts || {}) }),
+            trivial: opts => app.startMatch({ game: 'trivial', ...(opts || {}) }),
             practice: (game = 'pedro') => app.startPractice(game),
         };
     },
