@@ -58,6 +58,7 @@ const App = {
         Online.init(this);
         $('version').textContent = `Versión del ${GAME_VERSION.spoken}`;
         this.pendingRoom = (new URLSearchParams(location.search).get('sala') || '').replace(/\D/g, '').slice(0, 5) || null;
+        this.checkUpdate();
         this.bindMenus();
         this.bindKeys();
         this.bindGameButtons();
@@ -69,6 +70,31 @@ const App = {
         document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => this.chooseMode(b.dataset.mode)));
         const last = document.querySelector(`[data-mode="${this.settings.output}"]`) || document.querySelector('[data-mode="voz"]');
         UI.focus(last, { silent: true });
+    },
+
+    /** Si el navegador tiene guardada una versión vieja del juego, carga la nueva: con versiones distintas no se puede jugar en una sala. */
+    checkUpdate() {
+        if (!/^https?:$/.test(location.protocol)) return;
+        fetch(`js/rules.js?u=${Date.now()}`, { cache: 'no-store' })
+            .then(r => r.ok ? r.text() : '')
+            .then(t => {
+                const v = /id:\s*'(\w+)'/.exec(t)?.[1];
+                if (v && v > GAME_VERSION.id && !this.match && !Online.role) this.reloadFor(v, this.pendingRoom);
+            })
+            .catch(() => { /* sin conexión: se sigue con esta versión */ });
+    },
+
+    /** Recarga la página con la versión v (y la sala, si ibas a unirte a una). Devuelve false si ya se intentó. */
+    reloadFor(v, room = null) {
+        let tried = null;
+        try { tried = sessionStorage.getItem('elpedro.update'); } catch (_) { /* sin almacenamiento */ }
+        if (tried === v) return false;   // ya se intentó: no se recarga una y otra vez
+        try { sessionStorage.setItem('elpedro.update', v); } catch (_) { /* sin almacenamiento */ }
+        const u = new URL(location.href);
+        u.searchParams.set('v', v);   // otra dirección: el navegador no usa la copia guardada
+        if (room) u.searchParams.set('sala', room);
+        location.replace(u.href);
+        return true;
     },
 
     save() {
