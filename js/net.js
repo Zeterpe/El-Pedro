@@ -32,12 +32,17 @@ const Net = {
     /** Código de sala: 5 cifras, fácil de dictar y de escribir en el móvil. */
     newCode() { return String(10000 + Math.floor(Math.random() * 90000)); },
     explain(err) {
-        const t = err?.type || '';
+        const t = Net.kind(err);
         if (t === 'peer-unavailable') return 'No hay ninguna sala abierta con ese código. Comprueba el código y que quien creó la sala tiene el juego abierto en pantalla.';
         if (t === 'ice') return 'Se ha encontrado la sala, pero vuestras conexiones no han conseguido unirse. Probad otra vez; si sigue fallando, probad con otra red, por ejemplo los datos del móvil.';
         if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') return 'No se ha podido conectar con el servidor de salas. Comprueba tu conexión a internet.';
         if (t === 'browser-incompatible') return 'Este navegador no permite jugar online.';
-        return 'No se ha podido conectar.';
+        return `No se ha podido conectar. Código del fallo: ${t || 'desconocido'}.`;
+    },
+    /** Tipo de fallo. Si la sala se encontró pero las conexiones no se unieron, PeerJS lo llama de varias formas: aquí todas son 'ice'. */
+    kind(err) {
+        const t = err?.type || '';
+        return ['negotiation-failed', 'webrtc'].includes(t) ? 'ice' : t;
     },
 };
 
@@ -117,7 +122,7 @@ class ClientNet {
     async connect(code) {
         for (let attempt = 0; ; attempt++) {
             try { return await this.#connectOnce(code); } catch (e) {
-                if (this.closed || attempt >= 2 || (e?.type !== 'peer-unavailable' && e?.type !== 'ice')) throw e;
+                if (this.closed || attempt >= 2 || !['peer-unavailable', 'ice'].includes(Net.kind(e))) throw e;
                 await new Promise(r => setTimeout(r, 2500));
                 if (this.closed) throw e;
             }
