@@ -22,6 +22,15 @@ const Txt = {
         return s;
     },
 
+    /** En la Brisca: «el as de oros», y «, triunfo» si es del palo que triunfa. */
+    /** El palo con su artículo: «los oros», «las copas». */
+    suitArt(suit) { return (suit === 'oros' || suit === 'bastos' ? 'los ' : 'las ') + suit; },
+
+    bcard(c, trump = null) {
+        if (!c) return 'ninguna carta';
+        return this.card(c, { value: false }) + (trump && c.suit === trump ? ', triunfo' : '');
+    },
+
     /** «siete de bastos», sin artículo. */
     cardShort(c) { return c ? `${RANK_NAME[c.rank]} de ${c.suit}` : 'nada'; },
 
@@ -47,6 +56,20 @@ const Txt = {
             r.allEqualOne ? 'Si todas tus cartas son del mismo número, valen 1 punto.' : '',
             `Si se acaba el mazo, ${r.deckOut === 'end' ? 'se descubren las cartas' : 'se barajan las de la mesa'}.`,
             r.winsToWin ? `Gana la partida quien gane ${r.winsToWin === 1 ? 'una ronda' : r.winsToWin + ' rondas'}.` : 'Se juega sin límite de rondas.',
+        ].filter(Boolean).join(' ');
+    },
+
+    /** Las reglas de una mesa de Brisca, en pocas frases. */
+    briscaRules(r) {
+        return [
+            `Baraja de ${r.deck} cartas, 3 cartas para cada uno.`,
+            r.pairs ? 'Con 4 o 6 jugadores, por parejas.' : 'Cada uno por su cuenta.',
+            r.swapTrump === 'no' ? 'La muestra no se cambia.' : r.swapTrump === 'siete' ? 'La muestra se cambia con el siete de triunfo.' : 'La muestra se cambia con el siete o el dos de triunfo.',
+            r.cantes ? 'Se cantan las 20 y las 40.' : '',
+            r.arrastre ? 'Con arrastre: al acabarse el mazo, hay que asistir y montar.' : '',
+            r.lastTen ? 'Diez de últimas.' : '',
+            r.showPoints ? '' : 'Los puntos se cuentan al final.',
+            r.winsToWin ? `Gana la partida quien gane ${r.winsToWin === 1 ? 'una mano' : r.winsToWin + ' manos'}.` : 'Se juega sin límite de manos.',
         ].filter(Boolean).join(' ');
     },
 };

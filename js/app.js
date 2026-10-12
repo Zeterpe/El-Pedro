@@ -1,6 +1,7 @@
 /* =============================================
    EL PEDRO — app.js
-   Arranque (cómo jugar, tu nombre, menú), ajustes
+   Arranque (cómo jugar, tu nombre), el salón con
+   los juegos, el menú de cada juego, ajustes
    guardados, opciones, reglas de la casa,
    estadísticas, partidas y teclado.
    ============================================= */
@@ -9,7 +10,7 @@
 const STORAGE_KEY = 'elpedro.v1';
 
 const DEFAULT_SETTINGS = {
-    settingsVersion: 1,
+    settingsVersion: 2,
     firstRun: true,
     output: 'voz',            // voz: la del juego · sr: tu lector de pantalla · visual: sin voz
     playerName: '',
@@ -24,25 +25,39 @@ const DEFAULT_SETTINGS = {
     quips: true,              // comentarios de los rivales
     memoryHelp: false,        // el juego te recuerda las cartas que has visto
     botSpeed: 'normal',
-    rivals: 2,
+    rivals: 2,                // El Pedro: rivales de la máquina
     difficulty: 'mezcla',
-    rules: { ...DEFAULT_RULES },
+    rules: { ...DEFAULT_RULES },              // reglas de El Pedro
+    game: 'pedro',            // el último juego elegido
+    briscaRivals: 1,
+    briscaRules: { ...BRISCA_DEFAULT_RULES },
+    confirmPlay: true,        // Brisca: el primer toque dice la carta y el segundo la juega
+    cardSize: 'normal',       // normal · grande
+    contrast: 'normal',       // normal · alto
 };
 
-const DEFAULT_STATS = { games: 0, gamesWon: 0, rounds: 0, roundsWon: 0, bestWin: null };
+const DEFAULT_GAME_STATS = { games: 0, gamesWon: 0, rounds: 0, roundsWon: 0, best: null };
 
 function loadSaved() {
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (_) { raw = null; }
     const settings = { ...DEFAULT_SETTINGS, ...(raw?.settings || {}) };
     settings.rules = { ...DEFAULT_RULES, ...(raw?.settings?.rules || {}) };
-    const stats = { ...DEFAULT_STATS, ...(raw?.stats || {}) };
+    settings.briscaRules = { ...BRISCA_DEFAULT_RULES, ...(raw?.settings?.briscaRules || {}) };
+    if (!GAMES[settings.game]) settings.game = 'pedro';
+    settings.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
+    // Las estadísticas eran solo de El Pedro: pasan a su juego.
+    const old = raw?.stats || {};
+    const stats = {};
+    for (const id of GAME_IDS) stats[id] = { ...DEFAULT_GAME_STATS, ...(old[id] || {}) };
+    if (typeof old.games === 'number') stats.pedro = { ...stats.pedro, games: old.games, gamesWon: old.gamesWon || 0, rounds: old.rounds || 0, roundsWon: old.roundsWon || 0, best: old.bestWin ?? null };
     return { settings, stats };
 }
 
 const App = {
     settings: null, stats: null, speech: null, audio: null,
     match: null,
+    gameId: 'pedro',          // el juego del que estás viendo el menú
     timeScale: 1,
     started: false,
 
@@ -50,26 +65,41 @@ const App = {
         const saved = loadSaved();
         this.settings = saved.settings;
         this.stats = saved.stats;
+        this.gameId = this.settings.game;
         Txt.settings = this.settings;
         this.speech = new Speech(this.settings);
         this.speech.override = 'voz';            // en la portada, por si no ves la pantalla
         this.audio = new AudioEngine(this.settings);
         UI.init({ speech: this.speech, audio: this.audio, settings: this.settings });
         Online.init(this);
+        CardArt.installDefs();
+        this.applyLook();
         $('version').textContent = `Versión del ${GAME_VERSION.spoken}`;
+        $('splash-fan').innerHTML = CardArt.fan(SUITS.map(suit => ({ rank: 1, suit })), { spread: 16 });
         this.pendingRoom = (new URLSearchParams(location.search).get('sala') || '').replace(/\D/g, '').slice(0, 5) || null;
         this.checkUpdate();
+        this.buildTiles();
         this.bindMenus();
         this.bindKeys();
-        this.bindGameButtons();
         window.Pedro = { debug: this.debugApi() };
         // El sonido solo puede empezar tras un toque o una tecla.
         const unlock = () => { this.audio.unlock(); this.speech.unlock(); };
         for (const ev of ['touchend', 'click', 'keydown']) document.addEventListener(ev, unlock, { capture: true });
-        document.addEventListener('visibilitychange', () => { if (!document.hidden) this.audio.resume(); });
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) return;
+            this.audio.resume();
+            if (this.wantAwake) this.keepAwake(true);
+        });
         document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => this.chooseMode(b.dataset.mode)));
+        if (this.pendingRoom) $('splash-room').textContent = `Te han invitado a la sala ${this.pendingRoom}. Elige cómo quieres jugar y entrarás.`;
         const last = document.querySelector(`[data-mode="${this.settings.output}"]`) || document.querySelector('[data-mode="voz"]');
         UI.focus(last, { silent: true });
+    },
+
+    /** Tamaño de las cartas y contraste. */
+    applyLook() {
+        document.body.dataset.cards = this.settings.cardSize;
+        document.body.dataset.contrast = this.settings.contrast;
     },
 
     /** Si el navegador tiene guardada una versión vieja del juego, carga la nueva: con versiones distintas no se puede jugar en una sala. */
@@ -101,12 +131,23 @@ const App = {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ settings: this.settings, stats: this.stats })); } catch (_) { /* sin almacenamiento */ }
     },
 
+    /** La pantalla no se apaga mientras juegas o tienes una sala abierta (en el móvil, apagarla corta la conexión). */
+    async keepAwake(on) {
+        this.wantAwake = on;
+        try {
+            if (on && !this.wakeLock && navigator.wakeLock && !document.hidden) {
+                this.wakeLock = await navigator.wakeLock.request('screen');
+                this.wakeLock.addEventListener('release', () => { this.wakeLock = null; });
+            } else if (!on && this.wakeLock) { await this.wakeLock.release(); this.wakeLock = null; }
+        } catch (_) { /* el navegador no lo permite */ }
+    },
+
     /** Primera tecla en la portada: se presenta en voz alta, por si no ves la pantalla. */
     splashIntro() {
         if (this.introSaid) return;
         this.introSaid = true;
         this.audio.unlock(); this.speech.unlock();
-        this.speech.say('El Pedro. Elige cómo quieres jugar. Pulsa Enter para jugar con la voz del juego. Con las flechas puedes elegir jugar con tu lector de pantalla, o sin voz, solo con la vista.');
+        this.speech.say('El Pedro, salón de juegos de cartas. Elige cómo quieres jugar. Pulsa Enter para jugar con la voz del juego. Con las flechas puedes elegir jugar con tu lector de pantalla, o sin voz, solo con la vista.');
     },
 
     /** Paso 1: cómo te habla el juego. */
@@ -147,15 +188,55 @@ const App = {
         this.showMenu(true, `Hola, ${name}.`);
     },
 
+    // ── El salón ──────────────────────────────────────
+    buildTiles() {
+        const box = $('game-tiles');
+        box.innerHTML = '';
+        for (const id of GAME_IDS) {
+            const G = GAMES[id];
+            const b = document.createElement('button');
+            b.className = 'nav game-tile';
+            b.dataset.game = id;
+            b.innerHTML = `<span class="tile-art">${CardArt.fan(G.fan, { spread: 12 })}</span><span class="tile-text"><span class="tile-kind"></span><strong class="tile-name"></strong><span class="tile-tag"></span><span class="tile-players"></span></span>`;
+            b.querySelector('.tile-kind').textContent = G.kind;
+            b.querySelector('.tile-name').textContent = G.name;
+            b.querySelector('.tile-tag').textContent = G.tagline;
+            b.querySelector('.tile-players').textContent = G.players;
+            b.setAttribute('aria-label', `${G.name}. ${G.kind}. ${G.tagline} ${G.players}.`);
+            b.addEventListener('click', () => { this.audio.select(); this.openGame(id); });
+            box.appendChild(b);
+        }
+    },
+
     showMenu(welcome = false, before = '') {
-        $('menu-hello').textContent = this.settings.playerName ? `Hola, ${this.settings.playerName}` : '';
-        const intro = welcome ? 'Menú principal. Muévete con las flechas y elige con Enter.' : 'Menú principal.';
-        UI.show('menu', { intro: before ? before + ' ' + intro : intro });
+        this.keepAwake(false);
+        $('menu-hello').textContent = this.settings.playerName ? `Hola, ${this.settings.playerName}` : 'Hola';
+        const intro = welcome
+            ? `El salón. Elige juego: ${Txt.list(GAME_IDS.map(id => GAMES[id].name))}. O juega con amigos. Muévete con las flechas y elige con Enter.`
+            : 'El salón.';
+        const focus = document.querySelector(`#game-tiles [data-game="${this.gameId}"]`);
+        UI.show('menu', { intro: before ? before + ' ' + intro : intro, focus });
+    },
+
+    /** El menú de un juego: jugar, practicar, cómo se juega y reglas de la casa. */
+    openGame(id, focus = null) {
+        const G = GAMES[id];
+        this.gameId = id;
+        this.settings.game = id;
+        this.save();
+        $('gm-title').textContent = G.name;
+        $('gm-kind').textContent = G.kind;
+        $('gm-tagline').textContent = G.tagline;
+        $('gm-fan').innerHTML = CardArt.fan(G.fan, { spread: 14 });
+        document.body.dataset.menuGame = id;
+        UI.show('gamemenu', { intro: `${G.name}. ${G.tagline}`, focus });
     },
 
     // ── Jugar con amigos ──────────────────────────────
     openFriends(message = '') {
-        UI.show('friends', { intro: (message ? message + ' ' : '') + 'Jugar con amigos. Crea una sala y dales el código, o únete a la sala de un amigo.' });
+        this.keepAwake(false);
+        $('net-test').textContent = '';
+        UI.show('friends', { intro: (message ? message + ' ' : '') + 'Jugar con amigos. Crea una sala y dales el código, o únete a la sala de un amigo. En la sala se elige a qué jugar, y podéis cambiar de juego sin salir.' });
     },
 
     openJoin(code = '') {
@@ -175,15 +256,25 @@ const App = {
         this.openFriends();
     },
 
+    async testConnection() {
+        const out = $('net-test');
+        out.textContent = 'Probando la conexión…';
+        this.speech.say('Probando la conexión. Tarda unos segundos.', { interrupt: true });
+        const r = await Net.diagnose();
+        out.textContent = r.text;
+        this.speech.say(r.text, { interrupt: true });
+    },
+
     // ── Menús ─────────────────────────────────────────
     bindMenus() {
         document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => this.menuAction(b.dataset.act)));
         document.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', () => UI.back()));
         UI.backHandlers = {
-            setup: () => this.showMenu(),
+            gamemenu: () => this.showMenu(),
+            setup: () => this.openGame(this.gameId, 'gm-play'),
             options: () => this.showMenu(),
             house: () => (this.houseBack || (() => this.openSetup(true)))(),
-            rules: () => this.showMenu(),
+            rules: () => this.openGame(this.gameId, 'gm-rules'),
             stats: () => this.showMenu(),
             name: () => this.nameFromStart ? this.showMenu() : this.openOptions(),
             friends: () => this.showMenu(),
@@ -191,13 +282,19 @@ const App = {
             lobby: () => this.leaveLobby(),
         };
         $('name-go').addEventListener('click', () => this.saveName());
+        $('gm-play').addEventListener('click', () => { this.audio.select(); this.houseBack = null; this.openSetup(); });
+        $('gm-practice').addEventListener('click', () => this.startPractice(this.gameId));
+        $('gm-rules').addEventListener('click', () => { this.audio.select(); this.openRules(this.gameId); });
+        $('gm-house').addEventListener('click', () => { this.audio.select(); this.houseBack = () => this.openGame(this.gameId, 'gm-house'); this.openHouse(this.gameId); });
         $('btn-create').addEventListener('click', () => { this.audio.select(); Online.create(); });
         $('btn-join').addEventListener('click', () => { this.audio.select(); this.openJoin(); });
+        $('btn-nettest').addEventListener('click', () => this.testConnection());
         $('join-go').addEventListener('click', () => Online.join($('join-code').value));
         $('lobby-share').addEventListener('click', () => Online.share());
         $('lobby-addbot').addEventListener('click', () => Online.addBot());
         $('lobby-delbot').addEventListener('click', () => Online.removeBot());
-        $('lobby-rules').addEventListener('click', () => { this.houseBack = () => Online.showLobby(true); this.openHouse(); });
+        $('lobby-shuffle').addEventListener('click', () => Online.shuffleSeats());
+        $('lobby-rules').addEventListener('click', () => { this.houseBack = () => Online.showLobby(true); this.openHouse(Online.game); });
         $('lobby-start').addEventListener('click', () => Online.start());
         $('lobby-listen').addEventListener('click', () => this.speech.say($('lobby-rules-text').textContent, { interrupt: true }));
         $('lobby-leave').addEventListener('click', () => this.leaveLobby());
@@ -210,66 +307,69 @@ const App = {
                 else if (v) this.speech.say(v.slice(-1), { interrupt: true });
             });
         }
-        $('btn-go').addEventListener('click', () => this.startMatch({}));
+        $('btn-go').addEventListener('click', () => this.startMatch({ game: this.gameId }));
         $('btn-rules-listen').addEventListener('click', () => this.readRules());
         $('btn-suits').addEventListener('click', () => this.suitsDemo());
-        $('btn-practice').addEventListener('click', () => this.startPractice());
+        $('btn-practice').addEventListener('click', () => this.startPractice(this.gameId));
     },
 
     menuAction(act) {
         UI.audio.select();
-        if (act === 'play') { this.houseBack = null; this.openSetup(); }
-        else if (act === 'friends') this.openFriends();
-        else if (act === 'practice') this.startPractice();
-        else if (act === 'rules') UI.show('rules', { intro: 'Cómo se juega. Puedes escuchar las reglas, oír cómo suena cada palo o jugar una partida de práctica.' });
+        if (act === 'friends') this.openFriends();
         else if (act === 'options') this.openOptions();
         else if (act === 'stats') this.openStats();
     },
 
+    rulesOf(id) { return this.settings[GAMES[id].rulesKey]; },
+
     openSetup(back = false) {
-        const s = this.settings;
+        const s = this.settings, id = this.gameId, G = GAMES[id], r = this.rulesOf(id);
+        const key = G.rivalsKey;
+        const max = G.maxPlayers - 1;
+        const rivalText = v => {
+            const base = v === 1 ? '1 rival' : `${v} rivales`;
+            return id === 'brisca' && r.pairs && (v === 3 || v === 5) ? `${base}, por parejas` : base;
+        };
         const defs = [
-            { label: 'Rivales', values: [1, 2, 3, 4, 5], get: () => s.rivals, set: v => { s.rivals = v; }, text: v => v === 1 ? '1 rival' : `${v} rivales` },
+            { label: 'Rivales', values: Array.from({ length: max }, (_, i) => i + 1), get: () => s[key], set: v => { s[key] = v; }, text: rivalText },
             {
                 label: 'Dificultad', values: ['facil', 'normal', 'dificil', 'mezcla'], get: () => s.difficulty, set: v => { s.difficulty = v; },
                 text: v => ({ facil: 'fácil', normal: 'normal', dificil: 'difícil', mezcla: 'de todo un poco' })[v],
             },
-            {
-                label: 'Rondas para ganar', values: [1, 3, 5, 0], get: () => s.rules.winsToWin, set: v => { s.rules.winsToWin = v; },
-                text: v => v === 0 ? 'sin límite' : v === 1 ? '1 ronda' : `${v} rondas`,
-            },
-            { label: 'Ayuda de memoria', values: [false, true], get: () => s.memoryHelp, set: v => { s.memoryHelp = v; }, text: v => v ? 'sí, recordarme las cartas que he visto' : 'no' },
-            { label: 'Reglas de la casa', action: () => this.openHouse() },
+            ...G.setupDefs(s, r),
+            { label: 'Reglas de la casa', action: () => { this.houseBack = null; this.openHouse(id); } },
         ];
+        $('setup-title').textContent = `${G.name}: nueva partida`;
         OptionList.render($('setup-list'), defs, () => this.save());
-        UI.show('setup', { intro: back ? 'Nueva partida.' : 'Nueva partida. Elige con las flechas: izquierda y derecha cambian cada opción.', focus: back ? 'btn-go' : null });
+        UI.show('setup', { intro: back ? 'Nueva partida.' : `${G.name}: nueva partida. Elige con las flechas: izquierda y derecha cambian cada opción.`, focus: back ? 'btn-go' : null });
     },
 
-    openHouse() {
-        const r = this.settings.rules;
-        const yes = v => v ? 'sí' : 'no';
+    openHouse(id = this.gameId) {
+        const G = GAMES[id];
+        const r = this.rulesOf(id);
         const defs = [
-            { label: 'Baraja', values: [48, 40], get: () => r.deck, set: v => { r.deck = v; }, text: v => v === 48 ? 'del 1 al 12, 48 cartas' : 'sin ochos ni nueves, 40 cartas' },
-            { label: 'Cartas para cada jugador', values: [4, 5, 6], get: () => r.handSize, set: v => { r.handSize = v; r.peekStart = Math.min(r.peekStart, v); } },
-            { label: 'Cartas que miras al empezar', values: [0, 1, 2, 3], get: () => r.peekStart, set: v => { r.peekStart = Math.min(v, r.handSize); } },
-            { label: 'Poderes de las figuras', values: [true, false], get: () => r.powers, set: v => { r.powers = v; }, text: v => v ? 'sí: la sota cambia, el caballo mira y el rey hace las dos cosas' : 'no' },
-            { label: 'Quemar cartas', values: [true, false], get: () => r.burn, set: v => { r.burn = v; }, text: yes },
-            { label: 'Quemar cartas de los demás', values: [true, false], get: () => r.burnOthers, set: v => { r.burnOthers = v; }, text: yes },
-            { label: 'Al quemar la carta de otro, le das una tuya', values: [true, false], get: () => r.burnGive, set: v => { r.burnGive = v; }, text: yes },
-            { label: 'Cartas de castigo por quemar mal', values: [1, 2], get: () => r.penaltyCards, set: v => { r.penaltyCards = v; } },
-            { label: 'Las cartas de quien canta Pedro no se tocan', values: [true, false], get: () => r.protectCaller, set: v => { r.protectCaller = v; }, text: yes },
-            { label: 'Se puede coger la carta de la mesa', values: [false, true], get: () => r.takeFromTable, set: v => { r.takeFromTable = v; }, text: yes },
-            { label: 'Si todas tus cartas son del mismo número, valen 1 punto', values: [true, false], get: () => r.allEqualOne, set: v => { r.allEqualOne = v; }, text: yes },
-            { label: 'Si se acaba el mazo', values: ['reshuffle', 'end'], get: () => r.deckOut, set: v => { r.deckOut = v; }, text: v => v === 'reshuffle' ? 'se barajan las cartas de la mesa y se sigue' : 'se descubren las cartas' },
-            { label: 'Rondas para ganar la partida', values: [1, 3, 5, 0], get: () => r.winsToWin, set: v => { r.winsToWin = v; }, text: v => v === 0 ? 'sin límite' : v === 1 ? '1 ronda' : `${v} rondas` },
-            { label: 'Volver a las reglas de siempre', action: () => { this.settings.rules = { ...DEFAULT_RULES }; this.save(); this.houseChanged(); this.speech.say('Reglas de siempre.'); this.openHouse(); } },
+            ...G.houseDefs(r),
+            {
+                label: 'Volver a las reglas de siempre', action: () => {
+                    this.settings[G.rulesKey] = { ...G.defaults };
+                    this.save(); this.houseChanged(); this.speech.say('Reglas de siempre.'); this.openHouse(id);
+                },
+            },
         ];
+        $('house-title').textContent = `Reglas de la casa: ${G.name}`;
         OptionList.render($('house-list'), defs, () => { this.save(); this.houseChanged(); });
-        UI.show('house', { intro: 'Reglas de la casa. Cada grupo juega un poco distinto: ajústalas a las vuestras.' });
+        UI.show('house', { intro: `Reglas de la casa de ${G.name}. Cada grupo juega un poco distinto: ajústalas a las vuestras.` });
     },
 
     /** En una sala, los demás ven al momento las reglas que cambia quien la ha creado. */
     houseChanged() { if (Online.role === 'host') Online.broadcastLobby(); },
+
+    openRules(id) {
+        const G = GAMES[id];
+        $('rules-title').textContent = `Cómo se juega: ${G.name}`;
+        $('rules-text').innerHTML = G.rulesHtml;
+        UI.show('rules', { intro: `Cómo se juega ${G.name}. Puedes escuchar las reglas, oír cómo suena cada palo o jugar una partida de práctica. Las reglas están debajo de los botones.` });
+    },
 
     openOptions() {
         const s = this.settings;
@@ -287,12 +387,15 @@ const App = {
                 text: v => v ? (App.speech.spanishVoices.find(x => x.voiceURI === v)?.name || v) : 'la del sistema',
             },
             { label: 'Volumen de los sonidos', values: [0, 0.2, 0.4, 0.6, 0.8, 1], get: () => s.sfxVolume, set: v => { s.sfxVolume = v; this.audio.applySettings(); }, text: v => `${Math.round(v * 100)} por ciento`, preview: () => this.audio.card({ suit: 'copas', rank: 5 }) },
-            { label: 'Sonido en mono, para un solo auricular', values: [false, true], get: () => s.mono, set: v => { s.mono = v; this.audio.applySettings(); }, text: v => v ? 'sí' : 'no' },
+            { label: 'Sonido en mono, para un solo auricular', values: [false, true], get: () => s.mono, set: v => { s.mono = v; this.audio.applySettings(); }, text: yesNo },
+            { label: 'Tamaño de las cartas', values: ['normal', 'grande'], get: () => s.cardSize, set: v => { s.cardSize = v; this.applyLook(); }, text: v => v === 'grande' ? 'grandes, para ver mejor' : 'normal' },
+            { label: 'Contraste', values: ['normal', 'alto'], get: () => s.contrast, set: v => { s.contrast = v; this.applyLook(); }, text: v => v === 'alto' ? 'alto: números grandes en las cartas y bordes marcados' : 'normal' },
             { label: 'Anuncios', values: ['normal', 'breve'], get: () => s.verbosity, set: v => { s.verbosity = v; }, text: v => v === 'normal' ? 'completos' : 'breves' },
-            { label: 'Decir cuánto valen las figuras', values: [true, false], get: () => s.figureValues, set: v => { s.figureValues = v; }, text: v => v ? 'sí' : 'no' },
+            { label: 'Decir cuánto valen las figuras en El Pedro', values: [true, false], get: () => s.figureValues, set: v => { s.figureValues = v; }, text: yesNo },
+            { label: 'Brisca: tocar dos veces para jugar una carta', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te la dice' : 'no: se juega al tocarla' },
             { label: 'Velocidad de los rivales', values: ['lenta', 'normal', 'rapida'], get: () => s.botSpeed, set: v => { s.botSpeed = v; }, text: v => ({ lenta: 'lenta', normal: 'normal', rapida: 'rápida' })[v] },
-            { label: 'Comentarios de los rivales', values: [true, false], get: () => s.quips, set: v => { s.quips = v; }, text: v => v ? 'sí' : 'no' },
-            { label: 'Pistas', values: [true, false], get: () => s.hints, set: v => { s.hints = v; }, text: v => v ? 'sí' : 'no' },
+            { label: 'Comentarios de los rivales', values: [true, false], get: () => s.quips, set: v => { s.quips = v; }, text: yesNo },
+            { label: 'Pistas', values: [true, false], get: () => s.hints, set: v => { s.hints = v; }, text: yesNo },
             { label: 'Probar la voz', action: () => this.speech.say(`Esta es la voz del juego: ${this.speech.voiceName()}. Has robado el rey de copas, que vale 12.`, { interrupt: true }) },
         ];
         OptionList.render($('options-list'), defs, () => this.save());
@@ -300,29 +403,33 @@ const App = {
     },
 
     openStats() {
-        const st = this.stats;
-        const pct = (a, b) => b ? Math.round(a / b * 100) + ' por ciento' : 'nada todavía';
-        const lines = [
-            `Partidas jugadas: ${st.games}. Ganadas: ${st.gamesWon}.`,
-            `Rondas jugadas: ${st.rounds}. Ganadas: ${st.roundsWon}, el ${pct(st.roundsWon, st.rounds)}.`,
-            st.bestWin != null ? `Tu mejor ronda ganada: ${Txt.points(st.bestWin)}.` : 'Aún no has ganado ninguna ronda.',
-        ];
-        $('stats-text').innerHTML = lines.map(l => `<p>${l}</p>`).join('');
-        UI.show('stats', { intro: 'Estadísticas. ' + lines.join(' ') });
+        const pct = (a, b) => `, el ${Math.round(a / b * 100)} por ciento`;
+        const html = [], spoken = [];
+        for (const id of GAME_IDS) {
+            const G = GAMES[id], st = this.stats[id], w = G.roundWord;
+            const lines = [
+                `Partidas jugadas: ${st.games}. Ganadas: ${st.gamesWon}.`,
+                st.rounds ? `${cap(w)}s jugadas: ${st.rounds}. Ganadas: ${st.roundsWon}${pct(st.roundsWon, st.rounds)}.` : `Aún no has jugado ninguna ${w}.`,
+                st.best == null ? (st.rounds ? `Aún no has ganado ninguna ${w}.` : '') : id === 'pedro' ? `Tu mejor ronda ganada: ${Txt.points(st.best)}.` : `Tu mejor mano: ${Txt.points(st.best)}.`,
+            ];
+            html.push(`<section class="stat-card" data-game="${id}"><h2>${G.name}</h2>${lines.filter(Boolean).map(l => `<p>${l}</p>`).join('')}</section>`);
+            spoken.push(`${G.name}. ${lines.filter(Boolean).join(' ')}`);
+        }
+        $('stats-text').innerHTML = html.join('');
+        UI.show('stats', { intro: 'Estadísticas. ' + spoken.join(' ') });
     },
 
     readRules() {
-        const parts = [...document.querySelectorAll('#rules-text p, #rules-text li')].map(el => el.textContent);
+        const parts = [...document.querySelectorAll('#rules-text h2, #rules-text p, #rules-text li')].map(el => el.textContent.trim() + (el.tagName === 'H2' ? '.' : ''));
         this.speech.say(parts.join(' '), { interrupt: true });
     },
 
     async suitsDemo() {
         this.speech.cancel();
         const s = ['Oros suenan a monedas.', 'Copas, a cristal.', 'Espadas, a metal.', 'Bastos, a madera.'];
-        const suits = ['oros', 'copas', 'espadas', 'bastos'];
         for (let i = 0; i < 4; i++) {
             await this.speech.say(s[i], { interrupt: false });
-            this.audio.card({ suit: suits[i], rank: 5 });
+            this.audio.card({ suit: SUITS[i], rank: 5 });
             await new Promise(r => setTimeout(r, 1100));
         }
         await this.speech.say('Y cuanto más alta es la carta, más agudo suena. Así suena el as de oros', { interrupt: false });
@@ -333,36 +440,42 @@ const App = {
     },
 
     // ── Partida ───────────────────────────────────────
-    startPractice() {
+    startPractice(game = this.gameId) {
         const rng = makeRng(Date.now());
         const rivals = pickRivals(1, 'facil', rng);
-        this.startMatch({ rivals, practice: true });
+        this.startMatch({ game, rivals, practice: true });
     },
 
-    startMatch({ rivals = null, practice = false }) {
+    startMatch({ game = this.gameId, rivals = null, practice = false }) {
         if (this.match) this.match.stop();
-        const s = this.settings;
+        const s = this.settings, G = GAMES[game];
+        this.gameId = game;
         const rng = makeRng(Date.now());
-        rivals = rivals || pickRivals(s.rivals, s.difficulty, rng);
-        const rules = { ...s.rules };
-        if (practice) rules.winsToWin = 1;
+        rivals = rivals || pickRivals(s[G.rivalsKey], s.difficulty, rng);
+        let rules = { ...this.rulesOf(game) };
+        if (practice) rules = G.practice(rules);
         const seats = [{ name: s.playerName || 'Tú', kind: 'me' }, ...rivals.map(c => ({ name: c.name, kind: 'bot', char: c }))];
-        this.runMatch(new Match(this, { seats, rules, practice }));
+        this.runMatch(new G.Match(this, { seats, rules, practice }));
     },
 
     /** Partida en una sala: mode 'host' (la has creado) o 'client' (te has unido). */
-    startOnline({ mode, seats, me, rules, seed, online = Online, gid = 0 }) {
+    startOnline({ game, mode, seats, me, rules, seed, online = Online, gid = 0, rejoin = false, hostSeat = 0 }) {
         if (this.match) this.match.stop();
         Dialog.close(undefined, true);
-        const m = new Match(this, { mode, seats, me, rules, seed, online });
+        const G = GAMES[game] || GAMES.pedro;
+        const m = new G.Match(this, { mode, seats, me, rules, seed, online });
         m.gid = gid;
+        m.rejoin = rejoin;
+        m.hostSeat = mode === 'host' ? me : hostSeat;
         this.runMatch(m);
+        return m;
     },
 
     runMatch(m) {
         this.match = m;
+        this.keepAwake(true);
         UI.show('game', { silent: true, focus: 'my-hand' });
-        m.run().catch(err => { console.error(err); this.speech.say('Ha habido un error en la partida. Vuelve al menú.'); });
+        m.run().catch(err => { console.error(err); this.speech.say('Ha habido un error en la partida. Vuelve al salón.'); });
     },
 
     leaveMatch() {
@@ -372,20 +485,27 @@ const App = {
         this.showMenu();
     },
 
-    recordRound(score, won) {
-        const st = this.stats;
+    recordRound(game, won, score) {
+        const st = this.stats[game];
+        if (!st) return;
         st.rounds++;
-        if (won) { st.roundsWon++; st.bestWin = st.bestWin == null ? score : Math.min(st.bestWin, score); }
+        if (won) {
+            st.roundsWon++;
+            // En El Pedro, la mejor ronda es la de menos puntos; en la Brisca, la de más.
+            if (score != null) st.best = st.best == null ? score : game === 'pedro' ? Math.min(st.best, score) : Math.max(st.best, score);
+        }
         this.save();
     },
 
-    recordGame(won) {
-        this.stats.games++;
-        if (won) this.stats.gamesWon++;
+    recordGame(game, won) {
+        const st = this.stats[game];
+        if (!st) return;
+        st.games++;
+        if (won) st.gamesWon++;
         this.save();
     },
 
-    // ── Teclado y botones ─────────────────────────────
+    // ── Teclado ───────────────────────────────────────
     bindKeys() {
         document.addEventListener('keydown', e => {
             if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -408,27 +528,21 @@ const App = {
             }
             if (UI.current === 'game' && this.match) {
                 if (this.match.onKey(e)) return;
-                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); UI.moveFocus(e.key === 'ArrowRight' ? 1 : -1, $('screen-game')); }
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    UI.moveFocus(e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1, $('screen-game'));
+                }
                 return;
             }
             if (OptionList.onKey(e)) return;
             if (e.key === 'ArrowDown') { e.preventDefault(); UI.moveFocus(1); return; }
             if (e.key === 'ArrowUp') { e.preventDefault(); UI.moveFocus(-1); return; }
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                // En el salón, las fichas de los juegos también se recorren de lado.
+                if (document.activeElement?.classList.contains('game-tile')) { e.preventDefault(); UI.moveFocus(e.key === 'ArrowRight' ? 1 : -1); return; }
+            }
             if (e.key === 'Escape' || e.key === 'Backspace') { e.preventDefault(); UI.back(); }
         });
-    },
-
-    bindGameButtons() {
-        const cmd = { 'act-draw': 'draw', 'act-call': 'call', 'act-take': 'take', 'act-discard': 'discard' };
-        for (const [id, kind] of Object.entries(cmd)) $(id).addEventListener('click', () => this.match?.input(kind));
-        $('act-cancel').addEventListener('click', () => this.match?.cancelPick());
-        // Tocar el mazo es robar; tocar la mesa, cogerla (si las reglas lo dejan).
-        $('deck-btn').addEventListener('click', () => { const m = this.match; if (m && !m.input('draw')) { this.audio.error(); m.explainCant('draw'); } });
-        $('table-btn').addEventListener('click', () => { const m = this.match; if (m && !m.input('take')) m.describeTable(); });
-        $('act-info').addEventListener('click', () => this.match?.info());
-        $('act-cards').addEventListener('click', () => this.match?.myCards());
-        $('act-repeat').addEventListener('click', () => this.speech.say(this.speech.last || 'Nada que repetir.', { interrupt: true }));
-        $('act-menu').addEventListener('click', () => this.match?.pause());
     },
 
     // ── Pruebas desde la consola ──────────────────────
@@ -443,7 +557,8 @@ const App = {
             setTimeScale(x) { app.timeScale = x; app.speech.timeScale = x; },
             chooseMode: m => app.chooseMode(m),
             play: opts => app.startMatch(opts || {}),
-            practice: () => app.startPractice(),
+            brisca: opts => app.startMatch({ game: 'brisca', ...(opts || {}) }),
+            practice: (game = 'pedro') => app.startPractice(game),
         };
     },
 };

@@ -2,19 +2,33 @@
    EL PEDRO — online.js
    Jugar con amigos: crear una sala (te da un código),
    unirse con el código o con un enlace, la sala de
-   espera y el reparto de mensajes durante la partida.
+   espera, elegir a qué se juega y el reparto de
+   mensajes durante la partida.
    Quien crea la sala tiene la baraja en su navegador:
    reparte, decide y manda a cada jugador solo lo que
-   puede ver.
+   puede ver. La sala sigue abierta entre partidas:
+   se puede cambiar de juego sin crearla otra vez.
+   Si a alguien se le corta la conexión, la máquina
+   juega por esa persona hasta que vuelve.
    ============================================= */
 'use strict';
+
+/** Identificador de este navegador: sirve para recuperar tu sitio si se corta la conexión. */
+function clientId() {
+    try {
+        let id = localStorage.getItem('elpedro.id');
+        if (!id) { id = Math.random().toString(36).slice(2, 12); localStorage.setItem('elpedro.id', id); }
+        return id;
+    } catch (_) { return clientId.mem ||= Math.random().toString(36).slice(2, 12); }
+}
 
 const Online = {
     app: null,
     role: null,            // 'host' | 'client' | null
     net: null,
     code: null,
-    table: [],             // anfitrión: [{ name, kind: 'me' | 'remote' | 'bot', conn, char }]
+    game: 'pedro',         // el juego de la sala
+    table: [],             // anfitrión: [{ name, kind: 'me' | 'remote' | 'bot', conn, char, cid, waiting, away }]
     acks: new Map(),       // anfitrión: conexión → último paquete que ha oído
     seq: 0,
     queue: [],             // invitado: mensajes para la partida
@@ -24,10 +38,14 @@ const Online = {
     init(app) { this.app = app; },
 
     get active() { return !!this.role; },
+    get playing() { return !!(this.app.match && this.app.match.mode === 'host' && !this.app.match.stopped); },
+    get G() { return GAMES[this.game] || GAMES.pedro; },
+    get rules() { return this.app.settings[this.G.rulesKey]; },
 
     reset() {
         this.role = null; this.net = null; this.code = null; this.table = [];
         this.acks = new Map(); this.seq = 0; this.queue = []; this.lobby = null;
+        this.reconnecting = false;
         const w = this._waiter; this._waiter = null; w?.(null);
     },
 
@@ -36,6 +54,7 @@ const Online = {
     async create() {
         if (!Net.available()) { UI.say('No se ha podido cargar la parte online del juego. Recarga la página.'); return; }
         this.role = 'host';
+        this.game = this.app.settings.game || 'pedro';
         this.showLobbyStatus('Abriendo la sala…');
         const net = this.net = new HostNet({
             onMessage: (c, m) => this.hostMessage(c, m),
@@ -53,7 +72,8 @@ const Online = {
         }
         if (this.net !== net) { net.close(); return; }   // se canceló mientras abría: se cierra esa sala
         this.code = code;
-        this.table = [{ name: this.cleanName(this.app.settings.playerName), kind: 'me' }];
+        this.table = [{ name: this.cleanName(this.app.settings.playerName), kind: 'me', cid: clientId() }];
+        this.app.keepAwake(true);
         this.showLobby(true);
     },
 
@@ -75,26 +95,9 @@ const Online = {
     },
 
     hostMessage(conn, m) {
-        if (m.t === 'hello') {
-            if (m.v !== GAME_VERSION.id) {
-                // Quien tenga la versión antigua la actualiza: el invitado, solo; si es la tuya, se te avisa.
-                if (String(m.v) < GAME_VERSION.id) return this.refuse(conn, 'Tu juego era más antiguo que el de la sala. Recarga la página y vuelve a unirte.', { update: GAME_VERSION.id });
-                UI.say('Alguien ha intentado entrar con una versión más nueva del juego. Cierra la sala, recarga la página y créala otra vez.', { interrupt: false });
-                return this.refuse(conn, 'Quien ha creado la sala tiene una versión más antigua del juego. Pídele que recargue la página y cree la sala otra vez.');
-            }
-            if (this.app.match && this.app.match.mode === 'host') return this.refuse(conn, 'La partida de esa sala ya ha empezado. Espera a que acabe.');
-            if (this.table.length >= MAX_PLAYERS) return this.refuse(conn, `La mesa está llena: caben ${MAX_PLAYERS} jugadores.`);
-            if (this.table.some(s => s.conn === conn)) return;
-            const name = this.uniqueName(this.cleanName(m.name));
-            this.table.push({ name, kind: 'remote', conn });
-            this.app.audio.select();
-            UI.say(`${name} se ha sentado a la mesa.`, { interrupt: false });
-            this.broadcastLobby();
-            this.renderLobby();
-            return;
-        }
+        if (m.t === 'hello') return this.hello(conn, m);
         if (m.t === 'ack') { if (m.gid === this.gid) this.acks.set(conn, Math.max(this.acks.get(conn) || 0, m.seq | 0)); return; }
-        if (m.t === 'bye') { this.hostClose(conn); try { conn.close(); } catch (_) { /* nada */ } return; }
+        if (m.t === 'bye') { this.hostClose(conn, true); try { conn.close(); } catch (_) { /* nada */ } return; }
         const match = this.app.match;
         if (match && match.mode === 'host') {
             const seat = match.seats.findIndex(s => s.conn === conn && s.kind === 'remote');
@@ -102,41 +105,104 @@ const Online = {
         }
     },
 
-    hostClose(conn) {
+    hello(conn, m) {
+        if (m.v !== GAME_VERSION.id) {
+            // Quien tenga la versión antigua la actualiza: el invitado, solo; si es la tuya, se te avisa.
+            if (String(m.v) < GAME_VERSION.id) return this.refuse(conn, 'Tu juego era más antiguo que el de la sala. Recarga la página y vuelve a unirte.', { update: GAME_VERSION.id });
+            UI.say('Alguien ha intentado entrar con una versión más nueva del juego. Cierra la sala, recarga la página y créala otra vez.', { interrupt: false });
+            return this.refuse(conn, 'Quien ha creado la sala tiene una versión más antigua del juego. Pídele que recargue la página y cree la sala otra vez.');
+        }
+        if (this.table.some(s => s.conn === conn)) return;
+        const cid = String(m.id || '').slice(0, 20) || null;
+        // ¿Vuelve alguien a quien se le cortó la conexión?
+        const old = cid ? this.table.find(s => s.kind === 'remote' && s.cid === cid) : null;
+        if (old) {
+            const prev = old.conn;
+            old.conn = conn; old.away = false;
+            if (prev && prev !== conn) { try { prev.close(); } catch (_) { /* nada */ } }
+            const match = this.app.match;
+            const seat = this.playing ? match.seats.findIndex(s => s.cid === cid) : -1;
+            if (seat >= 0 && !old.waiting) {
+                const s = match.seats[seat];
+                if (s.left) match.seatBack(seat, conn); else s.conn = conn;
+                this.sendStart(seat, true);
+                this.net.send(conn, { t: 'batch', seq: this.seq, events: [], view: match.game.view(seat), sync: true });
+                return;
+            }
+            this.sendLobby(old);
+            this.renderLobby();
+            return;
+        }
+        if (this.table.filter(s => !s.away).length >= this.G.maxPlayers) return this.refuse(conn, `La mesa está llena: caben ${this.G.maxPlayers} jugadores.`);
+        const name = this.uniqueName(this.cleanName(m.name));
+        const seat = { name, kind: 'remote', conn, cid, waiting: this.playing };
+        this.table.push(seat);
+        this.app.audio.select();
+        if (this.playing) {
+            // Están jugando: entra en la sala y juega en la siguiente partida.
+            this.app.match.notice(`${name} ha entrado en la sala: jugará en la siguiente partida.`);
+            this.sendLobby(seat);
+            return;
+        }
+        UI.say(`${name} se ha sentado a la mesa.`, { interrupt: false });
+        this.broadcastLobby();
+        this.renderLobby();
+    },
+
+    hostClose(conn, bye = false) {
         if (this.role !== 'host') return;
         const i = this.table.findIndex(s => s.conn === conn);
         if (i < 0) return;
-        const { name } = this.table[i];
-        this.table.splice(i, 1);
+        const entry = this.table[i];
         const match = this.app.match;
-        if (match && match.mode === 'host') {
-            const seat = match.seats.findIndex(s => s.conn === conn && s.kind === 'remote');
-            if (seat >= 0) match.seatLeft(seat);
-        } else {
-            UI.say(`${name} se ha ido de la sala.`, { interrupt: false });
-            this.broadcastLobby();
-            this.renderLobby();
+        const seat = this.playing ? match.seats.findIndex(s => s.conn === conn && s.kind === 'remote') : -1;
+        if (seat >= 0) {
+            // En plena partida: juega la máquina por esa persona y le guardamos el sitio por si vuelve.
+            entry.conn = null;
+            if (bye) this.table.splice(i, 1); else entry.away = true;
+            match.seatLeft(seat);
+            return;
         }
+        this.table.splice(i, 1);
+        if (this.playing) return;
+        UI.say(`${entry.name} se ha ido de la sala.`, { interrupt: false });
+        this.broadcastLobby();
+        this.renderLobby();
     },
 
     lobbyMessage() {
         return {
-            t: 'lobby', code: this.code, rules: { ...this.app.settings.rules },
-            players: this.table.map(s => ({ name: s.name, kind: s.kind === 'me' ? 'host' : s.kind })),
+            t: 'lobby', code: this.code, game: this.game, rules: { ...this.rules }, playing: this.playing,
+            players: this.table.filter(s => !s.away).map(s => ({ name: s.name, kind: s.kind === 'me' ? 'host' : s.kind, waiting: !!s.waiting })),
         };
     },
 
+    sendLobby(entry) {
+        const list = this.table.filter(s => !s.away);
+        if (entry.conn) this.net?.send(entry.conn, { ...this.lobbyMessage(), you: list.indexOf(entry) });
+    },
+
+    /** Manda la sala a quien no está jugando (a los que juegan no se les interrumpe). */
     broadcastLobby() {
-        const msg = this.lobbyMessage();
-        this.table.forEach((s, i) => { if (s.kind === 'remote' && s.conn) this.net?.send(s.conn, { ...msg, you: i }); });
+        const playing = this.playing;
+        for (const s of this.table) if (s.kind === 'remote' && s.conn && (!playing || s.waiting)) this.sendLobby(s);
     },
 
     broadcastAll(msg) {
-        for (const s of this.table) if (s.kind === 'remote' && s.conn) this.net?.send(s.conn, msg);
+        for (const s of this.table) if (s.kind === 'remote' && s.conn && !s.waiting) this.net?.send(s.conn, msg);
+    },
+
+    setGame(id) {
+        if (!GAMES[id]) return;
+        this.game = id;
+        this.app.settings.game = id;
+        this.app.save();
+        this.broadcastLobby();
+        this.renderLobby();
     },
 
     addBot() {
-        if (this.table.length >= MAX_PLAYERS) { this.app.audio.error(); UI.say(`La mesa está llena: caben ${MAX_PLAYERS} jugadores.`); return; }
+        if (this.table.length >= this.G.maxPlayers) { this.app.audio.error(); UI.say(`La mesa está llena: caben ${this.G.maxPlayers} jugadores.`); return; }
         const used = new Set(this.table.filter(s => s.kind === 'bot').map(s => s.char.id));
         const rng = this.rng ||= makeRng(Date.now());
         const char = pickRivals(CHARACTERS.length, this.app.settings.difficulty, rng).find(c => !used.has(c.id));
@@ -157,26 +223,48 @@ const Online = {
         this.renderLobby();
     },
 
+    /** Cambia a todos de sitio al azar (en la Brisca por parejas, así cambian las parejas). */
+    shuffleSeats() {
+        if (this.table.length < 3) { this.app.audio.error(); UI.say('Hacen falta al menos tres jugadores para cambiar de sitio.'); return; }
+        const rng = this.rng ||= makeRng(Date.now());
+        rng.shuffle(this.table);
+        this.app.audio.shuffle();
+        UI.say(`Nuevos sitios: ${this.playersText()}.${this.pairsText() ? ' ' + this.pairsText() : ''}`);
+        this.broadcastLobby();
+        this.renderLobby();
+    },
+
     start() {
-        if (this.table.length < 2) {
+        const table = this.table.filter(s => !s.away);
+        if (table.length < 2) {
             this.app.audio.error();
             UI.say('Necesitas al menos otro jugador: espera a tus amigos o añade un rival de la máquina.');
             return;
         }
-        const rules = { ...this.app.settings.rules };
+        if (table.length > this.G.maxPlayers) { this.app.audio.error(); UI.say(`En ${this.G.name} caben ${this.G.maxPlayers} jugadores.`); return; }
+        this.table = table;
+        for (const s of table) s.waiting = false;
+        const rules = { ...this.rules };
         const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
-        const seats = this.table.map(s => ({ name: s.name, kind: s.kind, char: s.char, conn: s.conn }));
+        const seats = table.map(s => ({ name: s.name, kind: s.kind, char: s.char, conn: s.conn, cid: s.cid }));
+        const me = table.findIndex(s => s.kind === 'me');
         this.gid = (this.gid || 0) + 1;
-        seats.forEach((s, i) => {
-            if (s.kind !== 'remote') return;
-            this.net.send(s.conn, {
-                t: 'start', me: i, rules, gid: this.gid,
-                seats: seats.map((x, j) => ({ name: x.name, kind: j === i ? 'me' : (x.kind === 'bot' ? 'bot' : 'remote') })),
-            });
-        });
+        this.seats = seats;
+        this.startRules = rules;
         this.acks = new Map();
         this.seq = 0;
-        this.app.startOnline({ mode: 'host', seats, me: 0, rules, seed, gid: this.gid });
+        seats.forEach((s, i) => { if (s.kind === 'remote') this.sendStart(i); });
+        this.app.startOnline({ game: this.game, mode: 'host', seats, me, rules, seed, gid: this.gid });
+    },
+
+    /** Le dice a un jugador que empieza la partida (o que vuelve a ella). */
+    sendStart(i, rejoin = false) {
+        const seats = this.app.match?.seats && rejoin ? this.app.match.seats : this.seats;
+        const host = seats.findIndex(x => x.kind === 'me');
+        this.net.send(seats[i].conn, {
+            t: 'start', game: this.game, me: i, rules: this.app.match?.game?.rules && rejoin ? this.app.match.game.rules : this.startRules, gid: this.gid, host, rejoin,
+            seats: seats.map((x, j) => ({ name: x.name, kind: j === i ? 'me' : (x.kind === 'bot' ? 'bot' : 'remote') })),
+        });
     },
 
     restart() { this.app.match?.stop(); this.app.match = null; this.start(); },
@@ -184,16 +272,18 @@ const Online = {
     backToLobby() {
         this.app.match?.stop();
         this.app.match = null;
+        Dialog.close(undefined, true);
+        this.table = this.table.filter(s => !s.away);
+        for (const s of this.table) s.waiting = false;
         this.broadcastLobby();
-        this.showLobby(true);
+        this.showLobby(true, false);
     },
 
     /** Manda a cada jugador lo que ha pasado (sin las cartas que no puede ver) y la mesa. */
     broadcast(match, events) {
         this.seq++;
-        const view = match.game.view();
         match.seats.forEach((s, i) => {
-            if (s.kind === 'remote' && s.conn) this.net.send(s.conn, { t: 'batch', seq: this.seq, events: events.map(e => eventFor(e, i)), view });
+            if (s.kind === 'remote' && s.conn) this.net.send(s.conn, { t: 'batch', seq: this.seq, events: events.map(e => match.eventFor(e, i)), view: match.game.view(i) });
         });
         return this.seq;
     },
@@ -218,7 +308,7 @@ const Online = {
 
     close() {
         if (this.role === 'host') {
-            this.broadcastAll({ t: 'closed' });
+            for (const s of this.table) if (s.kind === 'remote' && s.conn) this.net?.send(s.conn, { t: 'closed' });
             const net = this.net;
             setTimeout(() => net?.close(), 400);
         } else if (this.role === 'client') {
@@ -226,6 +316,7 @@ const Online = {
             const net = this.net;
             setTimeout(() => net?.close(), 200);
         }
+        this.app.keepAwake(false);
         this.reset();
     },
 
@@ -237,9 +328,9 @@ const Online = {
         if (!Net.available()) { this.app.joinStatus('No se ha podido cargar la parte online del juego. Recarga la página.'); return; }
         this.role = 'client';
         this.app.joinStatus('Conectando con la sala…');
-        const net = this.net = new ClientNet({ onMessage: m => this.clientMessage(m), onClose: () => this.clientClosed() });
+        const net = this.net = this.clientNet();
         try {
-            await net.connect(code);
+            await net.connect(code, { onRetry: why => { if (this.net === net) this.app.joinStatus(why); } });
         } catch (e) {
             if (this.net !== net) return;   // ya habías cancelado
             this.reset();
@@ -249,7 +340,13 @@ const Online = {
         }
         if (this.net !== net) return;
         this.code = code;
-        net.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id });
+        this.app.keepAwake(true);
+        net.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id, id: clientId() });
+    },
+
+    clientNet() {
+        const net = new ClientNet({ onMessage: m => { if (this.net === net) this.clientMessage(m); }, onClose: () => { if (this.net === net) this.clientClosed(); } });
+        return net;
     },
 
     clientMessage(m) {
@@ -275,11 +372,13 @@ const Online = {
                 this.app.openFriends(m.text);
                 break;
             }
-            case 'start':
+            case 'start': {
                 this.dropWaiter();
                 this.queue = [];
-                this.app.startOnline({ mode: 'client', seats: m.seats, me: m.me, rules: m.rules, online: this, gid: m.gid });
+                this.hostSeat = m.host ?? 0;
+                this.app.startOnline({ game: m.game, mode: 'client', seats: m.seats, me: m.me, rules: m.rules, online: this, gid: m.gid, rejoin: !!m.rejoin, hostSeat: this.hostSeat });
                 break;
+            }
             case 'closed': this.clientClosed(true); break;
             default:
                 if (this._waiter) { const w = this._waiter; this._waiter = null; w(m); } else this.queue.push(m);
@@ -300,13 +399,40 @@ const Online = {
 
     clientClosed(byHost = false) {
         if (this.role !== 'client') return;
-        const host = this.lobby?.players?.[0]?.name;
+        // Se ha cortado sin que nadie cerrara la sala: se intenta volver a entrar.
+        if (!byHost && this.code && !this.reconnecting) { this.reconnect(); return; }
+        const host = this.lobby?.players?.find(p => p.kind === 'host')?.name;
         this.reset();
         const m = this.app.match;
         if (m) { m.stop(); this.app.match = null; }
         Dialog.close(undefined, true);
         this.app.audio.error();
         this.app.showMenu(false, byHost ? `${host || 'Quien creó la sala'} ha cerrado la sala.` : 'Se ha perdido la conexión con la sala.');
+    },
+
+    async reconnect() {
+        this.reconnecting = true;
+        const code = this.code;
+        this.app.audio.error();
+        const say = t => { if (this.app.match && !this.app.match.stopped) this.app.match.notice(t); else UI.say(t, { interrupt: false }); };
+        say('Se ha cortado la conexión con la sala. Intentando volver a entrar.');
+        for (let i = 0; i < 5 && this.role === 'client' && this.reconnecting; i++) {
+            const net = this.net = this.clientNet();
+            try {
+                await net.connect(code);
+                if (this.net !== net || this.role !== 'client') return;
+                net.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id, id: clientId() });
+                this.reconnecting = false;
+                say('Conexión recuperada.');
+                return;
+            } catch (_) {
+                net.close();
+                await new Promise(r => setTimeout(r, 2500 + i * 1500));
+            }
+        }
+        if (this.role !== 'client') return;
+        this.reconnecting = 'failed';
+        this.clientClosed(false);
     },
 
     // ═══ La sala de espera ═══════════════════════════
@@ -316,9 +442,12 @@ const Online = {
 
     showLobbyStatus(text) {
         $('lobby-title').textContent = 'Sala';
+        $('lobby-code').innerHTML = '';
         $('lobby-info').textContent = text;
         $('lobby-players').innerHTML = '';
-        for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-rules', 'lobby-start']) $(id).hidden = true;
+        $('lobby-game').innerHTML = '';
+        $('lobby-game-text').textContent = '';
+        for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-shuffle', 'lobby-rules', 'lobby-start', 'lobby-listen']) $(id).hidden = true;
         $('lobby-leave').textContent = 'Cancelar';
         UI.show('lobby', { intro: text, focus: 'lobby-leave' });
     },
@@ -326,14 +455,21 @@ const Online = {
     showLobby(host, first = true) {
         this.renderLobby();
         const players = this.playersText();
+        const G = host ? this.G : GAMES[this.lobby?.game] || GAMES.pedro;
         let intro;
-        if (host) intro = `Sala abierta. Tu código es ${this.codeSpoken()}. Díselo a tus amigos o comparte el enlace. En la mesa: ${players}.`;
-        else intro = first ? `Te has sentado en la mesa de ${this.lobby.players[0]?.name}. En la mesa: ${players}. Espera a que empiece la partida.` : `De vuelta en la sala. En la mesa: ${players}.`;
-        UI.show('lobby', { intro, focus: host ? 'lobby-share' : 'lobby-leave' });
+        if (host) intro = first
+            ? `Sala abierta. Tu código es ${this.codeSpoken()}. Díselo a tus amigos o comparte el enlace. Juego: ${G.name}. En la mesa: ${players}.`
+            : `De vuelta en la sala. Juego: ${G.name}. En la mesa: ${players}. Puedes elegir otro juego.`;
+        else {
+            const hostName = this.lobby.players.find(p => p.kind === 'host')?.name || 'tu amigo';
+            const wait = this.lobby.playing ? 'Están jugando una partida: entrarás en la siguiente.' : 'Espera a que empiece la partida.';
+            intro = first ? `Te has sentado en la mesa de ${hostName}. Juego: ${G.name}. En la mesa: ${players}. ${wait}` : `De vuelta en la sala. Juego: ${G.name}. En la mesa: ${players}.`;
+        }
+        UI.show('lobby', { intro, focus: host ? (first ? 'lobby-share' : 'lobby-start') : 'lobby-leave' });
     },
 
     playersOf() {
-        if (this.role === 'host') return this.table.map(s => ({ name: s.name, kind: s.kind === 'me' ? 'host' : s.kind, me: s.kind === 'me' }));
+        if (this.role === 'host') return this.table.filter(s => !s.away).map(s => ({ name: s.name, kind: s.kind === 'me' ? 'host' : s.kind, me: s.kind === 'me', waiting: s.waiting }));
         return (this.lobby?.players || []).map((p, i) => ({ ...p, me: i === this.lobby.you }));
     },
 
@@ -341,24 +477,64 @@ const Online = {
         return Txt.list(this.playersOf().map(p => p.me ? 'tú' : p.kind === 'bot' ? `${p.name}, de la máquina` : p.name));
     },
 
+    /** En la Brisca por parejas, quién va con quién (sitios alternos). */
+    pairsText() {
+        const id = this.role === 'host' ? this.game : this.lobby?.game;
+        const rules = this.role === 'host' ? this.rules : this.lobby?.rules;
+        const ps = this.playersOf();
+        if (id !== 'brisca' || !rules?.pairs || ps.length < 4 || ps.length % 2) return '';
+        const name = p => p.me ? 'tú' : p.name;
+        const a = ps.filter((_, i) => i % 2 === 0).map(name), b = ps.filter((_, i) => i % 2 === 1).map(name);
+        return `Parejas: ${Txt.list(a)} contra ${Txt.list(b)}.`;
+    },
+
     renderLobby() {
-        if (UI.current !== 'lobby' && !document.getElementById('screen-lobby')) return;
+        if (!document.getElementById('screen-lobby')) return;
         const host = this.role === 'host';
-        $('lobby-title').textContent = `Sala ${this.code || ''}`;
+        const gameId = host ? this.game : this.lobby?.game || 'pedro';
+        const G = GAMES[gameId] || GAMES.pedro;
+        $('lobby-title').textContent = 'Sala de juego';
+        $('lobby-code').innerHTML = (this.code || '').split('').map(d => `<span>${d}</span>`).join('');
+        $('lobby-code').setAttribute('aria-label', `Código de la sala: ${this.codeSpoken()}`);
+        const hostName = this.lobby?.players?.find(p => p.kind === 'host')?.name || 'tu amigo';
         $('lobby-info').textContent = host
-            ? `Dile a tus amigos el código ${this.code}, o compárteles el enlace. Caben ${MAX_PLAYERS} jugadores.`
-            : `Estás en la mesa de ${this.lobby?.players[0]?.name || 'tu amigo'}. Espera a que empiece la partida.`;
+            ? `Dile a tus amigos el código, o compárteles el enlace. Caben ${G.maxPlayers} jugadores. Al acabar cada partida volvéis aquí y podéis cambiar de juego.`
+            : this.lobby?.playing ? `Estás en la sala de ${hostName}. Están jugando: entrarás en la siguiente partida.` : `Estás en la sala de ${hostName}. Espera a que empiece la partida.`;
+        // El juego: quien crea la sala lo elige; los demás lo ven.
+        const box = $('lobby-game');
+        if (host) {
+            // Si ya está, solo se actualiza: así no pierde el foco al cambiar de juego.
+            if (box.firstChild?._def) OptionList._fill(box.firstChild);
+            else OptionList.render(box, [{ label: 'Juego', values: GAME_IDS, get: () => this.game, set: v => this.setGame(v), text: v => GAMES[v].name }], null);
+            $('lobby-game-text').textContent = '';
+        } else {
+            box.innerHTML = '';
+            $('lobby-game-text').textContent = `Juego: ${G.name}`;
+        }
+        const card = $('lobby-game-card');
+        if (card.dataset.game !== G.id) {
+            card.dataset.game = G.id;
+            card.innerHTML = `${CardArt.fan(G.fan, { spread: 12 })}<span class="lgc-text"><strong></strong><span class="lgc-tag"></span></span>`;
+            card.querySelector('strong').textContent = G.name;
+            card.querySelector('.lgc-tag').textContent = G.tagline;
+        }
         const ul = $('lobby-players');
         ul.innerHTML = '';
-        for (const p of this.playersOf()) {
+        this.playersOf().forEach((p, i) => {
             const li = document.createElement('li');
-            li.textContent = p.me ? `${p.name} (tú)` : p.kind === 'bot' ? `${p.name}, de la máquina` : p.kind === 'host' ? `${p.name}, quien ha creado la sala` : p.name;
+            const tag = p.me ? ' (tú)' : p.kind === 'bot' ? ', de la máquina' : p.kind === 'host' ? ', quien ha creado la sala' : '';
+            li.innerHTML = `<span class="avatar" aria-hidden="true" data-c="${i % 6}"></span><span class="pl-name"></span>`;
+            li.querySelector('.avatar').textContent = p.name.replace(/^la abuela /i, '').charAt(0).toUpperCase();
+            li.querySelector('.pl-name').textContent = `${p.name}${tag}${p.waiting ? ', jugará en la siguiente' : ''}`;
             ul.appendChild(li);
-        }
-        for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-rules', 'lobby-start']) $(id).hidden = !host;
-        const rules = host ? this.app.settings.rules : this.lobby?.rules;
-        $('lobby-rules-text').textContent = rules ? Txt.rules({ ...DEFAULT_RULES, ...rules }) : '';
+        });
+        $('lobby-pairs').textContent = this.pairsText();
+        for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-shuffle', 'lobby-rules', 'lobby-start']) $(id).hidden = !host;
+        const rules = host ? this.rules : this.lobby?.rules;
+        $('lobby-rules-title').textContent = `Reglas de esta mesa: ${G.name}`;
+        $('lobby-rules-text').textContent = rules ? G.summary(rules) : '';
         $('lobby-listen').hidden = host || !rules;
+        $('lobby-start').querySelector('.lbl').textContent = `Empezar: ${G.name}`;
         $('lobby-leave').textContent = host ? 'Cerrar la sala' : 'Salir de la sala';
     },
 

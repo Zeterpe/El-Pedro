@@ -3,34 +3,37 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>El Pedro</title>
-    <meta name="description" content="El Pedro: juego de cartas de memoria con baraja española. Se juega con el oído o con la vista, contra la máquina.">
-    <meta name="theme-color" content="#0f3d2a">
-    <link rel="stylesheet" href="css/style.css?v=20261012b">
+    <title>El Pedro · Salón de cartas</title>
+    <meta name="description" content="El Pedro: salón de juegos de cartas con baraja española. El Pedro y la Brisca, para jugar con el oído o con la vista, contra la máquina o con amigos.">
+    <meta name="theme-color" content="#0c3523">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='12' y='4' width='40' height='56' rx='6' fill='%23b3202f' stroke='%23fff' stroke-width='3'/%3E%3Cellipse cx='32' cy='32' rx='12' ry='16' fill='none' stroke='%23ffd34d' stroke-width='3'/%3E%3Ctext x='32' y='39' font-size='20' font-family='Georgia,serif' font-weight='700' text-anchor='middle' fill='%23ffd34d'%3EP%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="css/style.css?v=20261012c">
 </head>
 <body data-screen="splash">
     <div id="sr-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
     <div id="sr-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
-
     <main id="app">
         <!-- Portada: cómo quieres jugar -->
         <section id="screen-splash" class="screen active" aria-labelledby="t-splash">
             <div class="hero">
-                <h1 id="t-splash">El Pedro</h1>
-                <p class="tagline">El juego de cartas de memoria. Recuerda tus cartas, quema las iguales y canta Pedro cuando tengas la suma más baja.</p>
+                <div id="splash-fan" class="hero-fan"></div>
+                <p class="kicker">Salón de cartas</p>
+                <h1 id="t-splash" class="brand">El Pedro</h1>
+                <p class="tagline">Juegos de cartas con la baraja española, para jugar con el oído o con la vista. El Pedro, la Brisca y los que vendrán.</p>
+                <p id="splash-room" class="invite"></p>
                 <h2 class="choose">¿Cómo quieres jugar?</h2>
                 <div class="menu modes">
-                    <button class="nav big" data-mode="voz">Con la voz del juego<span class="sub">Si no ves la pantalla y no usas lector de pantalla</span></button>
-                    <button class="nav mode" data-mode="sr">Con mi lector de pantalla<span class="sub">NVDA, JAWS, VoiceOver o TalkBack</span></button>
-                    <button class="nav mode" data-mode="visual">Sin voz, solo con la vista<span class="sub">Para jugar mirando la pantalla</span></button>
+                    <button class="nav big mode-card" data-mode="voz"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg><span class="mc-text">Con la voz del juego<span class="sub">Si no ves la pantalla y no usas lector de pantalla</span></span></button>
+                    <button class="nav mode mode-card" data-mode="sr"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 10h2m2 0h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="mc-text">Con mi lector de pantalla<span class="sub">NVDA, JAWS, VoiceOver o TalkBack</span></span></button>
+                    <button class="nav mode mode-card" data-mode="visual"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg><span class="mc-text">Sin voz, solo con la vista<span class="sub">Para jugar mirando la pantalla</span></span></button>
                 </div>
                 <p class="small">Usa auriculares si puedes: cada jugador suena desde su sitio de la mesa.</p>
             </div>
         </section>
 
         <!-- Tu nombre -->
-        <section id="screen-name" class="screen" aria-labelledby="t-name">
+        <section id="screen-name" class="screen panel-screen" aria-labelledby="t-name">
             <h1 id="t-name">¿Cómo te llamas?</h1>
             <p>Es el nombre que verán tus amigos cuando juguéis juntos.</p>
             <label class="field" for="name-input">Tu nombre</label>
@@ -38,34 +41,59 @@
             <button id="name-go" class="nav big">Continuar</button>
         </section>
 
-        <!-- Menú -->
+        <!-- El salón: elegir juego -->
         <section id="screen-menu" class="screen" aria-labelledby="t-menu">
-            <h1 id="t-menu">El Pedro</h1>
-            <p id="menu-hello" class="hello"></p>
-            <div class="menu">
-                <button class="nav big" data-act="play">Jugar contra la máquina</button>
-                <button class="nav big alt" data-act="friends">Jugar con amigos</button>
-                <button class="nav" data-act="practice">Partida de práctica</button>
-                <button class="nav" data-act="rules">Cómo se juega</button>
-                <button class="nav" data-act="options">Opciones</button>
-                <button class="nav" data-act="stats">Estadísticas</button>
+            <header class="salon-head">
+                <p class="kicker">Salón de cartas</p>
+                <h1 id="t-menu" class="brand">El Pedro</h1>
+                <p id="menu-hello" class="hello"></p>
+            </header>
+            <h2 class="section-title">Elige juego</h2>
+            <div id="game-tiles" class="tiles"></div>
+            <div class="menu salon-menu">
+                <button class="nav big alt friends-btn" data-act="friends"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.2" fill="currentColor"/><circle cx="16.5" cy="9" r="2.6" fill="currentColor"/><path d="M2.5 19c.6-3.4 3-5 5.5-5s4.9 1.6 5.5 5zM13.5 19c.3-1.8 1-3.2 2.2-4.1 2.6-.3 5 1.2 5.8 4.1z" fill="currentColor"/></svg>Jugar con amigos</button>
+                <div class="menu-row">
+                    <button class="nav" data-act="options">Opciones</button>
+                    <button class="nav" data-act="stats">Estadísticas</button>
+                </div>
             </div>
             <p class="version" id="version"></p>
         </section>
 
+        <!-- El menú de un juego -->
+        <section id="screen-gamemenu" class="screen" aria-labelledby="gm-title">
+            <div class="game-hero">
+                <div id="gm-fan" class="gm-fan"></div>
+                <div>
+                    <p id="gm-kind" class="kicker"></p>
+                    <h1 id="gm-title" class="brand small-brand"></h1>
+                    <p id="gm-tagline" class="tagline"></p>
+                </div>
+            </div>
+            <div class="menu">
+                <button id="gm-play" class="nav big">Jugar contra la máquina</button>
+                <button id="gm-practice" class="nav">Partida de práctica</button>
+                <button id="gm-rules" class="nav">Cómo se juega</button>
+                <button id="gm-house" class="nav">Reglas de la casa</button>
+                <button class="nav" data-back>Volver al salón</button>
+            </div>
+        </section>
+
         <!-- Jugar con amigos -->
-        <section id="screen-friends" class="screen" aria-labelledby="t-friends">
+        <section id="screen-friends" class="screen panel-screen" aria-labelledby="t-friends">
             <h1 id="t-friends">Jugar con amigos</h1>
-            <p>Quien crea la sala recibe un código de 5 cifras. Los demás se unen con ese código o con el enlace. Caben hasta seis jugadores, y se pueden completar con rivales de la máquina.</p>
+            <p>Quien crea la sala recibe un código de 5 cifras. Los demás se unen con ese código o con el enlace, desde cualquier sitio. En la sala se elige a qué jugar, y al acabar cada partida podéis cambiar de juego sin salir.</p>
             <div class="menu">
                 <button id="btn-create" class="nav big">Crear una sala</button>
                 <button id="btn-join" class="nav big alt">Unirse a una sala con un código</button>
+                <button id="btn-nettest" class="nav">Probar la conexión</button>
+                <p id="net-test" class="status" role="status"></p>
                 <button class="nav" data-back>Volver</button>
             </div>
         </section>
 
         <!-- Unirse -->
-        <section id="screen-join" class="screen" aria-labelledby="t-join">
+        <section id="screen-join" class="screen panel-screen" aria-labelledby="t-join">
             <h1 id="t-join">Unirse a una sala</h1>
             <label class="field" for="join-code">Código de la sala</label>
             <input id="join-code" class="nav input code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="off" aria-label="Código de la sala, de 5 cifras" enterkeyhint="go">
@@ -77,16 +105,29 @@
         <!-- Sala de espera -->
         <section id="screen-lobby" class="screen" aria-labelledby="lobby-title">
             <h1 id="lobby-title">Sala</h1>
+            <div id="lobby-code" class="room-code" role="img"></div>
             <p id="lobby-info"></p>
-            <h2>En la mesa</h2>
-            <ul id="lobby-players" class="players"></ul>
-            <h2>Reglas de esta mesa</h2>
-            <p id="lobby-rules-text" class="rules-summary"></p>
+            <div class="lobby-grid">
+                <div>
+                    <h2>¿A qué jugamos?</h2>
+                    <div id="lobby-game-card" class="lobby-game-card" aria-hidden="true"></div>
+                    <div id="lobby-game" class="optlist"></div>
+                    <p id="lobby-game-text" class="game-name-line"></p>
+                    <h2 id="lobby-rules-title">Reglas de esta mesa</h2>
+                    <p id="lobby-rules-text" class="rules-summary"></p>
+                </div>
+                <div>
+                    <h2>En la mesa</h2>
+                    <ul id="lobby-players" class="players"></ul>
+                    <p id="lobby-pairs" class="pairs"></p>
+                </div>
+            </div>
             <div class="menu">
-                <button id="lobby-start" class="nav big">Empezar la partida</button>
+                <button id="lobby-start" class="nav big"><span class="lbl">Empezar la partida</span></button>
                 <button id="lobby-share" class="nav">Compartir el enlace</button>
                 <button id="lobby-addbot" class="nav">Añadir un rival de la máquina</button>
                 <button id="lobby-delbot" class="nav">Quitar un rival de la máquina</button>
+                <button id="lobby-shuffle" class="nav">Cambiar los sitios al azar</button>
                 <button id="lobby-rules" class="nav">Cambiar las reglas de la mesa</button>
                 <button id="lobby-listen" class="nav" hidden>Escuchar las reglas de esta mesa</button>
                 <button id="lobby-leave" class="nav">Salir de la sala</button>
@@ -94,116 +135,66 @@
         </section>
 
         <!-- Nueva partida -->
-        <section id="screen-setup" class="screen" aria-labelledby="t-setup">
-            <h1 id="t-setup">Nueva partida</h1>
+        <section id="screen-setup" class="screen panel-screen" aria-labelledby="setup-title">
+            <h1 id="setup-title">Nueva partida</h1>
             <div id="setup-list" class="optlist"></div>
             <button id="btn-go" class="nav big">Empezar la partida</button>
             <button class="nav" data-back>Volver</button>
         </section>
 
         <!-- Reglas de la casa -->
-        <section id="screen-house" class="screen" aria-labelledby="t-house">
-            <h1 id="t-house">Reglas de la casa</h1>
+        <section id="screen-house" class="screen panel-screen" aria-labelledby="house-title">
+            <h1 id="house-title">Reglas de la casa</h1>
             <div id="house-list" class="optlist"></div>
             <button class="nav" data-back>Volver</button>
         </section>
 
         <!-- Opciones -->
-        <section id="screen-options" class="screen" aria-labelledby="t-options">
+        <section id="screen-options" class="screen panel-screen" aria-labelledby="t-options">
             <h1 id="t-options">Opciones</h1>
             <div id="options-list" class="optlist"></div>
             <button class="nav" data-back>Volver</button>
         </section>
 
         <!-- Estadísticas -->
-        <section id="screen-stats" class="screen" aria-labelledby="t-stats">
+        <section id="screen-stats" class="screen panel-screen" aria-labelledby="t-stats">
             <h1 id="t-stats">Estadísticas</h1>
-            <div id="stats-text" class="text"></div>
+            <div id="stats-text" class="text stats"></div>
             <button class="nav" data-back>Volver</button>
         </section>
 
         <!-- Cómo se juega -->
-        <section id="screen-rules" class="screen" aria-labelledby="t-rules">
-            <h1 id="t-rules">Cómo se juega</h1>
+        <section id="screen-rules" class="screen panel-screen" aria-labelledby="rules-title">
+            <h1 id="rules-title">Cómo se juega</h1>
             <div class="menu">
                 <button id="btn-rules-listen" class="nav">Escuchar las reglas</button>
                 <button id="btn-suits" class="nav">Escuchar cómo suena cada palo</button>
                 <button id="btn-practice" class="nav">Partida de práctica</button>
                 <button class="nav" data-back>Volver</button>
             </div>
-            <article id="rules-text" class="text">
-                <h2>El objetivo</h2>
-                <p>Gana la ronda quien tenga menos puntos al final. Cada carta vale su número: el as vale 1 y el rey vale 12. La sota vale 10 y el caballo 11.</p>
-                <p>Si todas tus cartas son del mismo número, por ejemplo tres caballos, valen solo 1 punto.</p>
-                <h2>El reparto</h2>
-                <p>Cada jugador recibe 4 cartas boca abajo. Al empezar solo puedes mirar 2, una vez. ¡Recuérdalas! Las cartas no se cambian de sitio: tu carta 1 sigue siendo tu carta 1.</p>
-                <h2>Tu turno</h2>
-                <p>Robas una carta del mazo. Puedes cambiarla por una de las tuyas, y la tuya va a la mesa, o tirarla a la mesa sin quedártela.</p>
-                <h2>Los poderes</h2>
-                <p>Si robas una figura del mazo y la tiras a la mesa, puedes usar su poder. Es opcional.</p>
-                <ul>
-                    <li>La sota: cambias dos cartas de sitio sin mirarlas. Pueden ser tuyas y de otro, o de dos rivales.</li>
-                    <li>El caballo: miras una carta, tuya o de otro.</li>
-                    <li>El rey: miras una carta y después puedes cambiar dos.</li>
-                </ul>
-                <h2>Quemar</h2>
-                <p>Si tienes una carta igual a la de arriba de la mesa, puedes quemarla: la sueltas en la mesa y te la quitas de encima. Puedes quemar en cualquier momento, también en el turno de otro, y tantas veces como quieras. Basta con tocar la carta. Puedes quemar tus cartas o las de los demás, si sabes cuáles son.</p>
-                <p>Si quemas la carta de otro, le das una de las tuyas a cambio. Si te equivocas, la carta vuelve a su sitio y te llevas una carta de castigo.</p>
-                <p>Si alguien se queda sin cartas, gana la ronda al momento y se descubren todas.</p>
-                <h2>Cantar Pedro</h2>
-                <p>Cuando creas que tienes la suma más baja, canta Pedro al empezar tu turno, antes de robar. Los demás juegan una vez más y, cuando vuelve a ti, se descubren todas las cartas. Desde que cantas, nadie puede tocar tus cartas.</p>
-                <p>Gana la ronda la suma más baja. Cada ronda ganada te da una victoria.</p>
-                <h2>Las teclas</h2>
-                <ul>
-                    <li>R: robar del mazo. P: cantar Pedro.</li>
-                    <li>Del 1 al 4: tus cartas. Con una carta robada, la cambias por esa. T: tirarla a la mesa.</li>
-                    <li>Para quemar, en cualquier momento: tu carta con su número, o la de otro con las flechas y Enter. Q: te dice qué carta hay en la mesa.</li>
-                    <li>I: cómo va la partida. C: tus cartas. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
-                </ul>
-                <p>En el móvil, todo tiene su botón en la pantalla.</p>
-                <h2>Los sonidos</h2>
-                <p>Cada palo suena distinto: los oros a monedas, las copas a cristal, las espadas a metal y los bastos a madera. Cuanto más alta es la carta, más agudo suena. Con auriculares, cada rival suena desde su sitio: a tu derecha, enfrente o a tu izquierda.</p>
-            </article>
+            <article id="rules-text" class="text"></article>
         </section>
 
         <!-- La mesa -->
         <section id="screen-game" class="screen" aria-label="La mesa">
             <p id="status" class="status-line" aria-hidden="true"></p>
             <div id="table">
-                <!-- Primero tus cartas y el mazo (así los lee antes el lector de pantalla); la rejilla los coloca en su sitio. -->
+                <!-- Primero tus cartas y el centro (así los lee antes el lector de pantalla); la rejilla los coloca en su sitio. -->
                 <div id="seat-me" class="seat seat-me">
                     <div class="seat-name" aria-hidden="true"><span id="my-name">Tú</span> <span id="my-wins" class="wins"></span><span id="my-score" class="score"></span></div>
                     <div id="my-hand" class="hand" role="group" aria-label="Tus cartas" tabindex="-1"></div>
+                    <div id="my-extra" class="seat-extra"></div>
                     <div class="bubble" aria-hidden="true"></div>
                 </div>
-                <div class="center">
-                    <button id="deck-btn" class="pile pile-btn nav" aria-label="Mazo">
-                        <span class="pile-card" id="deck-card"></span>
-                        <span class="pile-cap">Mazo: <span id="deck-count">0</span></span>
-                    </button>
-                    <button id="table-btn" class="pile pile-btn nav" aria-label="Mesa">
-                        <span class="pile-card"></span>
-                        <span class="pile-cap">Mesa</span>
-                    </button>
-                    <div id="drawn-area" class="pile drawn" aria-hidden="true" hidden></div>
-                </div>
+                <div id="center" class="center"></div>
                 <div id="seat-right" class="seat seat-right" hidden></div>
                 <div id="seat-topright" class="seat seat-topright" hidden></div>
                 <div id="seat-top" class="seat seat-top" hidden></div>
                 <div id="seat-topleft" class="seat seat-topleft" hidden></div>
                 <div id="seat-left" class="seat seat-left" hidden></div>
+                <div id="banner" class="banner" aria-hidden="true"></div>
             </div>
-            <div id="actions" class="actions" role="group" aria-label="Acciones">
-                <button id="act-draw" class="nav act main" hidden>Robar <kbd>R</kbd></button>
-                <button id="act-call" class="nav act call" hidden>¡Cantar Pedro! <kbd>P</kbd></button>
-                <button id="act-take" class="nav act" hidden>Coger de la mesa <kbd>M</kbd></button>
-                <button id="act-discard" class="nav act main" hidden>Tirar a la mesa <kbd>T</kbd></button>
-                <button id="act-cancel" class="nav act" hidden><span>Cancelar</span> <kbd>Esc</kbd></button>
-                <button id="act-info" class="nav act small talk">Cómo va <kbd>I</kbd></button>
-                <button id="act-cards" class="nav act small talk">Mis cartas <kbd>C</kbd></button>
-                <button id="act-repeat" class="nav act small talk">Repetir <kbd>Espacio</kbd></button>
-                <button id="act-menu" class="nav act small">Pausa <kbd>Esc</kbd></button>
-            </div>
+            <div id="actions" class="actions" role="group" aria-label="Acciones"></div>
             <ol id="log" class="log" aria-hidden="true"></ol>
         </section>
     </main>
@@ -216,19 +207,24 @@
         </div>
     </div>
 
-    <script src="js/rules.js?v=20261012b"></script>
-    <script src="js/ai.js?v=20261012b"></script>
-    <script src="js/speech.js?v=20261012b"></script>
-    <script src="js/audio.js?v=20261012b"></script>
-    <script src="js/texts.js?v=20261012b"></script>
-    <script src="js/ui.js?v=20261012b"></script>
-    <script src="js/vendor/peerjs.min.js?v=20261012b"></script>
-    <script src="js/net.js?v=20261012b"></script>
-    <script src="js/mirror.js?v=20261012b"></script>
-    <script src="js/cards.js?v=20261012b"></script>
-    <script src="js/board.js?v=20261012b"></script>
-    <script src="js/match.js?v=20261012b"></script>
-    <script src="js/online.js?v=20261012b"></script>
-    <script src="js/app.js?v=20261012b"></script>
+    <script src="js/rules.js?v=20261012c"></script>
+    <script src="js/brisca.js?v=20261012c"></script>
+    <script src="js/ai.js?v=20261012c"></script>
+    <script src="js/brisca-ai.js?v=20261012c"></script>
+    <script src="js/speech.js?v=20261012c"></script>
+    <script src="js/audio.js?v=20261012c"></script>
+    <script src="js/texts.js?v=20261012c"></script>
+    <script src="js/ui.js?v=20261012c"></script>
+    <script src="js/vendor/peerjs.min.js?v=20261012c"></script>
+    <script src="js/net.js?v=20261012c"></script>
+    <script src="js/mirror.js?v=20261012c"></script>
+    <script src="js/cards.js?v=20261012c"></script>
+    <script src="js/board.js?v=20261012c"></script>
+    <script src="js/match.js?v=20261012c"></script>
+    <script src="js/pedro.js?v=20261012c"></script>
+    <script src="js/brisca-match.js?v=20261012c"></script>
+    <script src="js/games.js?v=20261012c"></script>
+    <script src="js/online.js?v=20261012c"></script>
+    <script src="js/app.js?v=20261012c"></script>
 </body>
 </html>

@@ -99,6 +99,9 @@ const CHARACTERS = [
             burnFail: ['Ay, que juraría que era esa.', 'Uy. Esa no era.'],
             win: ['¡Anda! ¡He ganado yo!', 'Ni yo me lo creo.'],
             burned: ['¿Mi carta? ¿Por qué mi carta?'],
+            cut: ['¡Toma triunfo!', 'Uy, que tenía triunfo.'],
+            bigTrick: ['¡Mira lo que me llevo!', 'Esto pesa, esto pesa.'],
+            cante: ['¡Que canto! ¿Se canta así?'],
         },
     },
     {
@@ -109,6 +112,9 @@ const CHARACTERS = [
             burnFail: ['Vaya, me he precipitado.'],
             win: ['¡Toma! Esa me la llevo.', 'Lo sabía.'],
             burned: ['Oye, que esa la tenía controlada.'],
+            cut: ['Fallo, y sin pestañear.'],
+            bigTrick: ['Para el saco.', 'Muy rica esta baza.'],
+            cante: ['Las tenía guardadas.'],
         },
     },
     {
@@ -119,6 +125,9 @@ const CHARACTERS = [
             burnFail: ['Hasta la abuela se equivoca, hijo.'],
             win: ['Lo que no sepa la abuela...', 'Cincuenta años jugando, mi vida.'],
             burned: ['Muy bien visto, muy bien.'],
+            cut: ['Triunfo, hijo, triunfo.'],
+            bigTrick: ['Esto para la abuela.', 'Ay, qué bien me viene.'],
+            cante: ['Las cuarenta, como en los buenos tiempos.'],
         },
     },
     {
@@ -129,6 +138,9 @@ const CHARACTERS = [
             burnFail: ['Era una prueba. Para ver si estabais atentos.'],
             win: ['Farol del bueno, señores.', '¡Os lo dije!'],
             burned: ['Eso no lo he visto venir.'],
+            cut: ['¡Zas! Fallo.', 'Os lo esperabais, ¿eh?'],
+            bigTrick: ['¿Quién da más?', 'Baza gorda para Toni.'],
+            cante: ['¡Cantando, que es gerundio!'],
         },
     },
     {
@@ -139,6 +151,9 @@ const CHARACTERS = [
             burnFail: ['Error de cálculo. No volverá a pasar.'],
             win: ['Estadística pura.', 'Como estaba previsto.'],
             burned: ['Interesante jugada.'],
+            cut: ['Fallo calculado.'],
+            bigTrick: ['Todo según lo previsto.'],
+            cante: ['Cante. Puntos asegurados.'],
         },
     },
     {
@@ -149,6 +164,9 @@ const CHARACTERS = [
             burnFail: ['Perdón, perdón, sigo aprendiendo.'],
             win: ['¿Gano yo? ¡Qué ilusión!'],
             burned: ['¿Se puede hacer eso?'],
+            cut: ['¿Esto es fallar? ¡Pues fallo!'],
+            bigTrick: ['¡Me la llevo yo! ¿Verdad?'],
+            cante: ['¿Puedo cantar? ¡Pues canto!'],
         },
     },
 ];
