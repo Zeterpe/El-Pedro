@@ -210,6 +210,69 @@ const GAMES = {
             </ul>
             <p>En el móvil, todo tiene su botón en la pantalla. También puedes tocar el dado y tus fichas en el tablero.</p>`,
     },
+
+    trivial: {
+        id: 'trivial',
+        name: 'El Trivial',
+        kind: 'Juego de preguntas',
+        tagline: 'Recorre la rueda, contesta preguntas de seis categorías con cuatro respuestas y consigue todos los quesitos. Cada uno por su cuenta o por equipos.',
+        players: 'De 2 a 6 jugadores, también por equipos',
+        art: () => TrivialArt.tile(),
+        defaults: TRIVIAL_DEFAULT_RULES,
+        rulesKey: 'trivialRules',
+        rivalsKey: 'trivialRivals',
+        roundWord: null,
+        maxPlayers: 6,
+        teamWord: 'Equipos',
+        pairs: (r, n) => !!r.teams && n >= 4 && n % 2 === 0,
+        get Match() { return TrivialMatch; },
+        summary: r => Txt.trivialRules({ ...TRIVIAL_DEFAULT_RULES, ...r }),
+        practice(r) { return { ...r, wedges: 3 }; },
+        setupDefs(s, r) {
+            return [
+                { label: 'Con 3 o 5 rivales, por equipos', values: [false, true], get: () => r.teams, set: v => { r.teams = v; }, text: v => v ? 'sí: tu equipo son los de los sitios alternos' : 'no, cada uno por su cuenta' },
+                { label: 'Quesitos para ganar', values: [6, 4, 3], get: () => r.wedges, set: v => { r.wedges = v; }, text: v => v === 6 ? '6, los de siempre' : `${v}, para una partida más corta` },
+                { label: 'Preguntas', values: ['todas', 'faciles', 'dificiles'], get: () => r.level, set: v => { r.level = v; }, text: v => ({ todas: 'de todo un poco', faciles: 'solo fáciles', dificiles: 'medias y difíciles' })[v] },
+                { label: 'Tocar dos veces para elegir', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice la respuesta' : 'no: se elige al tocarla' },
+            ];
+        },
+        houseDefs(r) {
+            return [
+                { label: 'Quesitos para ganar', values: [6, 4, 3], get: () => r.wedges, set: v => { r.wedges = v; }, text: v => v === 6 ? '6, los de siempre' : `${v}, para una partida más corta` },
+                { label: 'Con 4 o 6 jugadores, por equipos', values: [false, true], get: () => r.teams, set: v => { r.teams = v; }, text: v => v ? 'sí: los sitios alternos, con una ficha por equipo' : 'no' },
+                { label: 'Pregunta final en el centro', values: [true, false], get: () => r.hubFinal, set: v => { r.hubFinal = v; }, text: v => v ? 'sí: con los quesitos, al centro a acertar la final' : 'no: ganas al conseguir el último quesito' },
+                { label: 'La categoría de la final la elige', values: ['rivales', 'azar', 'tu'], get: () => r.finalPick, set: v => { r.finalPick = v; }, text: v => ({ rivales: 'el rival que juega después', azar: 'el azar', tu: 'quien la contesta' })[v] },
+                { label: 'Si aciertas, vuelves a tirar', values: [true, false], get: () => r.rollAgain, set: v => { r.rollAgain = v; }, text: yesNo },
+                { label: 'Preguntas', values: ['todas', 'faciles', 'dificiles'], get: () => r.level, set: v => { r.level = v; }, text: v => ({ todas: 'de todo un poco', faciles: 'solo fáciles', dificiles: 'medias y difíciles' })[v] },
+            ];
+        },
+        rulesHtml: `
+            <h2>El objetivo</h2>
+            <p>Conseguir los seis quesitos, uno de cada categoría, y después llegar al centro y acertar la pregunta final. Gana quien lo consigue primero. Por equipos, gana el equipo.</p>
+            <h2>Las categorías</h2>
+            <p>Hay seis, cada una con su color: Geografía, en azul. Espectáculos, en rosa. Historia, en amarillo. Arte y Literatura, en marrón. Ciencias y Naturaleza, en verde. Y Deportes y Pasatiempos, en naranja. Cada pregunta tiene cuatro respuestas y solo una es la buena.</p>
+            <h2>El tablero</h2>
+            <p>Es una rueda. Por fuera, un anillo de 42 casillas con los seis quesitos, uno cada siete casillas. Entre dos quesitos hay cuatro casillas de categoría y dos de volver a tirar. De cada quesito sale un radio de cinco casillas que llega al centro. Todas las fichas empiezan en el centro.</p>
+            <h2>Tu turno</h2>
+            <p>Tiras el dado y avanzas justo lo que sale, hacia donde quieras, pero sin volver atrás en la misma tirada. Puedes pasar por el centro y por los quesitos. El juego te dice adónde puedes llegar y tú eliges.</p>
+            <p>Donde caes, te hacen una pregunta de su categoría. Si aciertas, vuelves a tirar. Si fallas, pasa el turno. En las casillas de volver a tirar no hay pregunta: tiras otra vez.</p>
+            <h2>Los quesitos</h2>
+            <p>Si caes en la casilla de un quesito que no tienes y aciertas su pregunta, te lo llevas. Si ya lo tienes, la pregunta vale como cualquier otra.</p>
+            <h2>El centro</h2>
+            <p>Si llegas al centro sin todos los quesitos, eliges tú la categoría de la pregunta. Con todos, tienes que llegar al centro con la cuenta justa: el rival que juega después de ti elige la categoría de la pregunta final. Si aciertas, ganas. Si fallas, pasa el turno, sales del centro y tienes que volver.</p>
+            <h2>Por equipos</h2>
+            <p>Con 4 o 6 jugadores se puede jugar por equipos: los que se sientan en sitios alternos van juntos y llevan una sola ficha. Cada uno tira y contesta en su turno, y los quesitos son del equipo.</p>
+            <h2>Reglas de la casa</h2>
+            <p>Puedes jugar a 4 o 3 quesitos para que la partida sea más corta, ganar sin pregunta final, elegir quién pone la categoría de la final, pasar el turno aunque aciertes, o jugar solo con preguntas fáciles o solo con las difíciles. Las preguntas que ya te han salido tardan en volver a salir.</p>
+            <h2>Las teclas</h2>
+            <ul>
+                <li>T: tirar el dado.</li>
+                <li>Del 1 al 9: adónde vas, la categoría o la respuesta. La primera vez te dice cuál es y la segunda la elige. Enter elige la marcada. Las flechas recorren las opciones.</li>
+                <li>P: repetir la pregunta y sus respuestas. M: dónde está cada ficha y el quesito que te falta más cerca. C: tus quesitos. D: el último dado.</li>
+                <li>I: cómo va la partida. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
+            </ul>
+            <p>En el móvil, todo tiene su botón en la pantalla. También puedes tocar el dado, las casillas marcadas del tablero y las respuestas.</p>`,
+    },
 };
 
 /** El dibujo de cada juego: un abanico de cartas o su tablero. */
