@@ -31,7 +31,9 @@ const DEFAULT_SETTINGS = {
     game: 'pedro',            // el último juego elegido
     briscaRivals: 1,
     briscaRules: { ...BRISCA_DEFAULT_RULES },
-    confirmPlay: true,        // Brisca: el primer toque dice la carta y el segundo la juega
+    confirmPlay: true,        // Brisca y Parchís: el primer toque dice la carta (o la ficha) y el segundo la juega
+    parchisRivals: 3,
+    parchisRules: { ...PARCHIS_DEFAULT_RULES },
     cardSize: 'normal',       // normal · grande
     contrast: 'normal',       // normal · alto
 };
@@ -44,6 +46,7 @@ function loadSaved() {
     const settings = { ...DEFAULT_SETTINGS, ...(raw?.settings || {}) };
     settings.rules = { ...DEFAULT_RULES, ...(raw?.settings?.rules || {}) };
     settings.briscaRules = { ...BRISCA_DEFAULT_RULES, ...(raw?.settings?.briscaRules || {}) };
+    settings.parchisRules = { ...PARCHIS_DEFAULT_RULES, ...(raw?.settings?.parchisRules || {}) };
     if (!GAMES[settings.game]) settings.game = 'pedro';
     settings.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
     // Las estadísticas eran solo de El Pedro: pasan a su juego.
@@ -197,7 +200,7 @@ const App = {
             const b = document.createElement('button');
             b.className = 'nav game-tile';
             b.dataset.game = id;
-            b.innerHTML = `<span class="tile-art">${CardArt.fan(G.fan, { spread: 12 })}</span><span class="tile-text"><span class="tile-kind"></span><strong class="tile-name"></strong><span class="tile-tag"></span><span class="tile-players"></span></span>`;
+            b.innerHTML = `<span class="tile-art">${gameArt(G, 12)}</span><span class="tile-text"><span class="tile-kind"></span><strong class="tile-name"></strong><span class="tile-tag"></span><span class="tile-players"></span></span>`;
             b.querySelector('.tile-kind').textContent = G.kind;
             b.querySelector('.tile-name').textContent = G.name;
             b.querySelector('.tile-tag').textContent = G.tagline;
@@ -227,7 +230,7 @@ const App = {
         $('gm-title').textContent = G.name;
         $('gm-kind').textContent = G.kind;
         $('gm-tagline').textContent = G.tagline;
-        $('gm-fan').innerHTML = CardArt.fan(G.fan, { spread: 14 });
+        $('gm-fan').innerHTML = gameArt(G, 14);
         document.body.dataset.menuGame = id;
         UI.show('gamemenu', { intro: `${G.name}. ${G.tagline}`, focus });
     },
@@ -328,7 +331,7 @@ const App = {
         const max = G.maxPlayers - 1;
         const rivalText = v => {
             const base = v === 1 ? '1 rival' : `${v} rivales`;
-            return id === 'brisca' && r.pairs && (v === 3 || v === 5) ? `${base}, por parejas` : base;
+            return G.pairs?.(r, v + 1) ? `${base}, por parejas` : base;
         };
         const defs = [
             { label: 'Rivales', values: Array.from({ length: max }, (_, i) => i + 1), get: () => s[key], set: v => { s[key] = v; }, text: rivalText },
@@ -392,7 +395,7 @@ const App = {
             { label: 'Contraste', values: ['normal', 'alto'], get: () => s.contrast, set: v => { s.contrast = v; this.applyLook(); }, text: v => v === 'alto' ? 'alto: números grandes en las cartas y bordes marcados' : 'normal' },
             { label: 'Anuncios', values: ['normal', 'breve'], get: () => s.verbosity, set: v => { s.verbosity = v; }, text: v => v === 'normal' ? 'completos' : 'breves' },
             { label: 'Decir cuánto valen las figuras en El Pedro', values: [true, false], get: () => s.figureValues, set: v => { s.figureValues = v; }, text: yesNo },
-            { label: 'Brisca: tocar dos veces para jugar una carta', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te la dice' : 'no: se juega al tocarla' },
+            { label: 'Brisca y Parchís: tocar dos veces para jugar', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice la carta o adónde va la ficha' : 'no: se juega al tocarla' },
             { label: 'Velocidad de los rivales', values: ['lenta', 'normal', 'rapida'], get: () => s.botSpeed, set: v => { s.botSpeed = v; }, text: v => ({ lenta: 'lenta', normal: 'normal', rapida: 'rápida' })[v] },
             { label: 'Comentarios de los rivales', values: [true, false], get: () => s.quips, set: v => { s.quips = v; }, text: yesNo },
             { label: 'Pistas', values: [true, false], get: () => s.hints, set: v => { s.hints = v; }, text: yesNo },
@@ -408,10 +411,13 @@ const App = {
         for (const id of GAME_IDS) {
             const G = GAMES[id], st = this.stats[id], w = G.roundWord;
             const lines = [
-                `Partidas jugadas: ${st.games}. Ganadas: ${st.gamesWon}.`,
+                `Partidas jugadas: ${st.games}. Ganadas: ${st.gamesWon}${st.games ? pct(st.gamesWon, st.games) : ''}.`,
+            ];
+            // El Parchís no tiene rondas ni manos: solo partidas.
+            if (w) lines.push(
                 st.rounds ? `${cap(w)}s jugadas: ${st.rounds}. Ganadas: ${st.roundsWon}${pct(st.roundsWon, st.rounds)}.` : `Aún no has jugado ninguna ${w}.`,
                 st.best == null ? (st.rounds ? `Aún no has ganado ninguna ${w}.` : '') : id === 'pedro' ? `Tu mejor ronda ganada: ${Txt.points(st.best)}.` : `Tu mejor mano: ${Txt.points(st.best)}.`,
-            ];
+            );
             html.push(`<section class="stat-card" data-game="${id}"><h2>${G.name}</h2>${lines.filter(Boolean).map(l => `<p>${l}</p>`).join('')}</section>`);
             spoken.push(`${G.name}. ${lines.filter(Boolean).join(' ')}`);
         }
@@ -558,6 +564,7 @@ const App = {
             chooseMode: m => app.chooseMode(m),
             play: opts => app.startMatch(opts || {}),
             brisca: opts => app.startMatch({ game: 'brisca', ...(opts || {}) }),
+            parchis: opts => app.startMatch({ game: 'parchis', ...(opts || {}) }),
             practice: (game = 'pedro') => app.startPractice(game),
         };
     },

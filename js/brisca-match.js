@@ -571,7 +571,7 @@ class BriscaMatch extends Match {
         if (!b) return;
         const key = this.stateKey();
         await this.think(g.trick.length ? 650 : 800);
-        if (this.stopped || this.stateKey() !== key || g.current !== p) return;
+        if (this.stopped || this.stateKey() !== key || g.current !== p || this.bots[p] !== b) return;
         await this.act(b.chooseTurn());
     }
 

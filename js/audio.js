@@ -287,6 +287,56 @@ class AudioEngine {
         });
     }
 
+    // ── Parchís ───────────────────────────────────────
+    /** El dado rueda por la mesa y se para. */
+    dice(pan = 0) {
+        this.#go((k, out, t) => {
+            [0, 0.07, 0.15, 0.21, 0.3, 0.36, 0.43].forEach((dt, i) => {
+                k.noise(out, { t: t + dt + Math.random() * 0.02, dur: 0.03, peak: 0.17 - i * 0.012, filter: { type: 'bandpass', f: 2400 + Math.random() * 1600, q: 3 }, pan });
+            });
+            k.tone(out, { t: t + 0.48, f: [[0, 170], [0.08, 90]], dur: 0.1, peak: 0.2, pan });
+            k.noise(out, { t: t + 0.48, dur: 0.05, peak: 0.14, filter: { type: 'lowpass', f: 1200 }, pan });
+        });
+    }
+
+    /** Cada casilla que avanza una ficha: un toque de madera que sube poco a poco. */
+    step(pan = 0, n = 0) {
+        const f = 430 * Math.pow(2, Math.min(n, 24) / 36);
+        this.#go((k, out, t) => {
+            k.tone(out, { t, f, type: 'triangle', dur: 0.05, peak: 0.15, pan });
+            k.noise(out, { t, dur: 0.02, peak: 0.07, filter: { type: 'bandpass', f: f * 3, q: 4 }, pan });
+        });
+    }
+
+    /** Una ficha sale de casa. */
+    out(pan = 0) {
+        this.#go((k, out, t) => {
+            k.tone(out, { t, f: [[0, 260], [0.09, 720]], type: 'triangle', dur: 0.14, peak: 0.18, pan });
+            k.bell(out, { t: t + 0.1, f: 1046, partials: [[1, 1, 0.25], [2.4, 0.3, 0.12]], peak: 0.08, pan });
+        });
+    }
+
+    /** Una ficha llega a un seguro. */
+    safe(pan = 0) {
+        this.#go((k, out, t) => { k.bell(out, { t, f: 784, partials: [[1, 1, 0.3], [2, 0.3, 0.15]], peak: 0.06, pan }); });
+    }
+
+    /** Una ficha se come a otra. */
+    capture(pan = 0) {
+        this.#go((k, out, t) => {
+            k.noise(out, { t, dur: 0.16, peak: 0.32, filter: { type: 'lowpass', f: [[0, 2600], [0.15, 500]] }, pan });
+            k.tone(out, { t, f: [[0, 520], [0.4, 120]], type: 'sawtooth', dur: 0.42, peak: 0.12, filter: { type: 'lowpass', f: 1400 }, pan });
+            k.tone(out, { t: t + 0.05, f: [[0, 90], [0.2, 50]], dur: 0.22, peak: 0.3, pan });
+        });
+    }
+
+    /** Una ficha llega a la meta. */
+    meta(pan = 0) {
+        this.#go((k, out, t) => {
+            [784, 988, 1175, 1568].forEach((f, i) => k.bell(out, { t: t + i * 0.08, f, partials: [[1, 1, 0.4], [2.76, 0.3, 0.16]], peak: 0.11, pan }));
+        });
+    }
+
     pass() {
         this.#go((k, out, t) => { k.tone(out, { t, f: [[0, 330], [0.12, 247]], dur: 0.14, peak: 0.08 }); });
     }
