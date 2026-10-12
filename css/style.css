@@ -273,6 +273,8 @@ button.big.alt:hover:not(:disabled) { background: #ffffff; }
 .land .pile-card, .land.won-pile, .seat-extra.land .won-pile { animation: land .35s ease-out; }
 .drawn .pile-card { transform: rotate(-4deg); }
 @keyframes breathe { 50% { box-shadow: 0 0 30px rgba(255, 211, 77, 0.75); } }
+/* Cambiar la muestra y cantar: brillan mientras se pueden hacer, para que no se pasen */
+#act-swapTrump:not([hidden]), #act-cante:not([hidden]) { animation: breathe 1.8s ease-in-out infinite; }
 @keyframes land { from { transform: scale(1.12) rotate(4deg); } to { transform: none; } }
 
 /* ── Cartas (botones que se dan la vuelta) ── */

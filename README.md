@@ -30,7 +30,7 @@ En el salón eliges a qué jugar:
 - **Los puntos.** El as vale 11, el tres 10, el rey 4, el caballo 3 y la sota 2. Hay 120 puntos y gana quien pase de 60.
 - **Por parejas.** Con 4 o 6 jugadores, cada uno va con quien tiene enfrente.
 
-En **Reglas de la casa** se ajusta cada juego. En la Brisca: baraja de 40 o 48 cartas, jugar por parejas o no, cambiar la muestra con el siete o con el dos, cantar las 20 y las 40, el arrastre, los diez de últimas, contar los puntos durante la mano y cuántas manos hacen falta para ganar.
+En **Reglas de la casa** se ajusta cada juego. En la Brisca: baraja de 40 o 48 cartas, jugar por parejas o no, cambiar la muestra con el siete o con el dos (en cualquier turno tuyo o solo al salir), cantar las 20 y las 40, el arrastre, los diez de últimas, contar los puntos durante la mano y cuántas manos hacen falta para ganar.
 
 ## Contra la máquina o con amigos
 

@@ -108,6 +108,7 @@ const GAMES = {
                 { label: 'Baraja', values: [40, 48], get: () => r.deck, set: v => { r.deck = v; }, text: v => v === 40 ? 'sin ochos ni nueves, 40 cartas' : 'del 1 al 12, 48 cartas' },
                 { label: 'Con 4 o 6 jugadores, por parejas', values: [true, false], get: () => r.pairs, set: v => { r.pairs = v; }, text: v => v ? 'sí: cada uno con el de enfrente' : 'no' },
                 { label: 'Cambiar la muestra', values: ['sieteYDos', 'siete', 'no'], get: () => r.swapTrump, set: v => { r.swapTrump = v; }, text: v => ({ sieteYDos: 'con el siete de triunfo las altas, y con el dos las bajas', siete: 'solo con el siete de triunfo', no: 'no' })[v] },
+                { label: 'Cuándo se cambia la muestra', values: ['turno', 'salir'], get: () => r.swapWhen, set: v => { r.swapWhen = v; }, text: v => v === 'turno' ? 'en cualquier turno tuyo, antes de jugar' : 'solo al salir, después de ganar una baza' },
                 { label: 'Cantar las 20 y las 40', values: [false, true], get: () => r.cantes, set: v => { r.cantes = v; }, text: v => v ? 'sí: rey y caballo del mismo palo, después de ganar una baza' : 'no' },
                 { label: 'Arrastre: al acabarse el mazo, asistir y montar', values: [false, true], get: () => r.arrastre, set: v => { r.arrastre = v; }, text: yesNo },
                 { label: 'Diez de últimas', values: [false, true], get: () => r.lastTen, set: v => { r.lastTen = v; }, text: v => v ? 'sí: la última baza vale 10 puntos más' : 'no' },
@@ -129,7 +130,7 @@ const GAMES = {
             <p>Gana la baza el triunfo más alto. Si nadie ha jugado triunfo, gana la carta más alta del palo que salió. Jugar un triunfo cuando ha salido otro palo se llama fallar.</p>
             <p>Quien gana la baza se la lleva, roba primero y sale en la siguiente. Después de cada baza, todos roban una carta. La última carta del mazo es la muestra.</p>
             <h2>Cambiar la muestra</h2>
-            <p>Si tienes el siete de triunfo, puedes cambiarlo por la muestra cuando es una figura, un tres o un as. Con el dos de triunfo, puedes cambiarlo cuando la muestra es un cuatro, un cinco, un seis o un siete. Se hace en tu turno, antes de jugar, mientras quede mazo.</p>
+            <p>Si tienes el siete de triunfo, puedes cambiarlo por la muestra cuando es una figura, un tres o un as. Con el dos de triunfo, puedes cambiarlo cuando la muestra es un cuatro, un cinco, un seis o un siete. Se hace en tu turno, antes de jugar, mientras quede mazo. En Reglas de la casa puedes dejarlo solo para cuando sales, después de ganar una baza.</p>
             <h2>Por parejas</h2>
             <p>Con 4 o 6 jugadores se juega por parejas: tu compañero es el de enfrente, y sumáis los puntos de vuestras bazas.</p>
             <h2>Reglas de la casa</h2>
