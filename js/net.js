@@ -25,37 +25,90 @@ const Net = {
         } catch (_) { /* sin turn.json: se usan los servidores públicos */ }
     },
 
-    /** Opciones de PeerJS. Para pruebas se pueden cambiar en localStorage['elpedro.peer']. */
-    options() {
+    /**
+     * Opciones de PeerJS. Para pruebas se pueden cambiar en localStorage['elpedro.peer'].
+     * relay: solo por el servidor de rebote (cuando la conexión directa no se une).
+     */
+    options({ relay = false } = {}) {
         let o = {};
         try { o = JSON.parse(localStorage.getItem('elpedro.peer') || '{}'); } catch (_) { o = {}; }
         // Para conectar dos casas distintas hacen falta servidores que digan a cada navegador cómo
-        // le ven desde fuera (STUN). Se añaden varios públicos a los que trae PeerJS (que incluyen
-        // su servidor de rebote, TURN, para cuando no se puede conectar directamente) y, si turn.json
-        // tiene usuario y contraseña, un servidor de rebote propio, más fiable.
+        // le ven desde fuera (STUN) y, para las redes que no dejan conectar directamente (muchas de
+        // datos móviles), un servidor de rebote (TURN) que pase los mensajes. Pocos servidores y
+        // buenos: con muchos, la conexión tarda más en decidirse.
         const base = window.peerjs?.util?.defaultConfig || { iceServers: [] };
+        const turn = this.turn ? [this.turn] : base.iceServers.filter(x => !String(x.urls).startsWith('stun:'));
         const config = {
             ...base,
             iceServers: [
-                { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-                { urls: 'stun:stun.cloudflare.com:3478' },
-                ...(this.turn ? [this.turn] : []),
-                ...base.iceServers.filter(x => !String(x.urls).startsWith('stun:')),
+                { urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+                ...turn,
             ],
         };
+        if (relay) config.iceTransportPolicy = 'relay';
         return { debug: 0, config, ...o };
     },
     available() { return typeof Peer === 'function'; },
+    /** Si hay algún servidor de rebote (el de turn.json o el que trae PeerJS). */
+    hasTurn() { return this.options().config.iceServers.some(s => [].concat(s.urls).some(u => /^turns?:/.test(u))); },
     /** Código de sala: 5 cifras, fácil de dictar y de escribir en el móvil. */
     newCode() { return String(10000 + Math.floor(Math.random() * 90000)); },
     explain(err) {
         const t = Net.kind(err);
         if (t === 'peer-unavailable') return 'No hay ninguna sala abierta con ese código. Comprueba el código y que quien creó la sala tiene el juego abierto en pantalla.';
-        if (t === 'ice') return 'Se ha encontrado la sala, pero vuestras conexiones no han conseguido unirse. Probad otra vez; si sigue fallando, probad con otra red, por ejemplo los datos del móvil.';
+        if (t === 'ice') return 'Se ha encontrado la sala, pero vuestras conexiones no han conseguido unirse, ni siquiera por el servidor de rebote. Usad los dos el botón Probar la conexión, en Jugar con amigos: os dirá qué falla.';
+        if (t === 'timeout') return 'La sala no contesta. Comprueba que quien la creó tiene el juego abierto en pantalla, y vuelve a probar.';
         if (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed') return 'No se ha podido conectar con el servidor de salas. Comprueba tu conexión a internet.';
         if (t === 'browser-incompatible') return 'Este navegador no permite jugar online.';
         return `No se ha podido conectar. Código del fallo: ${t || 'desconocido'}.`;
     },
+    /**
+     * Prueba la conexión: el servidor de salas, cómo te ven desde fuera y el servidor de rebote.
+     * Devuelve { text, signal, srflx, relay }.
+     */
+    async diagnose() {
+        await this.loadTurn();
+        const out = { signal: false, host: false, srflx: false, relay: false, turn: this.hasTurn() };
+        if (this.available()) {
+            out.signal = await new Promise(resolve => {
+                let peer;
+                const done = ok => { clearTimeout(t); try { peer?.destroy(); } catch (_) { /* nada */ } resolve(ok); };
+                const t = setTimeout(() => done(false), 9000);
+                try {
+                    peer = new Peer(this.options());
+                    peer.on('open', () => done(true));
+                    peer.on('error', () => done(false));
+                } catch (_) { done(false); }
+            });
+        }
+        if (typeof RTCPeerConnection === 'function') {
+            await new Promise(resolve => {
+                let pc;
+                const done = () => { clearTimeout(t); try { pc?.close(); } catch (_) { /* nada */ } resolve(); };
+                const t = setTimeout(done, 9000);
+                try {
+                    pc = new RTCPeerConnection({ iceServers: this.options().config.iceServers });
+                    pc.createDataChannel('prueba');
+                    pc.onicecandidate = e => {
+                        if (!e.candidate) { done(); return; }
+                        const type = e.candidate.type || / typ (\w+)/.exec(e.candidate.candidate)?.[1];
+                        if (type) out[type] = true;
+                        if (out.relay && out.srflx) done();
+                    };
+                    pc.createOffer().then(o => pc.setLocalDescription(o)).catch(done);
+                } catch (_) { done(); }
+            });
+        }
+        console.info('Prueba de conexión:', out);
+        let text;
+        if (!out.signal) text = 'No se llega al servidor de salas. Comprueba tu conexión a internet. Si estás en una red de empresa o de colegio, puede que no lo deje: prueba con los datos del móvil.';
+        else if (out.relay) text = 'Todo bien: llegas al servidor de salas y al servidor de rebote. Puedes jugar con amigos de cualquier red.';
+        else if (out.srflx && !out.turn) text = 'Tu conexión funciona, pero el juego no tiene servidor de rebote. Con amigos de tu misma red irá bien; con otras redes, como los datos del móvil, puede que no conecte.';
+        else if (out.srflx) text = 'Llegas al servidor de salas, pero el servidor de rebote no contesta. Con amigos de tu misma red irá bien; con otras redes puede fallar. Avisa a quien cuida el juego: puede que la cuenta del servidor de rebote haya caducado.';
+        else text = 'Llegas al servidor de salas, pero tu red no deja salir las conexiones del juego. Prueba con otra red, por ejemplo los datos del móvil.';
+        return { text, ...out };
+    },
+
     /** Tipo de fallo. Si la sala se encontró pero las conexiones no se unieron, PeerJS lo llama de varias formas: aquí todas son 'ice'. */
     kind(err) {
         const t = err?.type || '';
@@ -136,21 +189,30 @@ class ClientNet {
         this.peer = null; this.conn = null; this.closed = false;
     }
 
-    /** Se une a la sala. Si no la encuentra, lo reintenta un par de veces (quien la creó puede estar reconectando). */
-    async connect(code) {
+    /**
+     * Se une a la sala. Si no la encuentra, lo reintenta un par de veces (quien la creó puede estar
+     * reconectando). Si la encuentra pero las conexiones no se unen, lo intenta solo por el servidor
+     * de rebote, que funciona con casi todas las redes.
+     */
+    async connect(code, { onRetry = null } = {}) {
         await Net.loadTurn();
+        let relay = false;
         for (let attempt = 0; ; attempt++) {
-            try { return await this.#connectOnce(code); } catch (e) {
-                if (this.closed || attempt >= 2 || !['peer-unavailable', 'ice'].includes(Net.kind(e))) throw e;
-                await new Promise(r => setTimeout(r, 2500));
+            try { return await this.#connectOnce(code, relay); } catch (e) {
+                const kind = Net.kind(e);
+                if (this.closed || attempt >= 3 || !['peer-unavailable', 'ice', 'timeout'].includes(kind)) throw e;
+                if (kind === 'ice' && !relay && Net.hasTurn()) { relay = true; onRetry?.('No se unen las conexiones directamente. Probando por el servidor de rebote…'); }
+                else if (kind === 'ice' && relay) throw e;
+                else onRetry?.('Buscando la sala otra vez…');
+                await new Promise(r => setTimeout(r, kind === 'ice' ? 500 : 2500));
                 if (this.closed) throw e;
             }
         }
     }
 
-    #connectOnce(code) {
+    #connectOnce(code, relay = false) {
         return new Promise((resolve, reject) => {
-            const peer = this.peer = new Peer(Net.options());
+            const peer = this.peer = new Peer(Net.options({ relay }));
             let done = false, found = false;
             const fail = err => { if (!done) { done = true; clearTimeout(timer); this.#teardown(); reject(err); } };
             // Por un servidor de rebote la conexión puede tardar: se espera hasta 25 segundos.

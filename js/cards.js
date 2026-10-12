@@ -189,6 +189,18 @@ const CardArt = {
         return svg;
     },
 
+    /** Número grande y palo, para ver la carta de lejos (modo de alto contraste). */
+    badge(card) {
+        const color = { oros: '#8a6410', copas: '#a3262f', espadas: '#24457f', bastos: '#2f6a1f' }[card.suit];
+        return `<span class="badge" aria-hidden="true" style="--c:${color}"><b>${card.rank}</b><svg viewBox="-50 -50 100 100" focusable="false">${this.symbol(card.suit)}</svg></span>`;
+    },
+
+    /** Un abanico de cartas, para la portada y el salón. */
+    fan(cards, { spread = 14 } = {}) {
+        const n = cards.length, mid = (n - 1) / 2;
+        return `<span class="fan" aria-hidden="true">${cards.map((c, i) => `<span class="fan-card" style="--a:${((i - mid) * spread).toFixed(1)}deg;--i:${i}">${c ? this.face(c) : this.back()}</span>`).join('')}</span>`;
+    },
+
     /** El dorso: rojo con rombos, como el de la baraja clásica. */
     back() {
         return this._back ||= `<svg viewBox="0 0 200 300" class="art" aria-hidden="true" focusable="false">

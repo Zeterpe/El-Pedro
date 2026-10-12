@@ -269,6 +269,24 @@ class AudioEngine {
         });
     }
 
+    /** Brisca: alguien falla con un triunfo. */
+    trumpCut(pan = 0) {
+        this.#go((k, out, t) => {
+            k.noise(out, { t: t + 0.05, dur: 0.18, peak: 0.22, filter: { type: 'bandpass', f: [[0, 900], [0.15, 4200]], q: 2 }, pan });
+            k.tone(out, { t: t + 0.08, f: [[0, 392], [0.12, 784]], type: 'triangle', dur: 0.22, peak: 0.12, pan });
+        });
+    }
+
+    /** Brisca: alguien se lleva la baza. Cuantos más puntos, más brilla. */
+    collect(pan = 0, points = 0) {
+        this.#go((k, out, t) => {
+            k.noise(out, { t, dur: 0.22, a: 0.02, peak: 0.2, filter: { type: 'lowpass', f: [[0, 3000], [0.2, 800]] }, pan: [[0, 0], [0.2, pan]] });
+            if (!points) { k.tone(out, { t: t + 0.12, f: 294, type: 'triangle', dur: 0.15, peak: 0.08, pan }); return; }
+            const notes = points >= 20 ? [784, 988, 1175, 1568] : points >= 10 ? [784, 988, 1175] : [784, 988];
+            notes.forEach((f, i) => k.bell(out, { t: t + 0.12 + i * 0.07, f, partials: [[1, 1, 0.35], [2.76, 0.3, 0.15]], peak: 0.1, pan }));
+        });
+    }
+
     pass() {
         this.#go((k, out, t) => { k.tone(out, { t, f: [[0, 330], [0.12, 247]], dur: 0.14, peak: 0.08 }); });
     }
