@@ -65,8 +65,8 @@ const Txt = {
             `Hay que conseguir ${r.wedges} quesitos${r.hubFinal ? ' y acertar la pregunta final en el centro' : ''}.`,
             r.teams ? 'Con 4 o 6 jugadores, por equipos.' : '',
             r.hubFinal ? `La categoría de la final la elige${({ rivales: 'n los rivales', azar: ' el azar', tu: 's tú' })[r.finalPick]}.` : '',
-            r.rollAgain ? 'Si aciertas, vuelves a tirar.' : 'Aciertes o no, pasa el turno.',
-            ({ todas: '', faciles: 'Solo preguntas fáciles.', dificiles: 'Solo preguntas medias y difíciles.' })[r.level],
+            !r.rollAgain ? 'Aciertes o no, pasa el turno.' : r.streak ? `Si aciertas, vuelves a tirar, hasta ${r.streak} aciertos seguidos.` : 'Si aciertas, vuelves a tirar.',
+            ({ todas: 'Preguntas de todas las dificultades.', faciles: 'Preguntas fáciles.', medias: 'Preguntas medias.', dificiles: 'Preguntas difíciles.' })[r.level] || '',
         ].filter(Boolean).join(' ');
     },
 

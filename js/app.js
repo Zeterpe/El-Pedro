@@ -342,7 +342,7 @@ const App = {
         const defs = [
             { label: 'Rivales', values: Array.from({ length: max }, (_, i) => i + 1), get: () => s[key], set: v => { s[key] = v; }, text: rivalText },
             {
-                label: 'Dificultad', values: ['facil', 'normal', 'dificil', 'mezcla'], get: () => s.difficulty, set: v => { s.difficulty = v; },
+                label: G.rivalLevelLabel || 'Dificultad', values: ['facil', 'normal', 'dificil', 'mezcla'], get: () => s.difficulty, set: v => { s.difficulty = v; },
                 text: v => ({ facil: 'fácil', normal: 'normal', dificil: 'difícil', mezcla: 'de todo un poco' })[v],
             },
             ...G.setupDefs(s, r),

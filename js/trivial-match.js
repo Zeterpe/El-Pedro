@@ -614,7 +614,8 @@ class TrivialMatch extends Match {
                 if (e.p === me) {
                     A.yourTurn();
                     const t = e.why === 'square' ? 'Tira otra vez' : e.why === 'right' ? 'Aciertas: vuelves a tirar' : 'Tu turno: tira el dado';
-                    this.prompt(t, `${e.why === 'right' ? 'Vuelves a tirar.' : t + '.'}${this.hint('roll', 'Pulsa la T, o toca el dado.')}`);
+                    const lim = g.rules.streak, last = e.why === 'right' && lim && e.streak === lim - 1;
+                    this.prompt(t, `${e.why === 'right' ? 'Vuelves a tirar.' : t + '.'}${last ? ' Si vuelves a acertar, pasa el turno.' : ''}${this.hint('roll', 'Pulsa la T, o toca el dado.')}`);
                 } else {
                     A.otherTurn(e.p);
                     B.status(e.again ? `${cap(this.names[e.p])} vuelve a tirar` : `Turno de ${this.names[e.p]}`);
@@ -725,6 +726,13 @@ class TrivialMatch extends Match {
                 S.q = null;
                 S.result = null;
                 B.render(this);
+                break;
+            }
+            case 'streak': {
+                const text = e.p === me ? `Llevas ${e.count} aciertos seguidos: pasa el turno.` : `${e.count} aciertos seguidos de ${v.name(e.p)}: pasa el turno.`;
+                B.bubble(e.p, `${e.count} seguidos`, 2000);
+                B.status(text);
+                await this.say(text, { keep: true });
                 break;
             }
             case 'wedge': {
