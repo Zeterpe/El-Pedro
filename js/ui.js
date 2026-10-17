@@ -59,6 +59,8 @@ const UI = {
     keytrap: null,
     virtual: null,
     trapWanted: false,
+    // Si VoiceOver tiene puesta la navegación de una tecla, se queda las letras y los números igualmente (en Safari).
+    VO_TIP: 'Con VoiceOver, apaga la navegación de una tecla pulsando a la vez Control, Opción y Q, para que las letras y los números lleguen al juego. Si las flechas tampoco responden, pulsa a la vez flecha izquierda y flecha derecha. Mientras tanto, puedes moverte por la mesa con el tabulador y elegir con Enter.',
 
     get trapping() {
         // También con la voz del juego: hay quien la usa con VoiceOver encendido. Sin voz no hace falta.

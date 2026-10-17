@@ -184,6 +184,12 @@ class Match {
         }
         Board.status(this.visual ? `${this.title}: juegas contra ${Txt.list(this.seats.filter((_, p) => p !== this.me).map(s => s.name))}` : '');
         await this.say(`${this.title}. ${this.introText()}`, { keep: true });
+        // En el Mac con lector, la primera partida explica cómo hacer que VoiceOver deje pasar las teclas
+        // (la H para pedir ayuda también se la puede quedar VoiceOver).
+        if (this.speech.mode === 'sr' && UI.trapWanted && !Match.voTipDone) {
+            Match.voTipDone = true;
+            await this.say(UI.VO_TIP);
+        }
     }
 
     /** Aplica el resultado de una acción: memorias, sonido, voz, animaciones y dibujo. */
@@ -559,7 +565,8 @@ class Match {
 
     /** Con lector de pantalla: qué hacer si una tecla no llega al juego. */
     srKeysTip() {
-        return this.speech.mode === 'sr' ? ' Si una tecla no responde, es que la usa tu lector de pantalla: en NVDA y JAWS, pasa al modo foco con la tecla del lector y Espacio; en VoiceOver, pulsa el tabulador para volver a la mesa.' : '';
+        if (this.speech.mode !== 'sr') return '';
+        return ' ' + (UI.trapWanted ? UI.VO_TIP : 'Si una tecla no responde, es que la usa tu lector de pantalla: pasa al modo foco con la tecla del lector y Espacio.');
     }
 
     onKey(e) {
