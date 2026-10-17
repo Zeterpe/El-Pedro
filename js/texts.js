@@ -19,6 +19,7 @@ const Txt = {
         let s = `${art} ${RANK_NAME[c.rank]} de ${c.suit}`;
         const say = value ?? this.settings?.figureValues ?? true;
         if (say && c.rank >= 10) s += `, que vale ${c.rank}`;
+        else if (say && c.rank === 7 && this.pedroRules?.sevenMinus) s += ', que vale menos 1';
         return s;
     },
 
@@ -43,7 +44,7 @@ const Txt = {
 
     number(n) { return String(n).replace('.', ','); },
 
-    points(n) { return n === 1 ? '1 punto' : `${n} puntos`; },
+    points(n) { return n < 0 ? `menos ${this.points(-n)}` : n === 1 ? '1 punto' : `${n} puntos`; },
 
     /** Las reglas de una mesa de Parchís, en pocas frases. */
     parchisRules(r) {
@@ -69,6 +70,15 @@ const Txt = {
         ].filter(Boolean).join(' ');
     },
 
+    /** Las reglas de una mesa de Virus, en pocas frases. */
+    virusRules(r) {
+        return [
+            'Gana quien complete antes un cuerpo con cuatro órganos sanos.',
+            r.pairs ? 'Con 4 o 6 jugadores, por parejas.' : '',
+            r.winsToWin ? `Gana la partida quien gane ${r.winsToWin === 1 ? 'una ronda' : r.winsToWin + ' rondas'}.` : 'Se juega sin límite de rondas.',
+        ].filter(Boolean).join(' ');
+    },
+
     /** Las reglas de una mesa, en pocas frases. */
     rules(r) {
         const yes = v => v ? 'sí' : 'no';
@@ -77,6 +87,7 @@ const Txt = {
             `Poderes de las figuras: ${yes(r.powers)}.`,
             r.burn ? `Quemar: sí${r.burnOthers ? ', también las cartas de los demás' : ', solo las tuyas'}${r.burnOthers && r.burnGive ? ', y al quemar la de otro le das una tuya' : ''}. Si fallas, ${r.penaltyCards === 1 ? 'una carta' : r.penaltyCards + ' cartas'} de castigo.` : 'Quemar: no.',
             `Coger la carta de la mesa: ${yes(r.takeFromTable)}.`,
+            r.sevenMinus ? 'El siete vale menos 1 punto.' : '',
             r.allEqualOne ? 'Si todas tus cartas son del mismo número, valen 1 punto.' : '',
             `Si se acaba el mazo, ${r.deckOut === 'end' ? 'se descubren las cartas' : 'se barajan las de la mesa'}.`,
             r.winsToWin ? `Gana la partida quien gane ${r.winsToWin === 1 ? 'una ronda' : r.winsToWin + ' rondas'}.` : 'Se juega sin límite de rondas.',

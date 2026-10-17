@@ -28,6 +28,7 @@ const Board = {
         me.dataset.p = match.me;
         me.className = 'seat seat-me';
         $('my-hand').innerHTML = '';
+        me.querySelectorAll('.vbody').forEach(el => el.remove());
         $('my-hand').setAttribute('aria-label', 'Tus cartas');
         $('my-extra').innerHTML = '';
         $('my-name').textContent = match.seats[match.me]?.name || 'Tú';
@@ -120,7 +121,7 @@ const Board = {
         const w = 64 * big, h = 96 * big;
         const ghost = document.createElement('div');
         ghost.className = 'ghost';
-        ghost.innerHTML = card ? CardArt.face(card) : CardArt.back();
+        ghost.innerHTML = this.match?.faceOf ? this.match.faceOf(card) : card ? CardArt.face(card) : CardArt.back();
         ghost.style.width = w + 'px'; ghost.style.height = h + 'px';
         const x0 = a.left + a.width / 2 - w / 2, y0 = a.top + a.height / 2 - h / 2;
         const x1 = b.left + b.width / 2 - w / 2, y1 = b.top + b.height / 2 - h / 2;

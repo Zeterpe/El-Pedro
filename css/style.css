@@ -747,6 +747,97 @@ body[data-contrast="alto"] .brand { background: none; color: var(--accent); -web
     .tans { min-height: 40px; padding: 4px 8px; font-size: .9rem; }
 }
 
+/* ── Virus ───────────────────────────────── */
+.game-tile[data-game="virus"] { border-color: rgba(126, 224, 122, .55); background: radial-gradient(circle at 15% 50%, rgba(148, 102, 224, .25), transparent 55%), linear-gradient(160deg, rgba(255, 255, 255, .08), rgba(0, 0, 0, .18)); }
+.virus-fan .fan-card svg { filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .45)); }
+#table[data-game="virus"] { --vorg-w: 50px; --vorg-me: 62px; }
+#table[data-game="virus"] .seat-me { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+#table[data-game="virus"] .seat-me .seat-name { order: -2; }
+#table[data-game="virus"] .seat-me .vbody { order: -1; }
+#table[data-game="virus"] .center { flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+#table[data-game="virus"] .seat-extra:empty { display: none; }
+#table[data-game="virus"] .hand.rival { margin-top: 4px; }
+#table[data-game="virus"] .hand.rival .mini { width: 22px; height: 33px; }
+.seat.vdanger { border-color: #ff6b6b; box-shadow: 0 0 20px rgba(255, 107, 107, .45); }
+.seat.vdanger.active { border-color: var(--accent); }
+
+.vpiles { display: flex; gap: 14px; justify-content: center; align-items: flex-end; }
+.vpiles .pile-card { width: 66px; height: 99px; }
+.vstack { box-shadow: 2px 2px 0 #4b2a7a, 4px 4px 0 #3a1f60, 6px 6px 8px rgba(0, 0, 0, .35); border-radius: 9px; }
+#v-deck.empty .vstack { opacity: .25; box-shadow: none; }
+#v-discard-card.none { border: 2px dashed rgba(255, 255, 255, .25); border-radius: 9px; }
+#v-discard-card svg { transform: rotate(-4deg); }
+
+/* Los cuerpos: cada órgano con sus virus y medicinas encima */
+.vbody { display: flex; justify-content: center; align-items: flex-start; gap: 8px; min-height: calc(var(--vorg-w) * 1.5 + 22px); flex-wrap: wrap; padding: 2px 4px 4px; border-radius: 14px; }
+.seat-me .vbody { min-height: calc(var(--vorg-me) * 1.5 + 22px); }
+.vbody-empty { align-self: center; font-size: .8rem; color: var(--muted); border: 2px dashed rgba(255, 255, 255, .2); border-radius: 10px; padding: 8px 10px; }
+.vbody.target { box-shadow: 0 0 0 3px var(--accent), 0 0 18px rgba(255, 211, 77, .55); animation: breathe 1.4s ease-in-out infinite; }
+.vorg { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px 3px 0; min-height: 0; background: transparent; border: 0; box-shadow: none; border-radius: 12px; }
+.vorg:hover { background: rgba(255, 255, 255, .07); }
+.vorg-card { position: relative; display: block; width: var(--vorg-w); height: calc(var(--vorg-w) * 1.5); border-radius: 8px; transition: box-shadow .25s; }
+.seat-me .vorg-card { width: var(--vorg-me); height: calc(var(--vorg-me) * 1.5); }
+.vorg-card > svg, .vitem svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .4)); }
+.vitem { position: absolute; width: 56%; height: 56%; bottom: -26%; z-index: 1; }
+.vitem.i0 { left: -4%; transform: rotate(-10deg); }
+.vitem.i1 { right: -4%; transform: rotate(10deg); }
+.vorg-card:has(.vitem) { margin-bottom: 22%; }
+.vtag { min-height: 1.1em; font-size: .68rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; line-height: 1.1; margin-top: 4px; position: relative; z-index: 2; }
+.st-infectado .vorg-card { box-shadow: 0 0 0 3px #b03cff, 0 0 16px rgba(176, 60, 255, .8); animation: vsick 1.6s ease-in-out infinite; }
+.st-infectado .vtag { color: #e6a3ff; }
+.st-vacunado .vorg-card { box-shadow: 0 0 0 3px #9ee8ff, 0 0 12px rgba(158, 232, 255, .6); }
+.st-vacunado .vtag { color: #b9efff; }
+.st-inmune .vorg-card { box-shadow: 0 0 0 4px var(--accent), 0 0 18px rgba(255, 211, 77, .8); }
+.st-inmune .vtag { color: var(--accent); }
+.st-inmune .vtag::before { content: "🛡 "; }
+@keyframes vsick { 50% { box-shadow: 0 0 0 3px #b03cff, 0 0 26px rgba(176, 60, 255, 1); } }
+.vnum { position: absolute; top: -6px; right: -4px; z-index: 3; min-width: 24px; height: 24px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: .85rem; display: none; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0, 0, 0, .45); }
+.vorg.target .vnum { display: flex; }
+.vorg.target .vorg-card { outline: 3px solid var(--accent); outline-offset: 3px; animation: breathe 1.4s ease-in-out infinite; }
+.vorg.marked .vorg-card { outline-color: var(--ok); }
+.vorg.marked .vnum { background: var(--ok); }
+.vorg.land .vorg-card { animation: land .45s ease-out; }
+.vorg.shake .vorg-card { animation: shake .5s; }
+
+/* La carta elegida y lo que puedes hacer con ella */
+.vopts { width: min(100%, 440px); background: rgba(10, 4, 22, .55); border: 2px solid rgba(178, 140, 245, .6); border-radius: 16px; padding: 8px; animation: pop .25s ease-out; }
+.vopts[hidden] { display: none; }
+.vopts-title { margin: 0 0 6px; font-weight: 800; color: #d9c6ff; text-align: center; font-size: .95rem; }
+.vopts-list { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; }
+.vopt { display: flex; align-items: center; gap: 10px; text-align: left; min-height: 44px; padding: 6px 10px; font-size: .95rem; background: rgba(255, 255, 255, .08); border: 2px solid transparent; border-radius: 12px; box-shadow: none; }
+.vopt:hover { background: rgba(255, 255, 255, .15); }
+.vopt.chosen { border-color: var(--ok); background: rgba(142, 240, 164, .16); }
+.vopt-n { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: .9rem; }
+.slot.discarding .flip { box-shadow: 0 0 0 4px #ff8a7a, 0 0 22px rgba(255, 138, 122, .8); }
+.slot.discarding .front::after { content: "Descartar"; position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); background: #ff8a7a; color: #2a0600; font-size: .62rem; font-weight: 800; padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
+.act.ghostbtn { background: rgba(0, 0, 0, .3); color: var(--ink); }
+body[data-contrast="alto"] .vtag { font-size: .8rem; background: #000; padding: 0 4px; border-radius: 4px; }
+body[data-cards="grande"] #table[data-game="virus"] { --vorg-w: 60px; --vorg-me: 76px; }
+
+@media (max-width: 640px) {
+    #table[data-game="virus"] { --vorg-w: 34px; --vorg-me: 48px; }
+    body[data-cards="grande"] #table[data-game="virus"] { --vorg-w: 42px; --vorg-me: 58px; }
+    #table[data-game="virus"] .vbody { gap: 4px; padding: 0 2px 2px; }
+    #table[data-game="virus"] .vorg { padding: 2px 1px 0; }
+    #table[data-game="virus"] .vtag { font-size: .55rem; margin-top: 4px; }
+    #table[data-game="virus"] .hand.rival .mini { width: 16px; height: 24px; }
+    .vpiles .pile-card { width: 48px; height: 72px; }
+    .vopt { font-size: .88rem; min-height: 40px; }
+    body[data-players="4"] #table[data-game="virus"], body[data-players="5"] #table[data-game="virus"], body[data-players="6"] #table[data-game="virus"] { --vorg-w: 26px; }
+    #table[data-game="virus"] .seat:not(.seat-me) .hand.rival { position: absolute; top: 4px; right: 6px; margin: 0; gap: 0; }
+    #table[data-game="virus"] .seat:not(.seat-me) .seat-name { justify-content: flex-start; padding-right: 40px; }
+    #table[data-game="virus"] .hand.rival .mini { width: 12px; height: 18px; margin: 0 -2px; }
+    #table[data-game="virus"] .vbody { min-height: calc(var(--vorg-w) * 1.5 + 14px); }
+    #table[data-game="virus"] #my-hand .slot { flex-basis: min(92px, 15dvh); }
+}
+@media (max-height: 520px) and (orientation: landscape) {
+    #table[data-game="virus"] { --vorg-w: 30px; --vorg-me: 40px; }
+    #table[data-game="virus"] .vtag { display: none; }
+    .vpiles .pile-card { width: 40px; height: 60px; }
+    .vopts-list { max-height: 30vh; }
+}
+
+
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; }
 }

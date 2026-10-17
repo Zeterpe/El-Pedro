@@ -31,11 +31,13 @@ const DEFAULT_SETTINGS = {
     game: 'pedro',            // el último juego elegido
     briscaRivals: 1,
     briscaRules: { ...BRISCA_DEFAULT_RULES },
-    confirmPlay: true,        // Brisca, Parchís y Trivial: el primer toque dice la carta (la ficha o la respuesta) y el segundo la juega
+    confirmPlay: true,        // Brisca, Parchís, Trivial y Virus: el primer toque dice la carta (la ficha o la respuesta) y el segundo la juega
     parchisRivals: 3,
     parchisRules: { ...PARCHIS_DEFAULT_RULES },
     trivialRivals: 2,
     trivialRules: { ...TRIVIAL_DEFAULT_RULES },
+    virusRivals: 2,
+    virusRules: { ...VIRUS_DEFAULT_RULES },
     cardSize: 'normal',       // normal · grande
     contrast: 'normal',       // normal · alto
 };
@@ -50,6 +52,7 @@ function loadSaved() {
     settings.briscaRules = { ...BRISCA_DEFAULT_RULES, ...(raw?.settings?.briscaRules || {}) };
     settings.parchisRules = { ...PARCHIS_DEFAULT_RULES, ...(raw?.settings?.parchisRules || {}) };
     settings.trivialRules = { ...TRIVIAL_DEFAULT_RULES, ...(raw?.settings?.trivialRules || {}) };
+    settings.virusRules = { ...VIRUS_DEFAULT_RULES, ...(raw?.settings?.virusRules || {}) };
     if (!GAMES[settings.game]) settings.game = 'pedro';
     settings.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
     // Las estadísticas eran solo de El Pedro: pasan a su juego.
@@ -399,7 +402,7 @@ const App = {
             { label: 'Contraste', values: ['normal', 'alto'], get: () => s.contrast, set: v => { s.contrast = v; this.applyLook(); }, text: v => v === 'alto' ? 'alto: números grandes en las cartas y bordes marcados' : 'normal' },
             { label: 'Anuncios', values: ['normal', 'breve'], get: () => s.verbosity, set: v => { s.verbosity = v; }, text: v => v === 'normal' ? 'completos' : 'breves' },
             { label: 'Decir cuánto valen las figuras en El Pedro', values: [true, false], get: () => s.figureValues, set: v => { s.figureValues = v; }, text: yesNo },
-            { label: 'Brisca, Parchís y Trivial: tocar dos veces para jugar', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice la carta, adónde va la ficha o la respuesta' : 'no: se juega al tocarla' },
+            { label: 'Brisca, Parchís, Trivial y Virus: tocar dos veces para jugar', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice la carta, adónde va la ficha, la respuesta o la jugada' : 'no: se juega al tocarla' },
             { label: 'Velocidad de los rivales', values: ['lenta', 'normal', 'rapida'], get: () => s.botSpeed, set: v => { s.botSpeed = v; }, text: v => ({ lenta: 'lenta', normal: 'normal', rapida: 'rápida' })[v] },
             { label: 'Comentarios de los rivales', values: [true, false], get: () => s.quips, set: v => { s.quips = v; }, text: yesNo },
             { label: 'Pistas', values: [true, false], get: () => s.hints, set: v => { s.hints = v; }, text: yesNo },
@@ -422,7 +425,7 @@ const App = {
             // El Parchís y el Trivial no tienen rondas ni manos: solo partidas.
             if (w) lines.push(
                 st.rounds ? `${cap(w)}s jugadas: ${st.rounds}. Ganadas: ${st.roundsWon}${pct(st.roundsWon, st.rounds)}.` : `Aún no has jugado ninguna ${w}.`,
-                st.best == null ? (st.rounds ? `Aún no has ganado ninguna ${w}.` : '') : id === 'pedro' ? `Tu mejor ronda ganada: ${Txt.points(st.best)}.` : `Tu mejor mano: ${Txt.points(st.best)}.`,
+                id === 'virus' ? (st.rounds && !st.roundsWon ? `Aún no has ganado ninguna ${w}.` : '') : st.best == null ? (st.rounds ? `Aún no has ganado ninguna ${w}.` : '') : id === 'pedro' ? `Tu mejor ronda ganada: ${Txt.points(st.best)}.` : `Tu mejor mano: ${Txt.points(st.best)}.`,
             );
             html.push(`<section class="stat-card" data-game="${id}"><h2>${G.name}</h2>${lines.filter(Boolean).map(l => `<p>${l}</p>`).join('')}</section>`);
             spoken.push(`${G.name}. ${lines.filter(Boolean).join(' ')}`);
@@ -587,6 +590,7 @@ const App = {
             brisca: opts => app.startMatch({ game: 'brisca', ...(opts || {}) }),
             parchis: opts => app.startMatch({ game: 'parchis', ...(opts || {}) }),
             trivial: opts => app.startMatch({ game: 'trivial', ...(opts || {}) }),
+            virus: opts => app.startMatch({ game: 'virus', ...(opts || {}) }),
             practice: (game = 'pedro') => app.startPractice(game),
         };
     },
