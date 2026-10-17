@@ -2,16 +2,16 @@
 
 Salón de juegos de cartas con baraja española, **en español**, pensado para personas ciegas y jugable por cualquiera. Se publica con GitHub Pages desde `main`: <https://zeterpe.github.io/El-Pedro/>.
 
-Hay cuatro juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís** (dado y fichas) y **el Trivial** (preguntas y quesitos). Los sonidos, la voz, la mesa y las salas son comunes; cada juego pone sus reglas, sus rivales y cómo se cuenta lo que pasa. Para añadir otro juego, mira «Cómo se añade un juego».
+Hay cinco juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís** (dado y fichas), **el Trivial** (preguntas y quesitos) y **el Virus** (cartas de órganos, virus y medicinas). Los sonidos, la voz, la mesa y las salas son comunes; cada juego pone sus reglas, sus rivales y cómo se cuenta lo que pasa. Para añadir otro juego, mira «Cómo se añade un juego».
 
 **Prioridades, por este orden:** que se pueda jugar sin ver la pantalla, que sea divertido, y lo demás.
 
 ## Tecnología
 
 - HTML + CSS + JavaScript **sin compilación ni dependencias**.
-- Los archivos de `js/` son *scripts clásicos* que comparten el ámbito global, así que **el orden de los `<script>` en `index.html` importa**: rules → brisca → ai → brisca-ai → parchis → parchis-ai → trivial/(geografia, espectaculos, historia, arte, ciencia, deportes) → trivial → trivial-ai → speech → audio → texts → ui → vendor/peerjs → net → mirror → cards → board → match → pedro → brisca-match → parchis-match → trivial-match → games → online → app.
+- Los archivos de `js/` son *scripts clásicos* que comparten el ámbito global, así que **el orden de los `<script>` en `index.html` importa**: rules → brisca → ai → brisca-ai → parchis → parchis-ai → trivial/(geografia, espectaculos, historia, arte, ciencia, deportes) → trivial → trivial-ai → virus → virus-ai → speech → audio → texts → ui → vendor/peerjs → net → mirror → cards → board → match → pedro → brisca-match → parchis-match → trivial-match → virus-match → games → online → app.
 - Única dependencia: PeerJS (MIT), copiada en `js/vendor/peerjs.min.js`. No se carga de ningún CDN.
-- `rules.js`, `ai.js`, `brisca.js`, `brisca-ai.js`, `parchis.js`, `parchis-ai.js`, `trivial.js`, `trivial-ai.js` y las preguntas de `js/trivial/` no tocan la pantalla y también se cargan con Node (`require`), para probarlos sin navegador. `node tests/brisca.test.js` juega cientos de partidas de Brisca y comprueba puntos, bazas y lo que ve cada jugador; `node tests/parchis.test.js` prueba cada regla del Parchís con tableros preparados y juega más de cien partidas; `node tests/trivial.test.js` revisa el banco de preguntas, el tablero y cada regla del Trivial, y juega más de cien partidas.
+- `rules.js`, `ai.js`, `brisca.js`, `brisca-ai.js`, `parchis.js`, `parchis-ai.js`, `trivial.js`, `trivial-ai.js`, `virus.js`, `virus-ai.js` y las preguntas de `js/trivial/` no tocan la pantalla y también se cargan con Node (`require`), para probarlos sin navegador. `node tests/brisca.test.js` juega cientos de partidas de Brisca y comprueba puntos, bazas y lo que ve cada jugador; `node tests/parchis.test.js` prueba cada regla del Parchís con tableros preparados y juega más de cien partidas; `node tests/trivial.test.js` revisa el banco de preguntas, el tablero y cada regla del Trivial, y juega más de cien partidas; `node tests/virus.test.js` prueba el mazo, cada carta y cada tratamiento con mesas preparadas, y juega más de cien partidas.
 - Sonido: todo se sintetiza con Web Audio en `js/audio.js`. No hay archivos de audio.
 - Voz: `speechSynthesis` o el lector de pantalla (regiones `aria-live`), en `js/speech.js`.
 
@@ -26,6 +26,8 @@ Hay cuatro juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís*
 | `js/trivial.js` | Reglas del Trivial (`TrivialGame`, `TRIVIAL_DEFAULT_RULES`): la rueda (`TRIVIAL_BOARD`), los movimientos (`trivialMoves`), las preguntas por categoría, quesitos, equipos y la final. También la mesa del invitado (`TrivialMirror`); la respuesta buena solo la sabe el anfitrión hasta que se contesta |
 | `js/trivial-ai.js` | Rivales del Trivial (`TrivialBot`): aciertan más o menos según la dificultad y su categoría favorita, y eligen casilla buscando quesitos |
 | `js/trivial/*.js` | El banco de preguntas, un archivo por categoría (`TRIVIAL_BANK`): `[pregunta, buena, mala, mala, mala, nivel]`, nivel de 1 (fácil) a 3 (difícil) |
+| `js/virus.js` | Reglas del Virus (`VirusGame`, `VIRUS_DEFAULT_RULES`): el mazo de 68 cartas (`makeVirusDeck`), qué hace cada virus y medicina (`virusEffect`), los tratamientos, lo que ve cada uno (`virusEventFor`) y la mesa del invitado (`VirusMirror`) |
+| `js/virus-ai.js` | Rivales del Virus (`VirusBot`): prueban cada jugada y miden cómo queda su cuerpo y el del rival que va por delante |
 | `js/audio.js` | Sonidos: palo de cada carta, sitios de la mesa, momentos del juego |
 | `js/speech.js` | Voz del juego o lector de pantalla |
 | `js/texts.js` | Cómo se dicen las cartas y los sitios («la sota de oros», «tu carta 2») |
@@ -37,6 +39,7 @@ Hay cuatro juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís*
 | `js/brisca-match.js` | `BriscaMatch`: la mesa de la Brisca. Mazo con la muestra, baza en el centro, tocar dos veces para jugar, consejos en la práctica |
 | `js/parchis-match.js` | `ParchisMatch` y `ParchisArt`: el tablero en SVG (girado para que tu casa quede abajo a la derecha), fichas que andan casilla a casilla, dado, peligros y consejos |
 | `js/trivial-match.js` | `TrivialMatch` y `TrivialArt`: la rueda en SVG, la tarjeta de la pregunta con sus cuatro respuestas, elegir casilla y los quesitos de cada uno |
+| `js/virus-match.js` | `VirusMatch` y `VirusArt`: las cartas en SVG (órganos con cara, virus, medicinas y tratamientos), los cuerpos de cada uno, elegir carta y después dónde va, paso a paso, y descartar |
 | `js/games.js` | `GAMES`: cada juego con su nombre, reglas de la casa, opciones de la partida y el texto de «Cómo se juega» |
 | `js/net.js` | Conexión con PeerJS: `HostNet` (abre la sala `elpedro-NNNNN`) y `ClientNet` |
 | `js/mirror.js` | `MirrorGame`: la mesa tal como la ve un invitado, sin cartas ocultas. `eventFor()` quita a cada jugador las cartas que no puede ver |
@@ -45,6 +48,7 @@ Hay cuatro juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís*
 | `tests/brisca.test.js` | Pruebas de la Brisca con Node |
 | `tests/parchis.test.js` | Pruebas del Parchís con Node |
 | `tests/trivial.test.js` | Pruebas del Trivial con Node |
+| `tests/virus.test.js` | Pruebas del Virus con Node |
 
 ### Cómo funcionan las reglas
 
@@ -88,11 +92,22 @@ Cada juego es una máquina de estados con `act()` y `view(seat)`. Cada `act` dev
 - **Por equipos** (4 o 6 jugadores con `teams`), el equipo es `p % 2` y cada equipo lleva una sola ficha; contestan por turnos.
 - Como el Parchís, `TrivialMatch` dibuja desde `this.shown` y mueve la ficha casilla a casilla.
 
+**El Virus.** `VirusGame` tiene las fases `turn` → `roundOver` → `gameOver`.
+
+- **Las cartas.** 68: 5 órganos de cada color y uno multicolor, 4 virus de cada color y uno multicolor, 4 medicinas de cada color y 4 multicolores, y 10 tratamientos (3 trasplantes, 3 ladrones, 2 contagios, un guante y un error médico). Los colores son `rojo` (corazón), `azul` (cerebro), `verde` (estómago), `amarillo` (hueso) y `multi`.
+- **Un órgano se dice por su dueño y su color** (`{ p, color }`): nadie tiene dos del mismo color. Su estado sale de lo que tiene encima (`organState`): libre, infectado, vacunado o inmune.
+- **Las acciones** son `play` (con `slot` y, según la carta, `target`, `a` y `b` en el trasplante, o `moves` en el contagio) y `discard` (con `slots`). `playsFor(p, slot)` da todas las jugadas que valen de una carta; una carta sin jugadas no se puede jugar. Después se roba hasta tener 3; sin mazo, se da la vuelta a los descartes sin barajar (`flip`).
+- **Colores.** Un virus o medicina vale sobre lo que tiene arriba el órgano: el órgano si está libre, el virus si está infectado (para curar) y la medicina si está vacunado (para romperla). Para infectar del todo e inmunizar cuenta el color del órgano. El multicolor vale con todo.
+- **Ganar.** Con 4 órganos sanos se gana al momento, también en el turno de otro (un trasplante o un error médico). Por parejas (4 o 6 con `pairs`), el equipo es `p % 2`: no se atacan con virus ni se roban, y gana la pareja.
+- **El guante** deja a los demás sin cartas; en su turno solo roban (`lostTurn`).
+- Sucesos: `round`, `deal`, `turn`, `play` (con `effect`), `discard`, `draw`, `flip`, `lostTurn`, `roundOver` y `gameOver`.
+- `VirusMatch` dibuja desde `this.shown` y lo pone al día con cada suceso (`applyShown`). Al elegir una carta, sus jugadas se ofrecen paso a paso (`pathsOf`): el trasplante pregunta primero un órgano y luego el otro, y el contagio cada virus.
+
 ### Cómo funcionan las salas
 
 - **En la sala se elige el juego** (`Online.game`). Al acabar una partida, quien la ha creado puede volver a la sala (`backToLobby`) y elegir otro, sin crear una sala nueva.
-- **Quien crea la sala** tiene la partida (`PedroGame`, `BriscaGame`, `ParchisGame` o `TrivialGame`) y decide todo. Después de cada acción manda a cada jugador un paquete `batch`, con los sucesos filtrados por `eventFor()` y la mesa (`view()`).
-- **Cada invitado** guarda esa mesa en un `MirrorGame` (o `BriscaMirror`, `ParchisMirror`, `TrivialMirror`) y cuenta los sucesos a su manera, con voz o sin ella. Cuando le toca, manda su jugada (`act`) y el anfitrión la comprueba.
+- **Quien crea la sala** tiene la partida (`PedroGame`, `BriscaGame`, `ParchisGame`, `TrivialGame` o `VirusGame`) y decide todo. Después de cada acción manda a cada jugador un paquete `batch`, con los sucesos filtrados por `eventFor()` y la mesa (`view()`).
+- **Cada invitado** guarda esa mesa en un `MirrorGame` (o `BriscaMirror`, `ParchisMirror`, `TrivialMirror`, `VirusMirror`) y cuenta los sucesos a su manera, con voz o sin ella. Cuando le toca, manda su jugada (`act`) y el anfitrión la comprueba.
 - **Quemar llega en cualquier momento:** el invitado manda `act` con `type: 'burn'` y el anfitrión lo pone en la cola. Si falla, le contesta con `burnError`.
 - **Antes de que los rivales de la máquina intenten quemar,** el anfitrión espera a que todos hayan oído la carta (`ack`). Así nadie se queda atrás porque su voz vaya más lenta.
 - **Si alguien se va,** juega la máquina por esa persona (`seatLeft`).
@@ -123,14 +138,15 @@ d.play()              // empezar partida de El Pedro con los ajustes actuales
 d.brisca()            // empezar partida de Brisca
 d.parchis()           // empezar partida de Parchís
 d.trivial()           // empezar partida de Trivial
+d.virus()             // empezar partida de Virus
 d.practice('brisca')  // partida de práctica de un juego
 d.online              // la sala (Online): code, table, role
 ```
 
 **Comprobación mínima antes de subir un cambio:**
-- `node tests/brisca.test.js`, `node tests/parchis.test.js` y `node tests/trivial.test.js`.
+- `node tests/brisca.test.js`, `node tests/parchis.test.js`, `node tests/trivial.test.js` y `node tests/virus.test.js`.
 - Juega una ronda de cada juego en cada modo: con voz (teclado), con lector de pantalla y sin voz (tocando).
-- En El Pedro, usa una carta de poder, quema una carta y canta Pedro. En la Brisca, juega por parejas y prueba el cambio de muestra y los cantes. En el Parchís, juega por parejas y solo, come una ficha y mete otra en la meta. En el Trivial, juega por equipos, gana un quesito y llega a la final.
+- En El Pedro, usa una carta de poder, quema una carta y canta Pedro. En la Brisca, juega por parejas y prueba el cambio de muestra y los cantes. En el Parchís, juega por parejas y solo, come una ficha y mete otra en la meta. En el Trivial, juega por equipos, gana un quesito y llega a la final. En el Virus, juega un virus, una medicina y un tratamiento de cada clase, descarta y juega por parejas.
 - Prueba una sala con dos navegadores: cambia de juego en la sala y recarga la página de un invitado a mitad de partida.
 - Prueba también en el móvil o con el modo móvil del navegador, y comprueba que la consola no muestra errores.
 
@@ -146,7 +162,7 @@ d.online              // la sala (Online): code, table, role
    - Respeta los ajustes: modo lector de pantalla (`settings.output === 'sr'`), mono, anuncios breves y velocidad de la voz.
 3. **Justo para todos.** El juego no recuerda tus cartas salvo con la «ayuda de memoria», que es opcional. Lo que ve en pantalla quien ve debe poder oírlo quien no ve, y al revés: una carta mirada se enseña unos segundos y también se dice, y se puede repetir con Espacio.
 4. **Azar.** En la lógica de juego usa el `rng` con semilla de `rules.js` (`makeRng`). `Math.random` solo para efectos de sonido.
-5. **No romper partidas guardadas.** Los ajustes nuevos van en `DEFAULT_SETTINGS` (`js/app.js`) y las reglas nuevas en `DEFAULT_RULES` (`js/rules.js`), `BRISCA_DEFAULT_RULES` (`js/brisca.js`), `PARCHIS_DEFAULT_RULES` (`js/parchis.js`) o `TRIVIAL_DEFAULT_RULES` (`js/trivial.js`); `loadSaved()` rellena lo que falte.
+5. **No romper partidas guardadas.** Los ajustes nuevos van en `DEFAULT_SETTINGS` (`js/app.js`) y las reglas nuevas en `DEFAULT_RULES` (`js/rules.js`), `BRISCA_DEFAULT_RULES` (`js/brisca.js`), `PARCHIS_DEFAULT_RULES` (`js/parchis.js`) o `TRIVIAL_DEFAULT_RULES` (`js/trivial.js`) o `VIRUS_DEFAULT_RULES` (`js/virus.js`); `loadSaved()` rellena lo que falte.
 6. **Textos en español**, tuteando al jugador y escritos para el oído: frases claras, sin símbolos ni abreviaturas.
 
 ## Cómo se añade un juego

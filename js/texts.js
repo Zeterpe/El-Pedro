@@ -69,6 +69,15 @@ const Txt = {
         ].filter(Boolean).join(' ');
     },
 
+    /** Las reglas de una mesa de Virus, en pocas frases. */
+    virusRules(r) {
+        return [
+            'Gana quien complete antes un cuerpo con cuatro órganos sanos.',
+            r.pairs ? 'Con 4 o 6 jugadores, por parejas.' : '',
+            r.winsToWin ? `Gana la partida quien gane ${r.winsToWin === 1 ? 'una ronda' : r.winsToWin + ' rondas'}.` : 'Se juega sin límite de rondas.',
+        ].filter(Boolean).join(' ');
+    },
+
     /** Las reglas de una mesa, en pocas frases. */
     rules(r) {
         const yes = v => v ? 'sí' : 'no';

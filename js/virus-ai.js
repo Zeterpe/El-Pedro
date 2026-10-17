@@ -87,6 +87,11 @@ class VirusBot {
         if (a.effect === 'guante') v += 4 + this.game.rivals(this.me).reduce((s, q) => s + this.game.healthyCount(q) * 3, 0);
         return v;
     }
+
+    quip(kind) {
+        const list = this.char.quips?.[kind];
+        return list && list.length ? this.rng.pick(list) : null;
+    }
 }
 
 if (typeof module !== 'undefined') {
