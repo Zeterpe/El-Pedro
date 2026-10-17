@@ -74,7 +74,7 @@ const goTo = (g, to) => act(g, { type: 'move', p: g.current, to });
 const answer = (g, ok) => act(g, { type: 'answer', p: g.current, choice: ok ? g.answerIdx : (g.answerIdx + 1) % 4 });
 
 {   // Del centro con un 6 al quesito de Historia: si aciertas, te lo llevas y vuelves a tirar.
-    const g = setup();
+    const g = setup(3, { streak: 0 });
     roll(g, 6);
     assert.strictEqual(g.phase, 'move');
     let r = goTo(g, trivialHq('historia'));
@@ -197,8 +197,48 @@ const answer = (g, ok) => act(g, { type: 'answer', p: g.current, choice: ok ? g.
 {   // Preguntas fáciles: solo las de nivel 1.
     const g = setup(2, { level: 'faciles' });
     assert(g.decks.arte.every(i => MINI.arte[i][5] === 1));
+    const m = setup(2, { level: 'medias' });
+    assert(m.decks.arte.length && m.decks.arte.every(i => MINI.arte[i][5] === 2));
     const h = setup(2, { level: 'dificiles' });
-    assert(h.decks.arte.every(i => MINI.arte[i][5] >= 2));
+    assert(h.decks.arte.length && h.decks.arte.every(i => MINI.arte[i][5] === 3));
+    const t = setup(2, { level: 'todas' });
+    assert.strictEqual(t.decks.arte.length, MINI.arte.length);
+}
+{   // Tras 3 aciertos seguidos pasa el turno, aunque aciertes; el quesito sí te lo llevas.
+    const g = setup(2);
+    const stepCat = h => {   // tira lo que haga falta para caer en una casilla de categoría
+        const at = h.tokenOf(h.current).at;
+        for (let v = 1; v <= 6; v++) {
+            const m = trivialMoves(at, v).find(x => TRIVIAL_BOARD[x.to].kind === 'cat');
+            if (m) { roll(h, v); goTo(h, m.to); return; }
+        }
+        throw new Error('sin casilla de categoría');
+    };
+    g.tokens[0].at = tvRing(1);
+    for (let k = 1; k <= 2; k++) {
+        stepCat(g);
+        const r = answer(g, true);
+        assert.strictEqual(g.current, 0, 'sigue tirando');
+        assert.strictEqual(r.events.at(-1).streak, k);
+    }
+    g.tokens[0].at = TRIVIAL_HUB;
+    roll(g, 6); goTo(g, trivialHq('historia'));
+    const r = answer(g, true);
+    assert.deepStrictEqual(kinds(r), ['answer', 'wedge', 'streak', 'turn']);
+    assert.deepStrictEqual(g.tokens[0].wedges, ['historia']);
+    assert.strictEqual(g.current, 1);
+    assert.strictEqual(g.streak, 0);
+    // Fallar también empieza la cuenta de nuevo.
+    stepCat(g); answer(g, true);
+    assert.strictEqual(g.streak, 1);
+    stepCat(g); answer(g, false);
+    assert.strictEqual(g.current, 0);
+    assert.strictEqual(g.streak, 0);
+    // Sin límite, se sigue tirando.
+    const u = setup(2, { streak: 0 });
+    u.tokens[0].at = tvRing(1);
+    for (let k = 0; k < 5; k++) { stepCat(u); answer(u, true); }
+    assert.strictEqual(u.current, 0);
 }
 {   // Las preguntas que ya han salido en otras partidas van al final del montón.
     const seen = MINI.arte.map((_, i) => `arte:${i}`).filter((_, i) => i !== 5);

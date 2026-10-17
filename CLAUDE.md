@@ -84,6 +84,8 @@ Cada juego es una máquina de estados con `act()` y `view(seat)`. Cada `act` dev
 - **El tablero** (`TRIVIAL_BOARD`, 73 casillas): el centro es la 0; el anillo, de la 1 a la 42, con un quesito cada 7 casillas; los seis radios, de la 43 a la 72, cinco casillas cada uno. En el anillo hay casillas de «vuelve a tirar». Se mueve la cuenta justa sin volver atrás (`trivialMoves`).
 - **Las categorías**, en orden: geografía (azul), espectáculos (rosa), historia (amarillo), arte y literatura (marrón), ciencia (verde) y deportes (naranja). Cada una tiene su mazo; las preguntas ya vistas en este aparato (`localStorage['elpedro.trivial.seen']`) van al final.
 - **Las acciones** son `roll`, `move` (con `to`), `pick` (con `cat`, en el centro o la final) y `answer` (con `choice`, de 0 a 3). El suceso `question` no lleva la respuesta buena; la dice `answer` al contestar.
+- **El turno.** Si aciertas, vuelves a tirar (`rollAgain`), pero tras `streak` aciertos seguidos (3) pasa el turno aunque aciertes: suceso `streak`.
+- **La dificultad** de las preguntas (`level`): `todas`, `faciles`, `medias` o `dificiles`. Se elige al preparar la partida y en las reglas de la casa (en una sala, las del anfitrión). Hay unas cien preguntas o más de cada nivel en cada categoría.
 - **Quesitos y final.** Se gana el quesito acertando en su casilla. Con `wedges` quesitos se va al centro y, con `hubFinal`, se gana acertando la final; la categoría la eligen los rivales, el azar o tú (`finalPick`).
 - **Por equipos** (4 o 6 jugadores con `teams`), el equipo es `p % 2` y cada equipo lleva una sola ficha; contestan por turnos.
 - Como el Parchís, `TrivialMatch` dibuja desde `this.shown` y mueve la ficha casilla a casilla.

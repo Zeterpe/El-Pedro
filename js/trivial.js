@@ -18,7 +18,8 @@ const TRIVIAL_DEFAULT_RULES = {
     hubFinal: true,         // con los quesitos, hay que llegar al centro y acertar la pregunta final (false: ganas al conseguirlos)
     finalPick: 'rivales',   // quién elige la categoría de la pregunta final: rivales · azar · tu
     rollAgain: true,        // si aciertas, vuelves a tirar
-    level: 'todas',         // las preguntas: todas · faciles · dificiles
+    streak: 3,              // tras tantos aciertos seguidos, pasa el turno aunque aciertes (0: sin límite)
+    level: 'todas',         // las preguntas: todas (mezcla) · faciles · medias · dificiles
 };
 
 /** Las seis categorías, en el orden del tablero (y de los quesitos). */
@@ -124,6 +125,7 @@ class TrivialGame {
         this.round = 0;
         this.phase = 'idle';
         this.current = 0;
+        this.streak = 0;             // aciertos seguidos de quien tiene el turno
         this.turns = 0;              // cambia con cada jugada
         this.dice = null;
         this.options = [];           // adónde se puede ir: [{ to, path }]
@@ -166,7 +168,8 @@ class TrivialGame {
     _pool(cat) {
         const list = this.bank[cat] || [];
         const lv = this.rules.level;
-        const ok = q => lv === 'faciles' ? (q[5] || 1) === 1 : lv === 'dificiles' ? (q[5] || 1) >= 2 : true;
+        const want = { faciles: 1, medias: 2, dificiles: 3 }[lv];
+        const ok = q => !want || (q[5] || 1) === want;
         const idx = list.map((q, i) => ok(q) ? i : -1).filter(i => i >= 0);
         return idx.length ? idx : list.map((_, i) => i);
     }
@@ -187,7 +190,7 @@ class TrivialGame {
     // ── La mesa ───────────────────────────────────────
     view() {
         return {
-            phase: this.phase, round: this.round, current: this.current, turns: this.turns, dice: this.dice,
+            phase: this.phase, round: this.round, current: this.current, streak: this.streak, turns: this.turns, dice: this.dice,
             options: this.options.map(m => ({ to: m.to, path: m.path.slice() })),
             pick: this.pick && { ...this.pick }, q: this.q && { ...this.q, options: this.q.options.slice() },
             last: this.last && { ...this.last }, winners: this.winners,
@@ -218,6 +221,7 @@ class TrivialGame {
             this.round = 1;
             for (const t of this.tokens) { t.at = TRIVIAL_HUB; t.wedges = []; t.right = 0; t.wrong = 0; t.missed = {}; }
             this.current = this.rng.int(this.n);
+            this.streak = 0;
             this.dice = null; this.options = []; this.pick = null; this.q = null; this.last = null; this.winners = null;
             this._emit({ t: 'round', round: 1, first: this.current, teams: this.teamPlay, wedges: this.rules.wedges });
             this.phase = 'roll';
@@ -338,15 +342,20 @@ class TrivialGame {
             this._emit({ t: 'wedge', p, side: q.side, cat: q.cat, count: tok.wedges.length, all });
             if (all && !this.rules.hubFinal) return this._gameOver(tok.members.slice());
         }
-        if (this.rules.rollAgain) {
+        this.streak++;
+        if (this.rules.rollAgain && this.rules.streak && this.streak >= this.rules.streak) {
+            this._emit({ t: 'streak', p, count: this.streak });
+            this._pass();
+        } else if (this.rules.rollAgain) {
             this.phase = 'roll';
-            this._emit({ t: 'turn', p, again: true, why: 'right' });
+            this._emit({ t: 'turn', p, again: true, why: 'right', streak: this.streak });
         } else this._pass();
         return null;
     }
 
     _pass() {
         this.current = (this.current + 1) % this.n;
+        this.streak = 0;
         this.dice = null; this.options = []; this.pick = null; this.q = null;
         this.phase = 'roll';
         this._emit({ t: 'turn', p: this.current, again: false });
@@ -368,12 +377,12 @@ class TrivialMirror {
         this.rules = { ...TRIVIAL_DEFAULT_RULES, ...rules };
         this.players = names.map((name, index) => ({ name, index, wins: 0 }));
         this.tokens = this.sides().map(members => ({ at: TRIVIAL_HUB, wedges: [], members, right: 0, wrong: 0, missed: {} }));
-        this.phase = 'idle'; this.round = 0; this.current = 0; this.turns = 0; this.dice = null;
+        this.phase = 'idle'; this.round = 0; this.current = 0; this.streak = 0; this.turns = 0; this.dice = null;
         this.options = []; this.pick = null; this.q = null; this.last = null; this.winners = null;
     }
 
     setView(v) {
-        this.phase = v.phase; this.round = v.round; this.current = v.current; this.turns = v.turns; this.dice = v.dice;
+        this.phase = v.phase; this.round = v.round; this.current = v.current; this.streak = v.streak || 0; this.turns = v.turns; this.dice = v.dice;
         this.options = v.options.map(m => ({ to: m.to, path: m.path.slice() }));
         this.pick = v.pick && { ...v.pick };
         this.q = v.q && { ...v.q, options: v.q.options.slice() };
