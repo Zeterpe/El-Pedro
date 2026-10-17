@@ -601,7 +601,7 @@ class TrivialMatch extends Match {
                 const first = e.first === me ? 'Empiezas tú' : `Empieza ${this.names[e.first]}`;
                 B.banner('Trivial', first);
                 B.status(first);
-                await this.say(`${first}. Todas las fichas salen del centro.${this.hint('start', 'Tira el dado con la T, o tocando el dado.')}`, { keep: true });
+                await this.say(`${first}. Todas las fichas salen del centro.${this.hint('start', 'Tira el dado con la T o con Enter, o tocando el dado.')}`, { keep: true });
                 break;
             }
             case 'turn': {
@@ -615,7 +615,7 @@ class TrivialMatch extends Match {
                     A.yourTurn();
                     const t = e.why === 'square' ? 'Tira otra vez' : e.why === 'right' ? 'Aciertas: vuelves a tirar' : 'Tu turno: tira el dado';
                     const lim = g.rules.streak, last = e.why === 'right' && lim && e.streak === lim - 1;
-                    this.prompt(t, `${e.why === 'right' ? 'Vuelves a tirar.' : t + '.'}${last ? ' Si vuelves a acertar, pasa el turno.' : ''}${this.hint('roll', 'Pulsa la T, o toca el dado.')}`);
+                    this.prompt(t, `${e.why === 'right' ? 'Vuelves a tirar.' : t + '.'}${last ? ' Si vuelves a acertar, pasa el turno.' : ''}${this.hint('roll', 'Pulsa la T o Enter, o toca el dado.')}`);
                 } else {
                     A.otherTurn(e.p);
                     B.status(e.again ? `${cap(this.names[e.p])} vuelve a tirar` : `Turno de ${this.names[e.p]}`);
@@ -835,7 +835,7 @@ class TrivialMatch extends Match {
 
     keysHelp() {
         const t = [
-            'T: tirar el dado.',
+            'T o Enter: tirar el dado.',
             `Del 1 al 9: adónde vas, la categoría o la respuesta. ${this.settings.confirmPlay ? 'La primera vez te dice cuál es y la segunda la elige. Enter elige la marcada.' : 'Al pulsarla, la eliges.'}`,
             'Flechas: moverte por las opciones.',
             'P: repetir la pregunta y sus respuestas. M: dónde está cada ficha y el quesito que te falta más cerca. C: tus quesitos. D: el último dado.',
@@ -999,7 +999,8 @@ class TrivialMatch extends Match {
             return true;
         }
         if (k === 'Enter' && this.sel != null && this.want?.kinds.has('play') && !e.target?.classList?.contains('tans') && !e.target?.classList?.contains('slot') && !e.target?.classList?.contains('act')) { e.preventDefault(); this.input('play'); return true; }
-        if (k === 't') {
+        // Enter también tira el dado (la T se la puede quedar el lector de pantalla).
+        if (k === 't' || (k === 'Enter' && this.want?.kinds.has('roll') && !e.target?.closest?.('button'))) {
             e.preventDefault();
             if (!this.input('roll')) { this.audio.error(); this.explainCant('roll'); }
             return true;

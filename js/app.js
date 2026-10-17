@@ -178,7 +178,7 @@ const App = {
         this.nameFromStart = fromStart;
         const input = $('name-input');
         input.value = this.settings.playerName || '';
-        const how = fromStart ? { voz: 'Te hablará la voz del juego.', sr: 'Te hablará tu lector de pantalla.', visual: 'Jugarás sin voz.' }[this.settings.output] + ' ' : '';
+        const how = fromStart ? { voz: 'Te hablará la voz del juego.', sr: 'Te hablará tu lector de pantalla.' + (UI.trapWanted ? ' ' + UI.VO_TIP : ''), visual: 'Jugarás sin voz.' }[this.settings.output] + ' ' : '';
         UI.show('name', { intro: `${how}¿Cómo te llamas? Escribe tu nombre y pulsa Enter.${input.value ? ' Ahora pone ' + input.value + '.' : ''}`, focus: 'name-input' });
     },
 

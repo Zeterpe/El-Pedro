@@ -541,7 +541,7 @@ class ParchisMatch extends Match {
                 const first = e.first === me ? 'Empiezas tú' : `Empieza ${this.names[e.first]}`;
                 B.banner('Parchís', first);
                 B.status(first);
-                await this.say(`${first}. Se sale con un 5. ${this.hint('start', 'Tira el dado con la T, o tocando el dado.')}`.trim(), { keep: true });
+                await this.say(`${first}. Se sale con un 5. ${this.hint('start', 'Tira el dado con la T o con Enter, o tocando el dado.')}`.trim(), { keep: true });
                 break;
             }
             case 'turn': {
@@ -552,7 +552,7 @@ class ParchisMatch extends Match {
                 if (e.p === me) {
                     A.yourTurn();
                     const t = e.again ? 'Has sacado un 6: vuelves a tirar' : 'Tu turno: tira el dado';
-                    this.prompt(t, `${t}.${this.hint('roll', ' Pulsa la T, o toca el dado.')}`);
+                    this.prompt(t, `${t}.${this.hint('roll', ' Pulsa la T o Enter, o toca el dado.')}`);
                 } else {
                     A.otherTurn(e.p);
                     B.status(e.again ? `${cap(this.names[e.p])} vuelve a tirar` : `Turno de ${this.names[e.p]}`);
@@ -791,7 +791,7 @@ class ParchisMatch extends Match {
 
     keysHelp() {
         const t = [
-            'T: tirar el dado.',
+            'T o Enter: tirar el dado.',
             `Del 1 al ${this.shown.pos[this.me].length}: tus fichas. ${this.settings.confirmPlay ? 'La primera vez te dice adónde va y la segunda la mueve. Enter mueve la elegida.' : 'Al pulsarla, la mueves.'}`,
             'Flechas: moverte por tus fichas.',
             'M: dónde está cada ficha. P: peligros, las fichas que tienes cerca. D: el último dado.',
@@ -938,7 +938,8 @@ class ParchisMatch extends Match {
         }
         if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); Board.moveCursor(k === 'ArrowRight' ? 1 : -1, 0); return true; }
         if (k === 'Enter' && this.sel != null && this.want?.kinds.has('play') && !e.target?.classList?.contains('slot') && !e.target?.classList?.contains('act')) { e.preventDefault(); this.input('play'); return true; }
-        if (k === 't') {
+        // Enter también tira el dado (la T se la puede quedar el lector de pantalla).
+        if (k === 't' || (k === 'Enter' && this.want?.kinds.has('roll') && !e.target?.closest?.('button'))) {
             e.preventDefault();
             if (!this.input('roll')) { this.audio.error(); this.explainCant('roll'); }
             return true;
