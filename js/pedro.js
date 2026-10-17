@@ -825,7 +825,7 @@ class PedroMatch extends Match {
             'Para quemar, en cualquier momento: tu carta con su número, o la de otro con las flechas y Enter. Q: qué carta hay en la mesa.',
             'I: cómo va la partida. C: tus cartas. Espacio: repetir lo último. Escape: cancelar o pausa.',
         ].filter(Boolean);
-        this.speech.say(t.join(' '), { interrupt: true });
+        this.speech.say(t.join(' ') + this.srKeysTip(), { interrupt: true });
     }
 
     // ── Teclado ───────────────────────────────────────

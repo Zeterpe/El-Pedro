@@ -834,7 +834,7 @@ class TrivialMatch extends Match {
             this.practice ? 'A: un consejo.' : '',
             'I: cómo va la partida. Espacio: repetir lo último. Escape: pausa.',
         ].filter(Boolean);
-        this.speech.say(t.join(' '), { interrupt: true });
+        this.speech.say(t.join(' ') + this.srKeysTip(), { interrupt: true });
     }
 
     /** Un consejo: adónde iría un buen jugador o, en una pregunta, quita dos respuestas falsas. */

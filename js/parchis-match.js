@@ -798,7 +798,7 @@ class ParchisMatch extends Match {
             this.practice ? 'A: un consejo.' : '',
             'I: cómo va la partida. C: tus fichas. Espacio: repetir lo último. Escape: pausa.',
         ].filter(Boolean);
-        this.speech.say(t.join(' '), { interrupt: true });
+        this.speech.say(t.join(' ') + this.srKeysTip(), { interrupt: true });
     }
 
     /** Un consejo: lo que haría un buen jugador. */

@@ -154,6 +154,8 @@ const Dialog = {
         this._resolve = null;
         const prev = this._prevFocus;
         if (prev && document.contains(prev) && prev.offsetParent !== null) UI.focus(prev, { silent: true });
+        // En la mesa el foco no se pierde: así el lector de pantalla sigue pasando las teclas al juego.
+        else if (UI.current === 'game') UI.focus($('my-hand'), { silent: true });
         if (!silent || r) r?.(value);
     },
 
