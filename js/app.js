@@ -96,6 +96,7 @@ const App = {
         for (const ev of ['touchend', 'click', 'keydown']) document.addEventListener(ev, unlock, { capture: true });
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) return;
+            this.checkUpdate();   // quien deja la pestaña abierta también recibe la versión nueva (solo fuera de la partida)
             this.audio.resume();
             if (this.wantAwake) this.keepAwake(true);
         });
@@ -568,7 +569,13 @@ const App = {
                 if (UI.trapping) {
                     // Una tecla que llega desde un botón de la mesa devuelve el foco al campo invisible.
                     if (e.target !== UI.keytrap && $('screen-game').contains(e.target)) UI.focus(e.target, { silent: true });
-                    if (e.key === 'Tab') { e.preventDefault(); UI.moveFocus(e.shiftKey ? -1 : 1, $('screen-game')); return; }
+                    if (e.key === 'Tab') {
+                        // El tabulador también trae de vuelta el cursor de VoiceOver si se ha ido a otra parte de la página.
+                        e.preventDefault();
+                        if (e.target === UI.keytrap) UI.regrab();
+                        UI.moveFocus(e.shiftKey ? -1 : 1, $('screen-game'));
+                        return;
+                    }
                     const v = UI.active();
                     if (e.key === 'Enter' && v?.matches?.('button')) { e.preventDefault(); v.click(); return; }
                 }

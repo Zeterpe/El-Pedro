@@ -29,6 +29,8 @@ const UI = {
         try { force = localStorage.getItem('elpedro.keytrap'); } catch { }
         this.trapWanted = force != null ? force === '1' : /Mac/.test(navigator.platform || navigator.userAgent) && !navigator.maxTouchPoints;
         this.keytrap?.addEventListener('input', () => { this.keytrap.value = ''; });
+        // VoiceOver trata role="application" a su manera (hay que «interactuar» con ella); en el Mac basta con el campo.
+        if (this.trapWanted) $('screen-game').removeAttribute('role');
         document.querySelectorAll('.screen').forEach(el => { this.screens[el.id.replace('screen-', '')] = el; });
         document.addEventListener('focusin', e => this._onFocus(e));
         speech.onCaption = text => this.caption(text);
@@ -59,7 +61,17 @@ const UI = {
     trapWanted: false,
 
     get trapping() {
-        return this.trapWanted && !!this.keytrap && this.settings?.output === 'sr' && this.current === 'game' && !Dialog.active;
+        // También con la voz del juego: hay quien la usa con VoiceOver encendido. Sin voz no hace falta.
+        return this.trapWanted && !!this.keytrap && this.speech?.mode !== 'visual' && this.current === 'game' && !Dialog.active;
+    },
+
+    /** Vuelve a enfocar el campo aunque ya tuviera el foco, para que el cursor de VoiceOver regrese a la mesa. */
+    regrab() {
+        if (!this.trapping || document.activeElement !== this.keytrap) return;
+        this._silentFocus = true;
+        this.keytrap.blur();
+        this.keytrap.focus({ preventScroll: true });
+        this._silentFocus = false;
     },
 
     /** El elemento en el que estás: el enfocado o, con el campo invisible, el virtual. */
