@@ -79,7 +79,7 @@ const GAMES = {
                 <li>Del 1 al 4: tus cartas. Con una carta robada, la cambias por esa. T: tirarla a la mesa.</li>
                 <li>Para quemar, en cualquier momento: tu carta con su número, o la de otro con las flechas y Enter. Q: te dice qué carta hay en la mesa.</li>
                 <li>I: cómo va la partida. C: tus cartas. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
-                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o quita la navegación rápida de VoiceOver (flecha izquierda y flecha derecha a la vez, o VO Q).</li>
+                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, pulsa el tabulador para volver a la mesa.</li>
             </ul>
             <p>En el móvil, todo tiene su botón en la pantalla.</p>`,
     },
@@ -145,7 +145,7 @@ const GAMES = {
                 <li>M: las cartas de la mesa y quién va ganando. U: la última baza. T: el triunfo y la muestra. P: los puntos.</li>
                 <li>X: cambiar la muestra. V: cantar las 20 o las 40, si se juega con cantes.</li>
                 <li>I: cómo va la partida. C: tus cartas. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
-                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o quita la navegación rápida de VoiceOver (flecha izquierda y flecha derecha a la vez, o VO Q).</li>
+                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, pulsa el tabulador para volver a la mesa.</li>
             </ul>
             <p>En el móvil, todo tiene su botón en la pantalla.</p>`,
     },
@@ -211,7 +211,7 @@ const GAMES = {
                 <li>Del 1 al 4: tus fichas. La primera vez te dice adónde va y la segunda la mueve. Enter mueve la elegida. Si solo puedes mover una, se mueve sola.</li>
                 <li>M: dónde está cada ficha. P: peligros, las fichas que tienes cerca por detrás y por delante. D: el último dado.</li>
                 <li>I: cómo va la partida. C: tus fichas. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
-                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o quita la navegación rápida de VoiceOver (flecha izquierda y flecha derecha a la vez, o VO Q).</li>
+                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, pulsa el tabulador para volver a la mesa.</li>
             </ul>
             <p>En el móvil, todo tiene su botón en la pantalla. También puedes tocar el dado y tus fichas en el tablero.</p>`,
     },
@@ -277,7 +277,7 @@ const GAMES = {
                 <li>Del 1 al 9: adónde vas, la categoría o la respuesta. La primera vez te dice cuál es y la segunda la elige. Enter elige la marcada. Las flechas recorren las opciones.</li>
                 <li>P: repetir la pregunta y sus respuestas. M: dónde está cada ficha y el quesito que te falta más cerca. C: tus quesitos. D: el último dado.</li>
                 <li>I: cómo va la partida. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
-                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o quita la navegación rápida de VoiceOver (flecha izquierda y flecha derecha a la vez, o VO Q).</li>
+                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, pulsa el tabulador para volver a la mesa.</li>
             </ul>
             <p>En el móvil, todo tiene su botón en la pantalla. También puedes tocar el dado, las casillas marcadas del tablero y las respuestas.</p>`,
     },
@@ -343,7 +343,7 @@ const GAMES = {
                 <li>D: descartar. Marca las cartas con su número y pulsa D o Enter para tirarlas.</li>
                 <li>Flechas: tus cartas, tu cuerpo y los cuerpos de los demás. M: cómo está el cuerpo de cada uno. T: el mazo y los descartes.</li>
                 <li>I: cómo va la partida. C: tus cartas y tu cuerpo. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
-                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o quita la navegación rápida de VoiceOver (flecha izquierda y flecha derecha a la vez, o VO Q).</li>
+                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, pulsa el tabulador para volver a la mesa.</li>
             </ul>
             <p>En el móvil, todo tiene su botón en la pantalla. También puedes tocar los órganos marcados de la mesa.</p>`,
     },

@@ -559,7 +559,7 @@ class Match {
 
     /** Con lector de pantalla: qué hacer si una tecla no llega al juego. */
     srKeysTip() {
-        return this.speech.mode === 'sr' ? ' Si una tecla no responde, es que la usa tu lector de pantalla: en NVDA y JAWS, pasa al modo foco con la tecla del lector y Espacio; en VoiceOver, quita la navegación rápida con flecha izquierda y flecha derecha a la vez, o con VO Q.' : '';
+        return this.speech.mode === 'sr' ? ' Si una tecla no responde, es que la usa tu lector de pantalla: en NVDA y JAWS, pasa al modo foco con la tecla del lector y Espacio; en VoiceOver, pulsa el tabulador para volver a la mesa.' : '';
     }
 
     onKey(e) {

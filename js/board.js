@@ -236,7 +236,7 @@ const Board = {
         if (!match || match !== this.match) return;
         match.render();
         // Si el botón enfocado ha desaparecido, el foco pasa a algo que tenga sentido (sin leerlo).
-        const f = document.activeElement;
+        const f = UI.active();
         if (UI.current === 'game' && !Dialog.active && (!f || f === document.body || f.hidden || f.disabled || !document.contains(f))) {
             const next = [...document.querySelectorAll('#actions .act.main')].find(x => !x.hidden) || $('my-hand').querySelector('.slot:not(:disabled)') || $('my-hand');
             UI.focus(next, { silent: true });
@@ -258,7 +258,7 @@ const Board = {
     moveCursor(dx, dy) {
         const rows = this.rows();
         if (!rows.length) return;
-        const f = document.activeElement;
+        const f = UI.active();
         let r = rows.findIndex(row => row.includes(f)), c = r >= 0 ? rows[r].indexOf(f) : -1;
         if (r < 0) { r = 0; c = 0; }
         else if (dy) { r = (r + dy + rows.length) % rows.length; c = Math.min(c, rows[r].length - 1); }
