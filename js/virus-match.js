@@ -1242,7 +1242,7 @@ class VirusMatch extends Match {
     moveCursor(dx, dy) {
         const rows = this.cursorRows();
         if (!rows.length) return;
-        const f = document.activeElement;
+        const f = UI.active();
         let r = rows.findIndex(row => row.includes(f)), c = r >= 0 ? rows[r].indexOf(f) : -1;
         if (r < 0) { r = 0; c = 0; }
         else if (dy) { r = (r + dy + rows.length) % rows.length; c = Math.min(c, rows[r].length - 1); }

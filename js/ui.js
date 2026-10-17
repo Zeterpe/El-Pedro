@@ -23,6 +23,12 @@ const UI = {
 
     init({ speech, audio, settings }) {
         this.speech = speech; this.audio = audio; this.settings = settings;
+        this.keytrap = $('keytrap');
+        // En el Mac de sobremesa (no en el iPad, que se toca); para probarlo en otro aparato, localStorage['elpedro.keytrap'] = '1'.
+        let force = null;
+        try { force = localStorage.getItem('elpedro.keytrap'); } catch { }
+        this.trapWanted = force != null ? force === '1' : /Mac/.test(navigator.platform || navigator.userAgent) && !navigator.maxTouchPoints;
+        this.keytrap?.addEventListener('input', () => { this.keytrap.value = ''; });
         document.querySelectorAll('.screen').forEach(el => { this.screens[el.id.replace('screen-', '')] = el; });
         document.addEventListener('focusin', e => this._onFocus(e));
         speech.onCaption = text => this.caption(text);
@@ -30,6 +36,7 @@ const UI = {
 
     show(name, { focus = null, intro = null, silent = false } = {}) {
         for (const [k, el] of Object.entries(this.screens)) el.classList.toggle('active', k === name);
+        if (name !== 'game') this.setVirtual(null);
         this.current = name;
         document.body.dataset.screen = name;
         window.scrollTo(0, 0);
@@ -42,9 +49,48 @@ const UI = {
 
     say(text, opts) { return this.speech.say(text, opts); },
 
+    // ── Teclas con VoiceOver ──────────────────────────
+    // VoiceOver en el Mac se queda las letras y los números para moverse por la página
+    // (navegación rápida), aunque la mesa sea una aplicación. En un campo de texto sí los deja pasar.
+    // Así que, con lector de pantalla en el Mac, el foco de la mesa se queda en un campo invisible
+    // (keytrap) y el sitio en el que estás es «virtual»: se ve con su marco y se dice en voz alta.
+    keytrap: null,
+    virtual: null,
+    trapWanted: false,
+
+    get trapping() {
+        return this.trapWanted && !!this.keytrap && this.settings?.output === 'sr' && this.current === 'game' && !Dialog.active;
+    },
+
+    /** El elemento en el que estás: el enfocado o, con el campo invisible, el virtual. */
+    active() {
+        const f = document.activeElement;
+        if (!this.trapping || f !== this.keytrap) return f;
+        const v = this.virtual;
+        return v && document.contains(v) && !v.hidden && !v.disabled && v.offsetParent !== null ? v : document.body;
+    },
+
+    setVirtual(el) {
+        if (this.virtual === el) return;
+        this.virtual?.classList.remove('vfocus');
+        this.virtual = el;
+        el?.classList.add('vfocus');
+    },
+
     /** Enfoca un elemento. silent: no lo lee. queue: lo lee después de lo que se esté diciendo. */
     focus(el, { silent = false, queue = false } = {}) {
         if (!el) return;
+        if (this.trapping && el !== this.keytrap && this.screens.game.contains(el)) {
+            this.setVirtual(el);
+            if (document.activeElement !== this.keytrap) {
+                this._silentFocus = true;
+                this.keytrap.focus({ preventScroll: true });
+                this._silentFocus = false;
+            }
+            el.scrollIntoView?.({ block: 'nearest' });
+            if (!silent) { const t = labelOf(el); if (t) this.say(t, { interrupt: !queue }); }
+            return;
+        }
         if (!el.matches('button, input, select, textarea, a[href], [tabindex]')) el.setAttribute('tabindex', '-1');
         this._silentFocus = silent;
         this._queueFocus = queue;
@@ -78,7 +124,7 @@ const UI = {
     moveFocus(delta, container = this.screens[this.current]) {
         const items = this.navItems(container);
         if (!items.length) return;
-        let i = items.indexOf(document.activeElement);
+        let i = items.indexOf(this.active());
         i = i < 0 ? (delta > 0 ? 0 : items.length - 1) : (i + delta + items.length) % items.length;
         this.audio.move();
         this.focus(items[i]);

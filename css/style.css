@@ -93,7 +93,7 @@ button {
 button:hover:not(:disabled) { background: linear-gradient(180deg, var(--btn-hover), var(--btn)); }
 button:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 1px 0 rgba(0, 0, 0, .25); }
 button:disabled { opacity: 0.45; cursor: default; }
-button:focus-visible, button:focus { outline: 4px solid var(--focus); outline-offset: 2px; }
+button:focus-visible, button:focus, .vfocus { outline: 4px solid var(--focus); outline-offset: 2px; }
 button.big { font-size: 1.2rem; padding: 15px 20px; background: linear-gradient(180deg, #ffe07a, var(--accent) 45%, var(--accent-2)); color: var(--accent-ink); font-weight: 700; border-color: rgba(0, 0, 0, .15); }
 button.big:hover:not(:disabled) { background: linear-gradient(180deg, #fff0b0, #ffe07a); }
 button.big.alt { background: linear-gradient(180deg, #ffffff, #e2ebe6); color: #102a1d; }

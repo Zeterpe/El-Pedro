@@ -534,9 +534,17 @@ const App = {
         // Si el foco se pierde en la mesa (una carta que desaparece), vuelve a tus cartas,
         // para que el lector de pantalla siga en la mesa y le pase las teclas al juego.
         $('screen-game').addEventListener('focusout', () => setTimeout(() => {
-            const f = document.activeElement;
+            const f = UI.active();
             if (UI.current === 'game' && this.match && !Dialog.active && (!f || f === document.body)) UI.focus($('my-hand'), { silent: true });
         }, 0));
+        // Con el campo invisible (VoiceOver), al tocar algo de la mesa el foco vuelve al campo, para que las teclas sigan llegando.
+        $('screen-game').addEventListener('click', e => {
+            const el = e.target.closest?.('button');
+            if (!el || !UI.trapping) return;
+            setTimeout(() => {
+                if (UI.trapping && document.activeElement !== UI.keytrap) UI.focus(document.contains(el) ? el : $('my-hand'), { silent: true });
+            }, 0);
+        });
         document.addEventListener('keydown', e => {
             if (e.ctrlKey || e.metaKey || e.altKey) return;
             if (!this.started) {
@@ -548,7 +556,7 @@ const App = {
             }
             if (Dialog.active) { Dialog.onKey(e); return; }
             // Escribiendo: Enter confirma y Escape vuelve; el resto de teclas son para el texto.
-            const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
+            const typing = e.target && e.target !== UI.keytrap && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
             if (typing) {
                 if (e.key === 'Enter') { e.preventDefault(); (e.target.id === 'name-input' ? $('name-go') : $('join-go')).click(); }
                 else if (e.key === 'Escape') { e.preventDefault(); UI.back(); }
@@ -557,6 +565,13 @@ const App = {
                 return;
             }
             if (UI.current === 'game' && this.match) {
+                if (UI.trapping) {
+                    // Una tecla que llega desde un botón de la mesa devuelve el foco al campo invisible.
+                    if (e.target !== UI.keytrap && $('screen-game').contains(e.target)) UI.focus(e.target, { silent: true });
+                    if (e.key === 'Tab') { e.preventDefault(); UI.moveFocus(e.shiftKey ? -1 : 1, $('screen-game')); return; }
+                    const v = UI.active();
+                    if (e.key === 'Enter' && v?.matches?.('button')) { e.preventDefault(); v.click(); return; }
+                }
                 if (this.match.onKey(e)) return;
                 if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                     e.preventDefault();

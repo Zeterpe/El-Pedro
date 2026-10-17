@@ -534,7 +534,7 @@ class TrivialMatch extends Match {
         card.classList.toggle('ok', !!R?.ok);
         card.classList.toggle('ko', !!R && !R.ok);
         // Si te toca contestar y el foco se ha perdido, va a la primera respuesta (sin leerla).
-        const f = document.activeElement;
+        const f = UI.active();
         if ((answering || iPick) && UI.current === 'game' && !Dialog.active && (!f || f === document.body || !document.contains(f) || f.disabled || f.hidden)) UI.focus(list.querySelector('.tans:not(:disabled)'), { silent: true });
     }
 
@@ -985,7 +985,7 @@ class TrivialMatch extends Match {
             if (!list.length) return false;
             e.preventDefault();
             const d = k === 'ArrowRight' || k === 'ArrowDown' ? 1 : -1;
-            const at = list.indexOf(document.activeElement);
+            const at = list.indexOf(UI.active());
             this.audio.move();
             UI.focus(list[at < 0 ? (d > 0 ? 0 : list.length - 1) : (at + d + list.length) % list.length]);
             return true;
