@@ -261,7 +261,12 @@ class Bot {
         this.myTurns = 0;
     }
 
-    get E() { return averageRank(this.game.rules.deck); }
+    get E() { return averageRank(this.game.rules.deck, this.game.rules); }
+
+    /** Puntos de un número de carta con las reglas de la mesa (null si no se sabe). */
+    pts(r) { return r == null ? null : rankPoints(r, this.game.rules); }
+    /** Puntos de una carta que recuerda, o null si no la conoce. */
+    known(p, s) { return this.pts(this.mem.rank(p, s)); }
 
     observe(e) {
         this.mem.observe(e);
@@ -270,15 +275,16 @@ class Bot {
     }
 
     /** Valor que cree que tiene una carta (la media si no la conoce). */
-    guess(p, s) { const r = this.mem.rank(p, s); return r == null ? this.E : r; }
+    guess(p, s) { const r = this.known(p, s); return r == null ? this.E : r; }
 
     estimate(p) {
         const g = this.game, slots = g.slotsOf(p);
         if (!slots.length) return 0;
-        const known = slots.map(s => this.mem.rank(p, s));
-        if (g.rules.allEqualOne && slots.length >= 2 && known.every(r => r != null && r === known[0])) return 1;
+        const ranks = slots.map(s => this.mem.rank(p, s));
+        const known = ranks.map(r => this.pts(r));
+        if (g.rules.allEqualOne && slots.length >= 2 && ranks.every(r => r != null && r === ranks[0])) return Math.min(1, known.reduce((a, v) => a + v, 0));
         // Los demás también mejoran su mano con el tiempo: se les supone algo mejor que la media.
-        const unknown = p === this.me ? this.E : Math.max(3.5, this.E - g.turns / g.n * 0.35);
+        const unknown = p === this.me ? this.E : Math.max(Math.min(3.5, this.E), this.E - g.turns / g.n * 0.35);
         return known.reduce((a, r) => a + (r == null ? unknown : r), 0);
     }
 
@@ -286,13 +292,13 @@ class Bot {
 
     /** La carta propia que más conviene quitarse: la de mayor valor (conocida o supuesta). */
     worstOwn() {
-        let best = null, bestV = -1;
+        let best = null, bestV = -Infinity;
         for (const s of this.game.slotsOf(this.me)) {
-            const r = this.mem.rank(this.me, s);
+            const r = this.known(this.me, s);
             const v = r == null ? this.E + 0.01 : r;   // a igualdad, mejor la conocida
             if (v > bestV || (v === bestV && r != null)) { bestV = v; best = s; }
         }
-        return best == null ? null : { s: best, v: bestV, known: this.mem.rank(this.me, best) != null };
+        return best == null ? null : { s: best, v: bestV, known: this.known(this.me, best) != null };
     }
 
     // ── Decisiones ────────────────────────────────────
@@ -306,7 +312,8 @@ class Bot {
         if (g.caller === null && this.shouldCall()) return { type: 'call', p: this.me };
         if (g.rules.takeFromTable && g.top && g.countOf(this.me)) {
             const w = this.worstOwn();
-            if (w && g.top.rank <= 3 && w.v > g.top.rank + 2) return { type: 'take', p: this.me };
+            const t = this.pts(g.top.rank);
+            if (w && t <= 3 && w.v > t + 2) return { type: 'take', p: this.me };
         }
         return { type: 'draw', p: this.me };
     }
@@ -327,7 +334,7 @@ class Bot {
     }
 
     chooseDrawn(card) {
-        const g = this.game, me = this.me, v = card.rank;
+        const g = this.game, me = this.me, rank = card.rank, v = this.pts(rank);
         const slots = g.slotsOf(me);
         if (!slots.length) return { type: 'discard', p: me };
         const fromTable = g.drawnFrom === 'table';
@@ -338,12 +345,12 @@ class Bot {
         }
         const w = this.worstOwn();
         // Las figuras con poder casi siempre se tiran para usar el poder.
-        if (!fromTable && g.rules.powers && POWERS[v] && !(w && w.known && w.v > v + 1)) return { type: 'discard', p: me };
+        if (!fromTable && g.rules.powers && POWERS[rank] && !(w && w.known && w.v > v + 1)) return { type: 'discard', p: me };
         // ¿Hace pareja con todas las demás conocidas? (todas iguales valen 1)
         if (g.rules.allEqualOne && slots.length >= 2) {
             const others = slots.map(s => this.mem.rank(me, s));
-            const counts = others.filter(r => r === v).length;
-            const odd = slots.filter(s => this.mem.rank(me, s) !== v);
+            const counts = others.filter(r => r === rank).length;
+            const odd = slots.filter(s => this.mem.rank(me, s) !== rank);
             if (counts === slots.length - 1 && odd.length === 1) return { type: 'swap', p: me, slot: odd[0] };
         }
         if (w && w.v > v) return { type: 'swap', p: me, slot: w.s };
@@ -372,7 +379,7 @@ class Bot {
         let target = null, gain = 0;
         for (const t of g.targets('swap', me)) {
             if (t.p === me) continue;
-            const r = this.mem.rank(t.p, t.s);
+            const r = this.known(t.p, t.s);
             const val = r == null ? this.E : r;
             const d = w.v - val + (r != null ? 0.3 : 0);
             if (d > gain) { gain = d; target = t; }
@@ -418,6 +425,6 @@ class Bot {
 
 if (typeof module !== 'undefined') {
     const R = require('./rules.js');
-    Object.assign(globalThis, { makeRng: R.makeRng, averageRank: R.averageRank, POWERS: R.POWERS });
+    Object.assign(globalThis, { makeRng: R.makeRng, averageRank: R.averageRank, rankPoints: R.rankPoints, POWERS: R.POWERS });
     module.exports = { Memory, Bot, BOT_LEVELS, CHARACTERS, pickRivals };
 }

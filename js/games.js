@@ -44,6 +44,7 @@ const GAMES = {
                 { label: 'Cartas de castigo por quemar mal', values: [1, 2], get: () => r.penaltyCards, set: v => { r.penaltyCards = v; } },
                 { label: 'Las cartas de quien canta Pedro no se tocan', values: [true, false], get: () => r.protectCaller, set: v => { r.protectCaller = v; }, text: yesNo },
                 { label: 'Se puede coger la carta de la mesa', values: [false, true], get: () => r.takeFromTable, set: v => { r.takeFromTable = v; }, text: yesNo },
+                { label: 'El siete vale menos 1 punto', values: [false, true], get: () => r.sevenMinus, set: v => { r.sevenMinus = v; }, text: v => v ? 'sí: el siete resta un punto en vez de sumar 7' : 'no, vale 7 como siempre' },
                 { label: 'Si todas tus cartas son del mismo número, valen 1 punto', values: [true, false], get: () => r.allEqualOne, set: v => { r.allEqualOne = v; }, text: yesNo },
                 { label: 'Si se acaba el mazo', values: ['reshuffle', 'end'], get: () => r.deckOut, set: v => { r.deckOut = v; }, text: v => v === 'reshuffle' ? 'se barajan las cartas de la mesa y se sigue' : 'se descubren las cartas' },
                 { label: 'Rondas para ganar la partida', values: [1, 3, 5, 0], get: () => r.winsToWin, set: v => { r.winsToWin = v; }, text: v => winsText(v, 'ronda') },
@@ -53,6 +54,7 @@ const GAMES = {
             <h2>El objetivo</h2>
             <p>Gana la ronda quien tenga menos puntos al final. Cada carta vale su número: el as vale 1 y el rey vale 12. La sota vale 10 y el caballo 11.</p>
             <p>Si todas tus cartas son del mismo número, por ejemplo tres caballos, valen solo 1 punto.</p>
+            <p>En Reglas de la casa, quien crea la mesa puede hacer que el siete valga menos 1 punto: entonces el siete es la mejor carta, porque resta. Si todas tus cartas son sietes, suman lo que valen, que es menos que 1.</p>
             <h2>El reparto</h2>
             <p>Cada jugador recibe 4 cartas boca abajo. Al empezar solo puedes mirar 2, una vez. ¡Recuérdalas! Las cartas no se cambian de sitio: tu carta 1 sigue siendo tu carta 1.</p>
             <h2>Tu turno</h2>
