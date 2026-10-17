@@ -528,6 +528,12 @@ const App = {
 
     // ── Teclado ───────────────────────────────────────
     bindKeys() {
+        // Si el foco se pierde en la mesa (una carta que desaparece), vuelve a tus cartas,
+        // para que el lector de pantalla siga en la mesa y le pase las teclas al juego.
+        $('screen-game').addEventListener('focusout', () => setTimeout(() => {
+            const f = document.activeElement;
+            if (UI.current === 'game' && this.match && !Dialog.active && (!f || f === document.body)) UI.focus($('my-hand'), { silent: true });
+        }, 0));
         document.addEventListener('keydown', e => {
             if (e.ctrlKey || e.metaKey || e.altKey) return;
             if (!this.started) {

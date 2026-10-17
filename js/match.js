@@ -557,8 +557,16 @@ class Match {
 
     cancelPick() { return false; }
 
+    /** Con lector de pantalla: qué hacer si una tecla no llega al juego. */
+    srKeysTip() {
+        return this.speech.mode === 'sr' ? ' Si una tecla no responde, es que la usa tu lector de pantalla: en NVDA y JAWS, pasa al modo foco con la tecla del lector y Espacio; en VoiceOver, quita la navegación rápida con flecha izquierda y flecha derecha a la vez, o con VO Q.' : '';
+    }
+
     onKey(e) {
-        const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        let k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        // Los números valen aunque el teclado los ponga con mayúsculas (como el francés) o desde el teclado numérico.
+        const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code || '');
+        if (digit && e.key.length === 1) k = digit[1];
         if (this.gameKey(k, e)) return true;
         if (k === 'Escape') { e.preventDefault(); if (!this.cancelPick()) this.pause(); return true; }
         if (k === 'i') { e.preventDefault(); this.info(); return true; }
