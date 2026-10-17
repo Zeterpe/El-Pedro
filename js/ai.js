@@ -108,6 +108,9 @@ const CHARACTERS = [
             right: ['¡Lo sabía! Bueno, casi.', '¡Toma ya!'],
             wrong: ['Pues yo habría jurado que era esa.', 'Me la sabía, me la sabía…'],
             wedge: ['¡Un quesito! ¡Qué rico!', '¡Este para la colección!'],
+            virusAttack: ['¡Achís! Perdón, se me ha escapado un virus.', 'Uy, ¿eso era tuyo?'],
+            virusHit: ['¿Mi corazón? ¿Dónde está mi corazón?'],
+            immune: ['¡Ya no me lo toca nadie! Creo.'],
         },
     },
     {
@@ -127,6 +130,9 @@ const CHARACTERS = [
             right: ['¡Facilísima!', 'Esa la vi el otro día en una serie.'],
             wrong: ['¡Anda ya! ¿En serio?', 'Vale, esa no.'],
             wedge: ['¡Quesito para mí!', 'Uno más, uno más.'],
+            virusAttack: ['Toma virus, y sin vacunar.', 'Esto te pasa por no lavarte las manos.'],
+            virusHit: ['Vale, vale, me lo apunto.'],
+            immune: ['Inmune. Ni lo intentéis.'],
         },
     },
     {
@@ -146,6 +152,9 @@ const CHARACTERS = [
             right: ['Eso lo aprendí yo en la escuela, hijo.', 'Muy fácil, cariño.'],
             wrong: ['Ay, qué cabeza la mía.', 'Eso antes no lo enseñaban.'],
             wedge: ['Otro quesito para la abuela.', 'Ay, qué bien, otro quesito.'],
+            virusAttack: ['Hijo, abrígate, que pillas de todo.', 'Un virusito, nada grave.'],
+            virusHit: ['A mi edad, un órgano más o menos…'],
+            immune: ['Esto con caldito se cura.', 'Inmune, como la abuela.'],
         },
     },
     {
@@ -165,6 +174,9 @@ const CHARACTERS = [
             right: ['¿Lo dudabais?', 'Pregunta de primero.'],
             wrong: ['La pregunta estaba mal hecha.', 'Os he dejado ganar esa.'],
             wedge: ['¡Quesito para Toni!', '¿Quién da más?'],
+            virusAttack: ['¡Contagio express!', 'Ese órgano tiene mala cara.'],
+            virusHit: ['Era un farol. No lo necesitaba.'],
+            immune: ['Blindado, señores.'],
         },
     },
     {
@@ -184,6 +196,9 @@ const CHARACTERS = [
             right: ['Dato correcto.', 'Evidente.'],
             wrong: ['Tomo nota. No volverá a pasar.', 'Interesante. Lo repasaré.'],
             wedge: ['Quesito asegurado.', 'Uno más. Según lo previsto.'],
+            virusAttack: ['Infección prevista.', 'Según lo calculado.'],
+            virusHit: ['Riesgo asumido.'],
+            immune: ['Inmunizado. Según lo previsto.'],
         },
     },
     {
@@ -203,6 +218,9 @@ const CHARACTERS = [
             right: ['¿He acertado? ¡He acertado!', 'Lo he puesto a suerte, ¿eh?'],
             wrong: ['¿No era esa? Vaya.', 'Esa no me la sabía.'],
             wedge: ['¿Esto es un quesito? ¡Qué bonito!'],
+            virusAttack: ['¿Esto se pega? Pues toma.', 'Ay, perdona, que estornudo.'],
+            virusHit: ['¿Ya? ¿Tan pronto?'],
+            immune: ['¡Qué bonito me ha quedado!'],
         },
     },
 ];

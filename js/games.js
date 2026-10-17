@@ -279,6 +279,72 @@ const GAMES = {
             </ul>
             <p>En el móvil, todo tiene su botón en la pantalla. También puedes tocar el dado, las casillas marcadas del tablero y las respuestas.</p>`,
     },
+
+    virus: {
+        id: 'virus',
+        name: 'El Virus',
+        kind: 'Juego de cartas',
+        tagline: 'Construye un cuerpo sano con cuatro órganos de colores distintos mientras infectas, robas y trasplantas los de los demás.',
+        players: 'De 2 a 6 jugadores, también por parejas',
+        art: () => VirusArt.tile(),
+        defaults: VIRUS_DEFAULT_RULES,
+        rulesKey: 'virusRules',
+        rivalsKey: 'virusRivals',
+        roundWord: 'ronda',
+        maxPlayers: 6,
+        pairs: (r, n) => !!r.pairs && n >= 4 && n % 2 === 0,
+        get Match() { return VirusMatch; },
+        summary: r => Txt.virusRules({ ...VIRUS_DEFAULT_RULES, ...r }),
+        practice(r) { return { ...r, winsToWin: 1 }; },
+        setupDefs(s, r) {
+            return [
+                { label: 'Rondas para ganar', values: [1, 3, 5, 0], get: () => r.winsToWin, set: v => { r.winsToWin = v; }, text: v => winsText(v, 'ronda') },
+                { label: 'Con 3 o 5 rivales, por parejas', values: [false, true], get: () => r.pairs, set: v => { r.pairs = v; }, text: v => v ? 'sí: tu pareja es el de enfrente' : 'no, cada uno por su cuenta' },
+                { label: 'Tocar dos veces para jugar', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice qué hace la jugada' : 'no: se juega al tocarla' },
+            ];
+        },
+        houseDefs(r) {
+            return [
+                { label: 'Con 4 o 6 jugadores, por parejas', values: [false, true], get: () => r.pairs, set: v => { r.pairs = v; }, text: v => v ? 'sí: cada uno con el de enfrente, y gana la pareja' : 'no' },
+                { label: 'Rondas para ganar la partida', values: [1, 3, 5, 0], get: () => r.winsToWin, set: v => { r.winsToWin = v; }, text: v => winsText(v, 'ronda') },
+            ];
+        },
+        rulesHtml: `
+            <h2>El objetivo</h2>
+            <p>Ser el primero en completar tu cuerpo: cuatro órganos sanos, cada uno de un color distinto, puestos en la mesa delante de ti. Un órgano está sano si no tiene virus: libre, vacunado o inmune.</p>
+            <h2>Las cartas</h2>
+            <p>Hay 68 cartas. Los órganos son cuatro, cada uno con su color: el corazón es rojo, el cerebro azul, el estómago verde y el hueso amarillo. Hay 5 de cada uno y un órgano multicolor, que vale por cualquier color.</p>
+            <p>Hay 4 virus de cada color y uno multicolor; 4 medicinas de cada color y 4 multicolores; y 10 tratamientos: 3 trasplantes, 3 ladrones de órganos, 2 contagios, un guante de látex y un error médico.</p>
+            <h2>Tu turno</h2>
+            <p>Empiezas siempre con 3 cartas. En tu turno haces una sola cosa: juegas una carta, o descartas las que quieras. Después robas hasta volver a tener 3. No se puede pasar. Cuando se acaba el mazo, se da la vuelta a los descartes, sin barajar.</p>
+            <h2>Los órganos</h2>
+            <p>Los pones en tu cuerpo. No puedes tener dos órganos del mismo color. Con el multicolor puedes llegar a tener cinco, y ganas si cuatro están sanos.</p>
+            <h2>Los virus</h2>
+            <p>Van sobre los órganos de los demás, del mismo color. Sobre un órgano libre, lo infectan. Sobre un órgano infectado, lo destruyen: el órgano y sus cartas van a los descartes. Sobre un órgano vacunado, destruyen la vacuna, si el virus es del color de la medicina. El virus multicolor sirve para cualquier color.</p>
+            <h2>Las medicinas</h2>
+            <p>Van sobre tus órganos. Sobre un órgano infectado, lo curan: el virus y la medicina van a los descartes; la medicina tiene que ser del color del virus. Sobre un órgano libre, lo vacunan: necesitarán dos virus para infectarlo. Sobre un órgano vacunado, lo inmunizan: ya nada lo puede tocar, ni los virus ni los tratamientos. Las multicolores sirven para cualquier color, pero cualquier virus puede romperlas.</p>
+            <h2>Los tratamientos</h2>
+            <ul>
+                <li>Trasplante: cambia un órgano por otro entre dos jugadores cualesquiera, aunque sean de colores distintos o estén infectados o vacunados. Nadie puede quedarse con dos del mismo color, y los inmunes no se tocan.</li>
+                <li>Ladrón de órganos: robas un órgano de otro jugador, sano, vacunado o infectado, pero no inmune. No puede ser de un color que ya tengas.</li>
+                <li>Contagio: pasas todos los virus que puedas de tus órganos a órganos libres de los demás, del mismo color.</li>
+                <li>Guante de látex: todos los demás tiran sus cartas. En su siguiente turno solo roban cartas nuevas: pierden el turno.</li>
+                <li>Error médico: te cambias el cuerpo entero con otro jugador, con sus virus, vacunas y órganos inmunes.</li>
+            </ul>
+            <p>Si un tratamiento te deja con cuatro órganos sanos, aunque sea en el turno de otro, ganas en ese momento.</p>
+            <h2>Por parejas</h2>
+            <p>Con 4 o 6 jugadores se puede jugar por parejas: vas con el de enfrente. No podéis atacaros con virus ni robaros órganos, y gana la pareja en cuanto uno de los dos completa su cuerpo.</p>
+            <h2>Las teclas</h2>
+            <ul>
+                <li>Del 1 al 3: tus cartas. Al elegir una, te digo lo que puedes hacer con ella, cada jugada con su número, y los órganos donde puede ir se marcan en la mesa.</li>
+                <li>Con una carta elegida, los números eligen la jugada. La primera vez te dice qué hace y la segunda la juega. Enter confirma. Escape vuelve a tus cartas.</li>
+                <li>D: descartar. Marca las cartas con su número y pulsa D o Enter para tirarlas.</li>
+                <li>Flechas: tus cartas, tu cuerpo y los cuerpos de los demás. M: cómo está el cuerpo de cada uno. T: el mazo y los descartes.</li>
+                <li>I: cómo va la partida. C: tus cartas y tu cuerpo. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
+                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o quita la navegación rápida de VoiceOver (flecha izquierda y flecha derecha a la vez, o VO Q).</li>
+            </ul>
+            <p>En el móvil, todo tiene su botón en la pantalla. También puedes tocar los órganos marcados de la mesa.</p>`,
+    },
 };
 
 /** El dibujo de cada juego: un abanico de cartas o su tablero. */

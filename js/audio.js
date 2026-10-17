@@ -394,6 +394,94 @@ class AudioEngine {
         });
     }
 
+    // ── Virus ─────────────────────────────────────────
+    /** Cada color suena a su órgano: el corazón late, el cerebro chispea, el estómago gruñe y el hueso suena a madera. */
+    organColor(color, pan = 0, t0 = 0) {
+        this.#go((k, out, t) => {
+            t += t0;
+            if (color === 'rojo') {
+                k.tone(out, { t, f: [[0, 90], [0.1, 55]], dur: 0.14, peak: 0.32, pan });
+                k.tone(out, { t: t + 0.18, f: [[0, 80], [0.1, 50]], dur: 0.12, peak: 0.24, pan });
+            } else if (color === 'azul') {
+                [1568, 2093, 1760].forEach((f, i) => k.tone(out, { t: t + i * 0.05, f, dur: 0.07, peak: 0.07, type: 'triangle', pan }));
+            } else if (color === 'verde') {
+                k.noise(out, { t, dur: 0.35, a: 0.03, peak: 0.16, filter: { type: 'bandpass', f: [[0, 180], [0.15, 320], [0.35, 140]], q: 6 }, pan });
+            } else if (color === 'amarillo') {
+                k.noise(out, { t, dur: 0.05, peak: 0.3, filter: { type: 'bandpass', f: 1300, q: 8 }, pan });
+                k.noise(out, { t: t + 0.09, dur: 0.05, peak: 0.22, filter: { type: 'bandpass', f: 1000, q: 8 }, pan });
+            } else {
+                [523, 659, 784, 1047].forEach((f, i) => k.tone(out, { t: t + i * 0.045, f, dur: 0.1, peak: 0.07, type: 'triangle', pan }));
+            }
+        });
+    }
+
+    /** Una carta del Virus: su color y, encima, lo que es. */
+    virusCard(card, pan = 0, t0 = 0) {
+        if (!card) return;
+        if (card.kind === 'tratamiento') { this.treatment(pan, t0); return; }
+        this.organColor(card.color, pan, t0);
+        this.#go((k, out, t) => {
+            t += t0 + 0.05;
+            if (card.kind === 'virus') k.tone(out, { t, f: [[0, 140], [0.3, 120]], type: 'sawtooth', dur: 0.3, peak: 0.05, vib: { rate: 22, depth: 18 }, filter: { type: 'lowpass', f: 700 }, pan });
+            else if (card.kind === 'medicina') k.bell(out, { t, f: 1319, partials: [[1, 1, 0.3], [2.4, 0.3, 0.15]], peak: 0.06, pan });
+        });
+    }
+
+    /** Se pone un órgano en el cuerpo. */
+    organ(color, pan = 0) {
+        this.place(pan);
+        this.organColor(color, pan, 0.08);
+    }
+
+    /** Un virus infecta: zumbido que crece y un chapoteo. */
+    infect(pan = 0) {
+        this.#go((k, out, t) => {
+            k.tone(out, { t, f: [[0, 110], [0.35, 190]], type: 'sawtooth', dur: 0.38, peak: 0.08, vib: { rate: 26, depth: 25 }, filter: { type: 'lowpass', f: 900 }, pan });
+            k.noise(out, { t: t + 0.3, dur: 0.18, peak: 0.2, filter: { type: 'lowpass', f: [[0, 1800], [0.18, 300]] }, pan });
+        });
+    }
+
+    /** Un órgano destruido o una vacuna rota. */
+    destroy(pan = 0, big = true) {
+        this.#go((k, out, t) => {
+            k.noise(out, { t, dur: big ? 0.45 : 0.25, peak: big ? 0.32 : 0.2, filter: { type: 'lowpass', f: [[0, 2600], [0.4, 200]] }, pan });
+            k.tone(out, { t, f: [[0, 220], [0.4, 70]], type: 'square', dur: big ? 0.45 : 0.25, peak: 0.07, filter: { type: 'lowpass', f: 600 }, pan });
+        });
+    }
+
+    /** Curar o vacunar: un brillo que sube. */
+    cure(pan = 0) {
+        this.#go((k, out, t) => {
+            [784, 988, 1319].forEach((f, i) => k.bell(out, { t: t + i * 0.06, f, partials: [[1, 1, 0.35], [2, 0.3, 0.2]], peak: 0.09, pan }));
+            k.noise(out, { t: t + 0.1, dur: 0.3, peak: 0.05, filter: { type: 'highpass', f: 7000 }, pan });
+        });
+    }
+
+    /** Inmunizar: un escudo que se cierra. */
+    immunize(pan = 0) {
+        this.#go((k, out, t) => {
+            [523, 784, 1047, 1568].forEach((f, i) => k.bell(out, { t: t + i * 0.07, f, partials: [[1, 1, 0.8], [2.76, 0.3, 0.3]], peak: 0.1, pan }));
+            k.tone(out, { t: t + 0.3, f: 262, dur: 0.6, peak: 0.08, type: 'triangle', pan });
+        });
+    }
+
+    /** Un tratamiento: un golpe de aire. */
+    treatment(pan = 0, t0 = 0) {
+        this.#go((k, out, t) => {
+            t += t0;
+            k.noise(out, { t, dur: 0.35, a: 0.1, peak: 0.18, filter: { type: 'bandpass', f: [[0, 400], [0.35, 3200]], q: 1.2 }, pan: [[0, -pan || -0.5], [0.35, pan || 0.5]] });
+            k.tone(out, { t: t + 0.2, f: 660, dur: 0.12, peak: 0.05, type: 'triangle', pan });
+        });
+    }
+
+    /** El guante de látex: un chasquido de goma. */
+    glove(pan = 0) {
+        this.#go((k, out, t) => {
+            k.tone(out, { t, f: [[0, 900], [0.06, 180]], dur: 0.08, peak: 0.2, type: 'triangle', pan });
+            k.noise(out, { t, dur: 0.06, peak: 0.25, filter: { type: 'highpass', f: 2000 }, pan });
+        });
+    }
+
     // ── Interfaz ──────────────────────────────────────
     move() { this.#go((k, out, t) => k.tone(out, { t, f: 880, dur: 0.03, peak: 0.04 })); }
     select() { this.#go((k, out, t) => { k.tone(out, { t, f: 660, dur: 0.05, peak: 0.06 }); k.tone(out, { t: t + 0.05, f: 990, dur: 0.06, peak: 0.05 }); }); }
