@@ -7,7 +7,7 @@
    ============================================= */
 'use strict';
 
-const GAME_VERSION = { id: '20261017a', spoken: '17 de octubre de 2026' };
+const GAME_VERSION = { id: '20261017b', spoken: '17 de octubre de 2026' };
 
 const SUITS = ['oros', 'copas', 'espadas', 'bastos'];
 const RANK_NAME = {
@@ -33,6 +33,7 @@ const DEFAULT_RULES = {
     protectCaller: true,   // nadie toca las cartas de quien canta Pedro (ni esa persona quema fuera de su turno)
     takeFromTable: false,  // poder coger la carta de la mesa en vez de robar
     allEqualOne: true,     // si todas tus cartas son del mismo número, valen 1 punto
+    sevenMinus: false,     // el siete vale -1 en vez de 7
     winsToWin: 3,          // rondas ganadas para ganar la partida (0 = sin límite)
     deckOut: 'reshuffle',  // si se acaba el mazo: 'reshuffle' (se baraja la mesa) o 'end' (se descubren las cartas)
 };
@@ -82,17 +83,23 @@ function makeDeck(size) {
     return cards;
 }
 
-/** Valor medio de una carta que no conoces (para los rivales de la máquina). */
-function averageRank(size) {
-    const r = deckRanks(size);
-    return r.reduce((a, b) => a + b, 0) / r.length;
+/** Puntos de una carta por su número: el suyo, salvo el siete con `sevenMinus` (vale -1). */
+function rankPoints(rank, rules = DEFAULT_RULES) {
+    return rules.sevenMinus && rank === 7 ? -1 : rank;
 }
 
-/** Puntos de una mano: la suma, salvo que todas sean del mismo número (valen 1). */
+/** Valor medio de una carta que no conoces (para los rivales de la máquina). */
+function averageRank(size, rules = DEFAULT_RULES) {
+    const r = deckRanks(size);
+    return r.reduce((a, b) => a + rankPoints(b, rules), 0) / r.length;
+}
+
+/** Puntos de una mano: la suma, salvo que todas sean del mismo número (valen 1, o menos si son sietes que restan). */
 function scoreCards(cards, rules = DEFAULT_RULES) {
     if (!cards.length) return 0;
-    if (rules.allEqualOne && cards.length >= 2 && cards.every(c => c.rank === cards[0].rank)) return 1;
-    return cards.reduce((s, c) => s + c.rank, 0);
+    const sum = cards.reduce((s, c) => s + rankPoints(c.rank, rules), 0);
+    if (rules.allEqualOne && cards.length >= 2 && cards.every(c => c.rank === cards[0].rank)) return Math.min(1, sum);
+    return sum;
 }
 
 const sameSlot = (a, b) => a && b && a.p === b.p && a.s === b.s;
@@ -491,5 +498,5 @@ class PedroGame {
 
 // Para las pruebas con Node (en el navegador no hace nada).
 if (typeof module !== 'undefined') {
-    module.exports = { GAME_VERSION, MAX_PLAYERS, SUITS, RANK_NAME, POWERS, DEFAULT_RULES, makeRng, makeDeck, deckRanks, averageRank, scoreCards, sameSlot, PedroGame, BURN_PHASES };
+    module.exports = { GAME_VERSION, MAX_PLAYERS, SUITS, RANK_NAME, POWERS, DEFAULT_RULES, makeRng, makeDeck, deckRanks, averageRank, rankPoints, scoreCards, sameSlot, PedroGame, BURN_PHASES };
 }

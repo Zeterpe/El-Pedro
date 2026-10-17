@@ -38,8 +38,8 @@ class PedroMatch extends Match {
         this.lastReveal = null;
     }
 
-    makeGame(rules, seed) { return new PedroGame({ players: this.seats.map(s => ({ name: s.name })), rules, seed }); }
-    makeMirror(rules) { return new MirrorGame({ names: this.seats.map(s => s.name), rules, me: this.me }); }
+    makeGame(rules, seed) { Txt.pedroRules = rules; return new PedroGame({ players: this.seats.map(s => ({ name: s.name })), rules, seed }); }
+    makeMirror(rules) { Txt.pedroRules = rules; return new MirrorGame({ names: this.seats.map(s => s.name), rules, me: this.me }); }
     makeBot(p, char, rng) { return new Bot(this.game, p, char, rng); }
     eventFor(e, seat) { return eventFor(e, seat); }
     observe(e) { this.helper.observe(e); }
@@ -65,6 +65,7 @@ class PedroMatch extends Match {
         const goal = this.game.rules.winsToWin;
         const goalText = goal > 0 ? ` Gana quien consiga antes ${goal === 1 ? 'una ronda' : goal + ' rondas'}.` : '';
         let text = super.introText() + goalText;
+        if (this.game.rules.sevenMinus) text += ' En esta mesa, el siete vale menos 1 punto.';
         if (this.practice) text = 'Partida de práctica: la ayuda de memoria está activada, así que el juego te recuerda las cartas que has visto. ' + text;
         return text;
     }
