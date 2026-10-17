@@ -17,7 +17,9 @@ const TRIVIAL_LEVELS = {
 };
 
 /** Lo que mejor se le da a cada personaje. */
-const TRIVIAL_FAVORITE = { paco: 'deportes', lucia: 'espectaculos', carmen: 'historia', toni: 'geografia', marta: 'ciencia', rafa: 'arte' };
+const TRIVIAL_FAVORITE = { paco: 'deportes', lucia: 'espectaculos', carmen: 'historia', toni: 'geografia', marta: 'ciencia', rafa: 'arte',
+    terminator: 'ciencia', doraemon: 'ciencia', nobita: 'espectaculos', shinchan: 'espectaculos', manolo: 'deportes',
+    puri: 'espectaculos', chispas: 'ciencia', michi: 'geografia', fermin: 'historia', pepa: 'arte', bacalao: 'geografia' };
 
 class TrivialBot {
     constructor(game, me, character, rng) {
