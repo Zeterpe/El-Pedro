@@ -10,9 +10,13 @@
 
    Gana la tripulación si hace todas las tareas o echa
    a todos los impostores. Ganan los impostores si
-   llegan a ser tantos como los tripulantes vivos.
+   llegan a ser tantos como los tripulantes vivos, o si
+   nadie arregla a tiempo el reactor. Los impostores
+   también sabotean (apagan las luces, cierran puertas)
+   y van por los conductos.
    Los muertos siguen como fantasmas: nadie los ve ni
-   los oye, y los tripulantes pueden acabar sus tareas.
+   los oye, atraviesan las paredes y los tripulantes
+   pueden acabar sus tareas.
 
    Las medidas van en metros: cada casilla mide uno.
    x crece hacia la derecha (este) e y hacia abajo
@@ -23,7 +27,7 @@
 'use strict';
 
 const IMPOSTOR_DEFAULT_RULES = {
-    tasks: 3,                 // tareas de cada tripulante, de 2 a 4
+    tasks: 3,                 // tareas de cada tripulante, de 2 a 5
     easyTasks: false,         // tareas fáciles: más margen y menos que hacer en cada una
     speed: 1,                 // velocidad al andar
     vision: 1,                // hasta dónde se ve y se oye a los demás
@@ -34,6 +38,9 @@ const IMPOSTOR_DEFAULT_RULES = {
     buttonWait: 15,           // segundos, al empezar y tras cada reunión, antes de poder pedir una
     confirmEjects: true,      // al echar a alguien, se dice si era impostor
     anonymousVotes: false,    // en la votación no se dice quién ha votado a quién
+    sabotages: true,          // los impostores pueden apagar las luces, hacer que estalle el reactor y cerrar puertas
+    reactorTime: 45,          // segundos para arreglar el reactor antes de que estalle
+    vents: true,              // los impostores pueden ir por los conductos
 };
 
 /** Cuántos impostores hay con n jugadores: ninguno con menos de 4; como mucho 1 hasta 6, 2 hasta 8 y 3 con 9 o 10. */
@@ -54,19 +61,29 @@ const IMPOSTOR_BUTTON = 1.6;          // a qué distancia de la mesa del Comedor
 const IMPOSTOR_IMP_VISION = 1.3;      // los impostores ven un poco más lejos
 const IMPOSTOR_KILL_RANGE = { corto: 1.2, medio: 1.8, largo: 2.6 };
 const IMPOSTOR_SAY_MAX = 4;           // lo que puede decir cada uno en una reunión
-const IMPOSTOR_ACTIONS = new Set(['startTask', 'cancelTask', 'task', 'kill', 'report', 'button', 'say', 'vote']);
+const IMPOSTOR_VENT_USE = 1.2;        // a qué distancia de un conducto se puede entrar
+const IMPOSTOR_CONSOLE = 1.6;         // a qué distancia de una consola o de un panel se usa
+const IMPOSTOR_LIGHTS = 0.35;         // con las luces apagadas, la tripulación ve así de lejos (de lo normal)
+const IMPOSTOR_SAB_COOLDOWN = 30;     // segundos entre sabotaje y sabotaje
+const IMPOSTOR_DOORS_TIME = 10;       // segundos que se quedan cerradas las puertas
+const IMPOSTOR_DOORS_COOLDOWN = 25;   // segundos antes de poder volver a cerrar puertas
+const IMPOSTOR_CAMERA = 6;            // hasta dónde ve cada cámara
+const IMPOSTOR_ACTIONS = new Set(['startTask', 'cancelTask', 'task', 'kill', 'report', 'button', 'say', 'vote',
+    'sabotage', 'fix', 'vent', 'ventTo', 'console']);
 /** Lo que se puede decir en una reunión. */
-const IMPOSTOR_LINES = new Set(['where', 'saw', 'kill', 'with', 'sus', 'agree', 'lie', 'deny', 'nothing', 'skip']);
+const IMPOSTOR_LINES = new Set(['where', 'saw', 'kill', 'vent', 'with', 'scan', 'sus', 'agree', 'lie', 'deny', 'nothing', 'skip']);
 
 // ── La nave ───────────────────────────────────────
-// Seis salas unidas por siete pasillos de tres metros de ancho, en anillo:
+// Once salas unidas por quince pasillos de tres metros de ancho:
 //
-//   Motores ─── Comedor ─── Puente de mando
+//   Motores ─── Comedor ─── Puente de mando ─── Comunicaciones
+//      │           │              │                  │
+//   Electricidad ─ Almacén ─── Enfermería ──────── Oxígeno
 //      │           │              │
-//   Electricidad ─ Almacén ─── Enfermería
+//   Reactor ──── Seguridad ── Administración
 //
 // En la mesa del Comedor está el botón de emergencia.
-const SHIP_W = 44, SHIP_H = 27;
+const SHIP_W = 58, SHIP_H = 40;
 const SHIP_AREAS = [
     { id: 'motores', kind: 'room', name: 'Motores', x: 2, y: 2, w: 9, h: 8, floor: 'metal' },
     { id: 'comedor', kind: 'room', name: 'el Comedor', x: 16, y: 2, w: 12, h: 9, floor: 'moqueta' },
@@ -74,6 +91,11 @@ const SHIP_AREAS = [
     { id: 'electricidad', kind: 'room', name: 'Electricidad', x: 2, y: 17, w: 9, h: 8, floor: 'rejilla' },
     { id: 'almacen', kind: 'room', name: 'el Almacén', x: 16, y: 16, w: 12, h: 9, floor: 'metal' },
     { id: 'enfermeria', kind: 'room', name: 'la Enfermería', x: 33, y: 17, w: 9, h: 8, floor: 'moqueta' },
+    { id: 'comunicaciones', kind: 'room', name: 'Comunicaciones', x: 47, y: 2, w: 9, h: 8, floor: 'metal' },
+    { id: 'oxigeno', kind: 'room', name: 'Oxígeno', x: 47, y: 17, w: 9, h: 8, floor: 'rejilla' },
+    { id: 'reactor', kind: 'room', name: 'el Reactor', x: 2, y: 30, w: 9, h: 8, floor: 'metal' },
+    { id: 'seguridad', kind: 'room', name: 'Seguridad', x: 17, y: 30, w: 10, h: 8, floor: 'moqueta' },
+    { id: 'administracion', kind: 'room', name: 'Administración', x: 33, y: 30, w: 9, h: 8, floor: 'moqueta' },
     { id: 'p-motores-comedor', kind: 'corridor', links: ['motores', 'comedor'], x: 11, y: 5, w: 5, h: 3, floor: 'rejilla' },
     { id: 'p-comedor-puente', kind: 'corridor', links: ['comedor', 'puente'], x: 28, y: 5, w: 5, h: 3, floor: 'rejilla' },
     { id: 'p-comedor-almacen', kind: 'corridor', links: ['comedor', 'almacen'], x: 20, y: 11, w: 3, h: 5, floor: 'rejilla' },
@@ -81,28 +103,88 @@ const SHIP_AREAS = [
     { id: 'p-almacen-enfermeria', kind: 'corridor', links: ['almacen', 'enfermeria'], x: 28, y: 19, w: 5, h: 3, floor: 'rejilla' },
     { id: 'p-motores-electricidad', kind: 'corridor', links: ['motores', 'electricidad'], x: 5, y: 10, w: 3, h: 7, floor: 'rejilla' },
     { id: 'p-puente-enfermeria', kind: 'corridor', links: ['puente', 'enfermeria'], x: 36, y: 10, w: 3, h: 7, floor: 'rejilla' },
+    { id: 'p-puente-comunicaciones', kind: 'corridor', links: ['puente', 'comunicaciones'], x: 42, y: 5, w: 5, h: 3, floor: 'rejilla' },
+    { id: 'p-enfermeria-oxigeno', kind: 'corridor', links: ['enfermeria', 'oxigeno'], x: 42, y: 19, w: 5, h: 3, floor: 'rejilla' },
+    { id: 'p-comunicaciones-oxigeno', kind: 'corridor', links: ['comunicaciones', 'oxigeno'], x: 50, y: 10, w: 3, h: 7, floor: 'rejilla' },
+    { id: 'p-electricidad-reactor', kind: 'corridor', links: ['electricidad', 'reactor'], x: 5, y: 25, w: 3, h: 5, floor: 'rejilla' },
+    { id: 'p-almacen-seguridad', kind: 'corridor', links: ['almacen', 'seguridad'], x: 20, y: 25, w: 3, h: 5, floor: 'rejilla' },
+    { id: 'p-enfermeria-administracion', kind: 'corridor', links: ['enfermeria', 'administracion'], x: 36, y: 25, w: 3, h: 5, floor: 'rejilla' },
+    { id: 'p-reactor-seguridad', kind: 'corridor', links: ['reactor', 'seguridad'], x: 11, y: 33, w: 6, h: 3, floor: 'rejilla' },
+    { id: 'p-seguridad-administracion', kind: 'corridor', links: ['seguridad', 'administracion'], x: 27, y: 33, w: 6, h: 3, floor: 'rejilla' },
 ];
-/** Los muebles: no se puede pasar por encima. */
+/** Los muebles: no se puede pasar por encima. La mesa del Comedor va la primera: en ella está el botón. */
 const SHIP_FURNITURE = [
     { id: 'mesa', name: 'la mesa', area: 'comedor', x: 20, y: 5, w: 4, h: 3 },
+    { id: 'mapa', name: 'la mesa del mapa', area: 'administracion', x: 36, y: 32, w: 3, h: 3 },
+    { id: 'nucleo', name: 'el núcleo del reactor', area: 'reactor', x: 5, y: 32, w: 3, h: 3 },
+    { id: 'pantallas', name: 'la mesa de las cámaras', area: 'seguridad', x: 20, y: 36, w: 4, h: 1 },
 ];
 
-/** Las tareas: qué son y dónde se hacen. Cada tipo está en uno o dos sitios. */
+/**
+ * Las tareas: qué son y dónde se hacen. Cada tipo está en uno o varios sitios.
+ * visible: quien te ve hacerla sabe que eres tripulante. steps: se hace en dos sitios, uno detrás de otro.
+ */
 const IMPOSTOR_TASKS = {
     cables: { name: 'Arreglar los cables', short: 'los cables' },
     descarga: { name: 'Descargar los datos', short: 'la descarga' },
     motor: { name: 'Calibrar el motor', short: 'el motor' },
     codigo: { name: 'Teclear el código', short: 'el código' },
+    escaner: { name: 'Pasar por el escáner', short: 'el escáner', visible: true },
+    combustible: { name: 'Repostar el motor', short: 'el combustible', steps: ['Llenar la lata de combustible', 'Echar el combustible al motor'] },
+    escudos: { name: 'Encender los escudos', short: 'los escudos' },
 };
 const SHIP_SPOTS = [
     { type: 'cables', area: 'electricidad', x: 3.5, y: 18.5 },
     { type: 'cables', area: 'almacen', x: 26.5, y: 23.5 },
+    { type: 'cables', area: 'seguridad', x: 17.5, y: 30.5 },
     { type: 'descarga', area: 'puente', x: 40.5, y: 3.5 },
     { type: 'descarga', area: 'comedor', x: 26.5, y: 2.5 },
+    { type: 'descarga', area: 'comunicaciones', x: 54.5, y: 2.5 },
     { type: 'motor', area: 'motores', x: 2.5, y: 3.5 },
     { type: 'motor', area: 'motores', x: 2.5, y: 8.5 },
+    { type: 'motor', area: 'reactor', x: 2.5, y: 36.5 },
     { type: 'codigo', area: 'enfermeria', x: 40.5, y: 23.5 },
     { type: 'codigo', area: 'almacen', x: 16.5, y: 16.5 },
+    { type: 'codigo', area: 'administracion', x: 40.5, y: 36.5 },
+    { type: 'escaner', area: 'enfermeria', x: 34.5, y: 23.5 },
+    { type: 'combustible', step: 0, area: 'almacen', x: 26.5, y: 16.5 },
+    { type: 'combustible', step: 1, area: 'motores', x: 10.5, y: 2.5 },
+    { type: 'combustible', step: 1, area: 'reactor', x: 10.5, y: 36.5 },
+    { type: 'escudos', area: 'oxigeno', x: 54.5, y: 23.5 },
+    { type: 'escudos', area: 'comunicaciones', x: 47.5, y: 9.5 },
+];
+/** Los paneles para arreglar los sabotajes. */
+const SHIP_PANELS = [
+    { id: 'luces', sab: 'lights', name: 'el cuadro de las luces', area: 'electricidad', x: 10.5, y: 24.5 },
+    { id: 'reactor0', sab: 'reactor', name: 'el panel izquierdo del reactor', area: 'reactor', x: 2.5, y: 30.5 },
+    { id: 'reactor1', sab: 'reactor', name: 'el panel derecho del reactor', area: 'reactor', x: 10.5, y: 30.5 },
+];
+/** Las consolas: el mapa con cuántos hay en cada sala, las cámaras y las constantes vitales. */
+const SHIP_CONSOLES = [
+    { id: 'admin', name: 'el mapa de la nave', area: 'administracion', table: 'mapa' },
+    { id: 'cams', name: 'las cámaras', area: 'seguridad', table: 'pantallas' },
+    { id: 'vitals', name: 'las constantes vitales', area: 'enfermeria', x: 40.5, y: 17.5 },
+];
+/** Las cámaras de Seguridad, en los pasillos más concurridos. */
+const SHIP_CAMERAS = [
+    { area: 'p-motores-electricidad', x: 6.5, y: 13.5 },
+    { area: 'p-comedor-almacen', x: 21.5, y: 13.5 },
+    { area: 'p-puente-enfermeria', x: 37.5, y: 13.5 },
+    { area: 'p-almacen-seguridad', x: 21.5, y: 27.5 },
+];
+/** Los conductos: cada uno lleva a los de su red. */
+const SHIP_VENTS = [
+    { net: 'a', area: 'motores', x: 8.5, y: 8.5 },
+    { net: 'a', area: 'reactor', x: 8.5, y: 36.5 },
+    { net: 'b', area: 'electricidad', x: 3.5, y: 23.5 },
+    { net: 'b', area: 'seguridad', x: 25.5, y: 30.5 },
+    { net: 'b', area: 'enfermeria', x: 34.5, y: 17.5 },
+    { net: 'c', area: 'comedor', x: 16.5, y: 9.5 },
+    { net: 'c', area: 'almacen', x: 17.5, y: 23.5 },
+    { net: 'c', area: 'administracion', x: 33.5, y: 36.5 },
+    { net: 'd', area: 'puente', x: 34.5, y: 9.5 },
+    { net: 'd', area: 'comunicaciones', x: 54.5, y: 9.5 },
+    { net: 'd', area: 'oxigeno', x: 47.5, y: 17.5 },
 ];
 
 /** «el Comedor» → «al Comedor»; «Motores» → «a Motores». */
@@ -133,7 +215,12 @@ const SHIP = (() => {
                 }
             }
             const other = c.links.find(id => id !== rid);
-            const d = { id: doors.length, room: rid, corridor: c.id, to: other, x: sx / k, y: sy / k, nx, ny };
+            // Las casillas del pasillo que tocan la sala: al cerrar la puerta, se vuelven pared.
+            const cells = [];
+            for (let y = c.y; y < c.y + c.h; y++) for (let x = c.x; x < c.x + c.w; x++) {
+                if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => tiles[(y + dy) * SHIP_W + x + dx] === r.index)) cells.push(y * SHIP_W + x);
+            }
+            const d = { id: doors.length, room: rid, corridor: c.id, to: other, x: sx / k, y: sy / k, nx, ny, cells };
             doors.push(d);
             r.doors.push(d);
             c.doors.push(d);
@@ -143,23 +230,34 @@ const SHIP = (() => {
     // El botón de emergencia, en el centro de la mesa del Comedor.
     const t = SHIP_FURNITURE[0];
     const button = { area: t.area, x: t.x + t.w / 2, y: t.y + t.h / 2, table: t };
-    return { w: SHIP_W, h: SHIP_H, areas, byId, tiles, doors, spots, furniture: SHIP_FURNITURE, button };
+    const panels = SHIP_PANELS.map(p => ({ ...p }));
+    // Las consolas que son una mesa se usan desde cualquier lado de la mesa; su punto es el centro.
+    const consoles = SHIP_CONSOLES.map(c => {
+        const f = c.table && SHIP_FURNITURE.find(f => f.id === c.table);
+        return f ? { ...c, x: f.x + f.w / 2, y: f.y + f.h / 2, table: f } : { ...c };
+    });
+    const vents = SHIP_VENTS.map((v, i) => ({ ...v, id: i }));
+    for (const v of vents) v.to = vents.filter(o => o.net === v.net && o !== v).map(o => o.id);
+    return { w: SHIP_W, h: SHIP_H, areas, byId, tiles, doors, spots, furniture: SHIP_FURNITURE, button, panels, consoles, vents, cameras: SHIP_CAMERAS };
 })();
 
-function shipTile(x, y) {
+// Las puertas cerradas (un sabotaje) son una capa encima de la nave: closed[casilla] = 1 si esa casilla es ahora pared.
+// Cada función que mira paredes la recibe al final; sin ella, todas las puertas están abiertas.
+function shipTile(x, y, closed = null) {
     const tx = Math.floor(x), ty = Math.floor(y);
     if (tx < 0 || ty < 0 || tx >= SHIP.w || ty >= SHIP.h) return -1;
-    return SHIP.tiles[ty * SHIP.w + tx];
+    const i = ty * SHIP.w + tx;
+    return closed && closed[i] ? -1 : SHIP.tiles[i];
 }
-const shipSolid = (tx, ty) => tx < 0 || ty < 0 || tx >= SHIP.w || ty >= SHIP.h || SHIP.tiles[ty * SHIP.w + tx] < 0;
+const shipSolid = (tx, ty, closed = null) => tx < 0 || ty < 0 || tx >= SHIP.w || ty >= SHIP.h || SHIP.tiles[ty * SHIP.w + tx] < 0 || !!(closed && closed[ty * SHIP.w + tx]);
 /** La zona (sala o pasillo) en la que está un punto, o null si es pared o mueble. */
 function shipArea(x, y) { const t = shipTile(x, y); return t >= 0 ? SHIP.areas[t] : null; }
 
 /** ¿Un círculo de radio r en (x, y) toca alguna pared o mueble? */
-function shipBlocked(x, y, r = IMPOSTOR_RADIUS) {
+function shipBlocked(x, y, r = IMPOSTOR_RADIUS, closed = null) {
     for (let ty = Math.floor(y - r); ty <= Math.floor(y + r); ty++) {
         for (let tx = Math.floor(x - r); tx <= Math.floor(x + r); tx++) {
-            if (!shipSolid(tx, ty)) continue;
+            if (!shipSolid(tx, ty, closed)) continue;
             const qx = clampN(x, tx, tx + 1), qy = clampN(y, ty, ty + 1);
             if ((x - qx) ** 2 + (y - qy) ** 2 < r * r - 1e-9) return true;
         }
@@ -168,20 +266,20 @@ function shipBlocked(x, y, r = IMPOSTOR_RADIUS) {
 }
 function clampN(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
-/** ¿Se ve un punto desde otro? (sin paredes ni muebles altos en medio; la mesa no tapa) */
-function shipSight(x0, y0, x1, y1) {
+/** ¿Se ve un punto desde otro? (sin paredes ni puertas cerradas en medio; los muebles no tapan) */
+function shipSight(x0, y0, x1, y1, closed = null) {
     const d = Math.hypot(x1 - x0, y1 - y0), n = Math.ceil(d / 0.2);
     for (let i = 1; i < n; i++) {
-        const t = shipTile(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n);
+        const t = shipTile(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, closed);
         if (t === -1) return false;
     }
     return true;
 }
 
 /** ¿Se puede ir en línea recta de un punto a otro sin rozar nada? */
-function shipClear(x0, y0, x1, y1, r = IMPOSTOR_RADIUS + 0.06) {
+function shipClear(x0, y0, x1, y1, r = IMPOSTOR_RADIUS + 0.06, closed = null) {
     const d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d / 0.2));
-    for (let i = 0; i <= n; i++) if (shipBlocked(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, r)) return false;
+    for (let i = 0; i <= n; i++) if (shipBlocked(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, r, closed)) return false;
     return true;
 }
 
@@ -189,9 +287,9 @@ function shipClear(x0, y0, x1, y1, r = IMPOSTOR_RADIUS + 0.06) {
  * El camino más corto de un punto a otro, como una lista de puntos por los que pasar
  * (sin el de salida). Sirve para la guía y para los rivales de la máquina. null si no hay camino.
  */
-function shipPath(x0, y0, x1, y1) {
+function shipPath(x0, y0, x1, y1, closed = null) {
     const W = SHIP.w, start = Math.floor(y0) * W + Math.floor(x0), goal = Math.floor(y1) * W + Math.floor(x1);
-    if (shipSolid(Math.floor(x1), Math.floor(y1)) || shipSolid(Math.floor(x0), Math.floor(y0))) return null;
+    if (shipSolid(Math.floor(x1), Math.floor(y1), closed) || shipSolid(Math.floor(x0), Math.floor(y0), closed)) return null;
     const prev = new Int32Array(W * SHIP.h).fill(-1);
     prev[start] = start;
     const queue = [start];
@@ -199,8 +297,8 @@ function shipPath(x0, y0, x1, y1) {
         const cur = queue[qi], cx = cur % W, cy = (cur - cx) / W;
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
             const nx = cx + dx, ny = cy + dy;
-            if (shipSolid(nx, ny)) continue;
-            if (dx && dy && (shipSolid(cx + dx, cy) || shipSolid(cx, cy + dy))) continue;   // sin cortar esquinas
+            if (shipSolid(nx, ny, closed)) continue;
+            if (dx && dy && (shipSolid(cx + dx, cy, closed) || shipSolid(cx, cy + dy, closed))) continue;   // sin cortar esquinas
             const ni = ny * W + nx;
             if (prev[ni] >= 0) continue;
             prev[ni] = cur;
@@ -218,12 +316,18 @@ function shipPath(x0, y0, x1, y1) {
     let fx = x0, fy = y0, i = 0;
     while (i < pts.length) {
         let j = pts.length - 1;
-        while (j > i && !shipClear(fx, fy, pts[j].x, pts[j].y)) j--;
+        while (j > i && !shipClear(fx, fy, pts[j].x, pts[j].y, undefined, closed)) j--;
         out.push(pts[j]);
         fx = pts[j].x; fy = pts[j].y;
         i = j + 1;
     }
     return out;
+}
+
+/** Lo cerca que estás de una mesa (0 si la tocas). */
+function tableDist(t, x, y) {
+    const dx = Math.max(t.x - x, 0, x - (t.x + t.w)), dy = Math.max(t.y - y, 0, y - (t.y + t.h));
+    return Math.hypot(dx, dy);
 }
 
 /** Un sitio libre junto a la consola de una tarea, para ponerse delante y no encima. */
@@ -250,7 +354,7 @@ class ImpostorGame {
         this.rng = makeRng(this.seed);
         this.players = players.map((p, i) => ({
             name: p.name, index: i, want: p.role || null, x: 0, y: 0, ix: 0, iy: 0, fx: 0, fy: -1,
-            area: null, busy: null, tasks: [], bumpT: 0, moved: 0,
+            area: null, busy: null, tasks: [], bumpT: 0, moved: 0, vent: null,
             role: 'crew', alive: true, knownDead: false, killCd: 0, meetingsLeft: 0,
         }));
         this.round = 0;
@@ -262,6 +366,11 @@ class ImpostorGame {
         this.meeting = null;
         this.meetings = 0;
         this.buttonAt = 0;
+        this.sab = null;                // el sabotaje en marcha: { kind: 'lights' o 'reactor', by, t0, until }
+        this.sabCd = 0;                 // segundos hasta poder sabotear otra vez
+        this.doorsShut = null;          // las puertas cerradas: { room, by, until }
+        this.doorCd = 0;
+        this.closed = new Uint8Array(SHIP_W * SHIP_H);   // las casillas de las puertas cerradas
         this.winners = null;
         this.result = null;
     }
@@ -273,8 +382,13 @@ class ImpostorGame {
     get killRange() { return IMPOSTOR_KILL_RANGE[this.rules.killRange] || IMPOSTOR_KILL_RANGE.medio; }
     areaOf(p) { return SHIP.byId[this.players[p].area] || null; }
     isImpostor(p) { return this.players[p]?.role === 'impostor'; }
-    /** Hasta dónde ve cada uno: los impostores, un poco más lejos. */
-    visionOf(p) { return this.vision * (this.isImpostor(p) ? IMPOSTOR_IMP_VISION : 1); }
+    /** Hasta dónde ve cada uno: los impostores, un poco más lejos; con las luces apagadas, la tripulación viva casi nada. */
+    visionOf(p) {
+        const pl = this.players[p];
+        if (this.isImpostor(p)) return this.vision * IMPOSTOR_IMP_VISION;
+        return this.vision * (this.sab?.kind === 'lights' && pl?.alive ? IMPOSTOR_LIGHTS : 1);
+    }
+    get lightsOff() { return this.sab?.kind === 'lights'; }
     impostors() { return this.players.filter(pl => pl.role === 'impostor').map(pl => pl.index); }
     living() { return this.players.filter(pl => pl.alive).map(pl => pl.index); }
 
@@ -303,6 +417,9 @@ class ImpostorGame {
         this.meeting = null;
         this.meetings = 0;
         this.buttonAt = this.rules.buttonWait;
+        this.sab = null; this.sabCd = 15;
+        this.doorsShut = null; this.doorCd = 15;
+        this.closed.fill(0);
         const types = Object.keys(IMPOSTOR_TASKS);
         const count = clampN(this.rules.tasks | 0, 1, types.length);
         // Los impostores: primero quien quiere serlo, luego al azar entre quien no ha pedido ser tripulante.
@@ -316,8 +433,13 @@ class ImpostorGame {
             pl.alive = true; pl.knownDead = false;
             pl.meetingsLeft = this.rules.meetings | 0;
             pl.killCd = Math.min(10, this.rules.killCooldown);
-            pl.tasks = this.rng.shuffle(types.slice()).slice(0, count)
-                .map(type => ({ type, spot: this.rng.pick(SHIP.spots.filter(s => s.type === type)).id, done: false }));
+            pl.tasks = this.rng.shuffle(types.slice()).slice(0, count).map(type => {
+                const at = SHIP.spots.filter(s => s.type === type);
+                if (!IMPOSTOR_TASKS[type].steps) return { type, spot: this.rng.pick(at).id, done: false };
+                // Una tarea en dos sitios: se empieza en uno y se acaba en otro.
+                const [first, ...rest] = IMPOSTOR_TASKS[type].steps.map((_, k) => this.rng.pick(at.filter(s => s.step === k)).id);
+                return { type, spot: first, next: rest, step: 0, done: false };
+            });
         }
         this.gather();
         const events = [{ type: 'round', round: this.round, impostors: nImp }];
@@ -337,7 +459,7 @@ class ImpostorGame {
             const pl = this.players[p];
             const ang = -Math.PI / 2 + k * 2 * Math.PI / n;
             pl.x = cx + Math.cos(ang) * 3.3; pl.y = cy + Math.sin(ang) * 2.8;
-            pl.ix = pl.iy = 0; pl.fx = 0; pl.fy = -1; pl.busy = null; pl.moved = 0;
+            pl.ix = pl.iy = 0; pl.fx = 0; pl.fy = -1; pl.busy = null; pl.moved = 0; pl.vent = null;
             pl.area = shipArea(pl.x, pl.y)?.id || null;
         });
     }
@@ -357,29 +479,42 @@ class ImpostorGame {
         if (this.phase !== 'ship') return [];
         this.time += dt;
         const events = [];
+        // Los sabotajes: el reactor estalla si nadie lo arregla, y las puertas se abren solas.
+        if (!this.sab) this.sabCd = Math.max(0, this.sabCd - dt);
+        if (!this.doorsShut) this.doorCd = Math.max(0, this.doorCd - dt);
+        if (this.sab?.kind === 'reactor' && this.time >= this.sab.until) return this.finish('impostors', 'reactor');
+        if (this.doorsShut && this.time >= this.doorsShut.until) events.push(this.openDoors());
+        const W = SHIP.w, H = SHIP.h;
         for (const pl of this.players) {
             pl.bumpT = Math.max(0, pl.bumpT - dt);
             if (pl.role === 'impostor' && pl.alive) pl.killCd = Math.max(0, pl.killCd - dt);
             pl.moved = 0;
-            if (pl.busy || (!pl.ix && !pl.iy)) continue;
+            if (pl.busy || pl.vent != null || (!pl.ix && !pl.iy)) continue;
             const len = Math.hypot(pl.ix, pl.iy);
             pl.fx = pl.ix / len; pl.fy = pl.iy / len;
             const step = this.speed * dt;
             const x0 = pl.x, y0 = pl.y;
             let hit = null;
-            // Cada eje por separado: así, al rozar una pared, se resbala a lo largo de ella.
-            // Si andas recto contra una esquina (el borde de una puerta o de la mesa), te desvías un poco y la rodeas.
-            const nx = pl.x + pl.ix * step;
-            if (!shipBlocked(nx, pl.y)) pl.x = nx;
-            else if (pl.iy || !this.slideCorner(pl, nx, pl.y, 0, 1, step)) hit = { x: pl.x + Math.sign(pl.ix) * IMPOSTOR_RADIUS, y: pl.y };
-            const ny = pl.y + pl.iy * step;
-            if (!shipBlocked(pl.x, ny)) pl.y = ny;
-            else if (pl.ix || !this.slideCorner(pl, pl.x, ny, 1, 0, step)) hit = hit || { x: pl.x, y: pl.y + Math.sign(pl.iy) * IMPOSTOR_RADIUS };
+            if (!pl.alive) {
+                // Los fantasmas atraviesan las paredes, pero no salen de la nave.
+                pl.x = clampN(pl.x + pl.ix * step, 1.3, W - 1.3);
+                pl.y = clampN(pl.y + pl.iy * step, 1.3, H - 1.3);
+            } else {
+                // Cada eje por separado: así, al rozar una pared, se resbala a lo largo de ella.
+                // Si andas recto contra una esquina (el borde de una puerta o de la mesa), te desvías un poco y la rodeas.
+                const nx = pl.x + pl.ix * step;
+                if (!shipBlocked(nx, pl.y, undefined, this.closed)) pl.x = nx;
+                else if (pl.iy || !this.slideCorner(pl, nx, pl.y, 0, 1, step)) hit = { x: pl.x + Math.sign(pl.ix) * IMPOSTOR_RADIUS, y: pl.y };
+                const ny = pl.y + pl.iy * step;
+                if (!shipBlocked(pl.x, ny, undefined, this.closed)) pl.y = ny;
+                else if (pl.ix || !this.slideCorner(pl, pl.x, ny, 1, 0, step)) hit = hit || { x: pl.x, y: pl.y + Math.sign(pl.iy) * IMPOSTOR_RADIUS };
+            }
             pl.moved = Math.hypot(pl.x - x0, pl.y - y0);
             if (hit && pl.bumpT <= 0) {
                 pl.bumpT = 0.4;
                 const what = SHIP.furniture.find(f => hit.x >= f.x - 0.4 && hit.x <= f.x + f.w + 0.4 && hit.y >= f.y - 0.4 && hit.y <= f.y + f.h + 0.4);
-                events.push({ type: 'bump', p: pl.index, x: hit.x, y: hit.y, what: what ? what.id : 'pared' });
+                const door = !what && this.doorsShut ? SHIP.byId[this.doorsShut.room].doors.find(d => Math.hypot(d.x - hit.x, d.y - hit.y) < 2.2) : null;
+                events.push({ type: 'bump', p: pl.index, x: hit.x, y: hit.y, what: what ? what.id : door ? 'puerta' : 'pared' });
             }
             const a = shipArea(pl.x, pl.y);
             if (a && a.id !== pl.area) {
@@ -398,9 +533,9 @@ class ImpostorGame {
     slideCorner(pl, x, y, ux, uy, step) {
         for (const off of [0.15, 0.3, 0.45, 0.6]) {
             for (const s of [-1, 1]) {
-                if (shipBlocked(x + s * ux * off, y + s * uy * off)) continue;
+                if (shipBlocked(x + s * ux * off, y + s * uy * off, undefined, this.closed)) continue;
                 const d = Math.min(step, off);
-                if (shipBlocked(pl.x + s * ux * d, pl.y + s * uy * d)) continue;
+                if (shipBlocked(pl.x + s * ux * d, pl.y + s * uy * d, undefined, this.closed)) continue;
                 pl.x += s * ux * d; pl.y += s * uy * d;
                 return true;
             }
@@ -415,20 +550,22 @@ class ImpostorGame {
      */
     perceive(p) {
         const me = this.players[p], seen = [], heard = [], bodies = [], vis = this.visionOf(p);
+        // Los fantasmas ven a través de las paredes lo que tienen cerca.
+        const sees = (x, y) => !me.alive || shipSight(me.x, me.y, x, y, this.closed);
         for (const pl of this.players) {
-            if (pl === me || (!pl.alive && me.alive)) continue;
+            if (pl === me || (!pl.alive && me.alive) || pl.vent != null) continue;
             const d = Math.hypot(pl.x - me.x, pl.y - me.y);
-            if (d <= vis && shipSight(me.x, me.y, pl.x, pl.y)) seen.push(pl.index);
+            if (d <= vis && sees(pl.x, pl.y)) seen.push(pl.index);
             else if (d <= this.hearing && pl.moved > 0) heard.push(pl.index);
         }
-        for (const b of this.bodies) if (Math.hypot(b.x - me.x, b.y - me.y) <= vis && shipSight(me.x, me.y, b.x, b.y)) bodies.push(b.p);
+        for (const b of this.bodies) if (Math.hypot(b.x - me.x, b.y - me.y) <= vis && sees(b.x, b.y)) bodies.push(b.p);
         return { seen, heard, bodies };
     }
 
     /** Quién ve un punto: los vivos que lo tienen a la vista, menos los de except. */
     witnesses(x, y, except = []) {
-        return this.players.filter(pl => pl.alive && !except.includes(pl.index)
-            && Math.hypot(pl.x - x, pl.y - y) <= this.visionOf(pl.index) && shipSight(pl.x, pl.y, x, y)).map(pl => pl.index);
+        return this.players.filter(pl => pl.alive && pl.vent == null && !except.includes(pl.index)
+            && Math.hypot(pl.x - x, pl.y - y) <= this.visionOf(pl.index) && shipSight(pl.x, pl.y, x, y, this.closed)).map(pl => pl.index);
     }
 
     /** La tarea pendiente más cercana que se puede usar desde donde estás, o null. */
@@ -445,8 +582,8 @@ class ImpostorGame {
     /** A quién puede matar ahora un impostor: tripulantes vivos a su alcance y a la vista, el más cercano primero. */
     killTargets(p) {
         const me = this.players[p];
-        if (!me || me.role !== 'impostor' || !me.alive) return [];
-        return this.players.filter(pl => pl.alive && pl.role !== 'impostor' && Math.hypot(pl.x - me.x, pl.y - me.y) <= this.killRange && shipSight(me.x, me.y, pl.x, pl.y))
+        if (!me || me.role !== 'impostor' || !me.alive || me.vent != null) return [];
+        return this.players.filter(pl => pl.alive && pl.role !== 'impostor' && Math.hypot(pl.x - me.x, pl.y - me.y) <= this.killRange && shipSight(me.x, me.y, pl.x, pl.y, this.closed))
             .sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y)).map(pl => pl.index);
     }
 
@@ -456,19 +593,41 @@ class ImpostorGame {
         let best = null, bd = IMPOSTOR_REPORT;
         for (const b of this.bodies) {
             const d = Math.hypot(b.x - me.x, b.y - me.y);
-            if (d <= bd && shipSight(me.x, me.y, b.x, b.y)) { bd = d; best = b; }
+            if (d <= bd && shipSight(me.x, me.y, b.x, b.y, this.closed)) { bd = d; best = b; }
         }
         return best;
     }
 
     /** ¿Está al lado de la mesa del botón de emergencia? */
     atButton(p) {
-        const pl = this.players[p], t = SHIP.button.table;
-        const dx = Math.max(t.x - pl.x, 0, pl.x - (t.x + t.w)), dy = Math.max(t.y - pl.y, 0, pl.y - (t.y + t.h));
-        return Math.hypot(dx, dy) <= IMPOSTOR_BUTTON;
+        const pl = this.players[p];
+        return tableDist(SHIP.button.table, pl.x, pl.y) <= IMPOSTOR_BUTTON;
     }
     /** Los segundos que faltan para poder pedir una reunión (0 si ya se puede). */
     buttonWait() { return Math.max(0, this.buttonAt - this.time); }
+
+    /** El conducto en el que puede meterse un jugador desde donde está, o null. */
+    ventHere(p) {
+        const pl = this.players[p];
+        let best = null, bd = IMPOSTOR_VENT_USE;
+        for (const v of SHIP.vents) { const d = Math.hypot(v.x - pl.x, v.y - pl.y); if (d <= bd) { bd = d; best = v; } }
+        return best;
+    }
+    /** El panel de un sabotaje en marcha que tiene al lado un jugador, o null. */
+    panelHere(p) {
+        const pl = this.players[p];
+        if (!this.sab) return null;
+        return SHIP.panels.find(x => x.sab === this.sab.kind && Math.hypot(x.x - pl.x, x.y - pl.y) <= IMPOSTOR_CONSOLE) || null;
+    }
+    /** La consola que tiene al lado un jugador, o null. */
+    consoleHere(p) {
+        const pl = this.players[p];
+        return SHIP.consoles.find(c => (c.table ? tableDist(c.table, pl.x, pl.y) : Math.hypot(c.x - pl.x, c.y - pl.y)) <= IMPOSTOR_CONSOLE) || null;
+    }
+    /** Los paneles del reactor en los que hay alguien con la mano puesta. */
+    reactorHeld() {
+        return [...new Set(this.players.filter(pl => pl.alive && pl.busy?.fix).map(pl => pl.busy.fix))];
+    }
 
     // ── Acciones ──────────────────────────────────────
     act(a) {
@@ -477,14 +636,21 @@ class ImpostorGame {
         if (!pl) return { ok: false, error: 'Ese jugador no está en la nave.' };
         if (a.type === 'say' || a.type === 'vote') return this.meetingAct(a, pl);
         if (this.phase !== 'ship') return { ok: false, error: 'Ahora no.' };
+        if (a.type === 'sabotage') return this.sabotage(a, pl);
+        if (a.type === 'vent') return this.ventInOut(a, pl);
+        if (a.type === 'ventTo') return this.ventTo(a, pl);
+        if (pl.vent != null) return { ok: false, error: 'Estás dentro de un conducto: sal primero.' };
         if (a.type === 'kill') return this.kill(a, pl);
         if (a.type === 'report') return this.report(a, pl);
         if (a.type === 'button') return this.button(a, pl);
+        if (a.type === 'fix') return this.fix(a, pl);
+        if (a.type === 'console') return this.console(a, pl);
         if (a.type === 'cancelTask') {
             if (!pl.busy) return { ok: false, error: 'No estás haciendo ninguna tarea.' };
-            const i = pl.busy.i;
+            const b = pl.busy;
             pl.busy = null;
-            return { ok: true, events: [{ type: 'taskStop', p: a.p, i }] };
+            if (b.fix) return { ok: true, events: [{ type: 'fixHold', p: a.p, panel: b.fix, held: false }] };
+            return { ok: true, events: [{ type: 'taskStop', p: a.p, i: b.i }] };
         }
         const t = pl.tasks[a.i];
         if (!t) return { ok: false, error: 'Esa tarea no es tuya.' };
@@ -495,18 +661,172 @@ class ImpostorGame {
             if (pl.busy) return { ok: false, error: 'Ya estás con una tarea.' };
             pl.busy = { i: a.i, since: this.time };
             pl.ix = pl.iy = 0;
-            return { ok: true, events: [{ type: 'taskStart', p: a.p, i: a.i, task: t.type, fake: pl.role === 'impostor' }] };
+            // Una tarea que se ve (el escáner): quien te mira sabe que eres tripulante. Un impostor no puede fingirla.
+            const visible = !!IMPOSTOR_TASKS[t.type].visible && pl.role !== 'impostor';
+            return { ok: true, events: [{ type: 'taskStart', p: a.p, i: a.i, task: t.type, step: t.step || 0, fake: pl.role === 'impostor', visible }] };
         }
         // 'task': la tarea está hecha.
         if (pl.role === 'impostor') return { ok: false, error: 'Los impostores no hacen tareas: solo lo fingen.' };
         if (!pl.busy || pl.busy.i !== a.i) return { ok: false, error: 'Primero tienes que empezar la tarea.' };
-        t.done = true;
         pl.busy = null;
         this.turns++;
+        // Una tarea en dos sitios: hecha la primera parte, queda la otra en el sitio siguiente.
+        if (t.next?.length) {
+            t.spot = t.next[0];
+            t.next = t.next.slice(1);
+            t.step++;
+            const to = SHIP.spots[t.spot];
+            return { ok: true, events: [{ type: 'taskStep', p: a.p, i: a.i, task: t.type, step: t.step, spot: t.spot, area: to.area, from: spot.area }] };
+        }
+        t.done = true;
         const events = [{ type: 'taskDone', p: a.p, i: a.i, task: t.type, area: spot.area }, { type: 'taskBar', ...this.taskBar() }];
         const bar = this.taskBar();
         if (bar.done >= bar.total) events.push(...this.finish('crew', 'tasks'));
         return { ok: true, events };
+    }
+
+    // ── Los sabotajes ─────────────────────────────────
+    /** Los segundos que faltan para poder hacer un sabotaje (0 si ya se puede), o null si ahora no se puede. */
+    sabWait(kind) {
+        if (!this.rules.sabotages || this.phase !== 'ship') return null;
+        if (kind === 'doors') return this.doorsShut ? null : this.doorCd;
+        if (this.sab) return null;
+        return this.sabCd;
+    }
+
+    /** a.kind: 'lights' (apagar las luces), 'reactor' (que estalle) o 'doors' (cerrar las puertas de la sala a.room). */
+    sabotage(a, pl) {
+        if (pl.role !== 'impostor') return { ok: false, error: 'Solo los impostores sabotean.' };
+        if (!this.rules.sabotages) return { ok: false, error: 'En esta partida no hay sabotajes.' };
+        const kind = a.kind;
+        if (!['lights', 'reactor', 'doors'].includes(kind)) return { ok: false, error: 'Ese sabotaje no existe.' };
+        const w = this.sabWait(kind);
+        if (w == null) return { ok: false, error: kind === 'doors' ? 'Ya hay puertas cerradas.' : 'Ya hay un sabotaje en marcha.' };
+        if (w > 0) return { ok: false, error: `Todavía no puedes sabotear: faltan ${Math.ceil(w)} segundos.` };
+        this.turns++;
+        if (kind === 'doors') {
+            const r = SHIP.byId[a.room];
+            if (!r || r.kind !== 'room') return { ok: false, error: 'Esa sala no está en la nave.' };
+            return { ok: true, events: [this.closeDoors(r, pl.index)] };
+        }
+        this.sab = { kind, by: pl.index, t0: this.time, until: kind === 'reactor' ? this.time + this.rules.reactorTime : null };
+        return { ok: true, events: [{ type: 'sabotage', kind, by: pl.index, until: this.sab.until }] };
+    }
+
+    /** Se cierran todas las puertas de una sala. Quien está justo en la puerta se queda a un lado. */
+    closeDoors(r, by) {
+        for (const d of r.doors) for (const c of d.cells) this.closed[c] = 1;
+        this.doorsShut = { room: r.id, by, until: this.time + IMPOSTOR_DOORS_TIME };
+        for (const pl of this.players) {
+            if (!pl.alive || pl.vent != null || !shipBlocked(pl.x, pl.y, undefined, this.closed)) continue;
+            const d = r.doors.reduce((b, d) => Math.hypot(d.x - pl.x, d.y - pl.y) < Math.hypot(b.x - pl.x, b.y - pl.y) ? d : b);
+            // Se le aparta hacia dentro de la sala o hacia el pasillo, lo que esté más cerca.
+            for (let k = 1; k <= 12; k++) {
+                const off = k * 0.15;
+                const opts = [[-d.nx, -d.ny], [d.nx, d.ny]].map(([ux, uy]) => ({ x: pl.x + ux * off, y: pl.y + uy * off }));
+                const ok = opts.find(o => !shipBlocked(o.x, o.y, undefined, this.closed));
+                if (ok) { pl.x = ok.x; pl.y = ok.y; pl.area = shipArea(pl.x, pl.y)?.id || pl.area; break; }
+            }
+        }
+        return { type: 'doors', room: r.id, by, until: this.doorsShut.until };
+    }
+
+    openDoors() {
+        const room = this.doorsShut?.room ?? null;
+        this.closed.fill(0);
+        this.doorsShut = null;
+        this.doorCd = IMPOSTOR_DOORS_COOLDOWN;
+        return { type: 'doorsOpen', room };
+    }
+
+    /** Se acaba el sabotaje: quien tenía la mano en un panel la quita. */
+    endSab(by) {
+        const kind = this.sab.kind;
+        for (const pl of this.players) if (pl.busy?.fix) pl.busy = null;
+        this.sab = null;
+        this.sabCd = IMPOSTOR_SAB_COOLDOWN;
+        this.turns++;
+        return { type: 'fixed', kind, by };
+    }
+
+    /** Arreglar un sabotaje en su panel: las luces, de una vez; el reactor, con dos personas a la vez, una en cada panel. */
+    fix(a, pl) {
+        if (!pl.alive) return { ok: false, error: 'Los fantasmas no pueden arreglar los sabotajes.' };
+        if (!this.sab) return { ok: false, error: 'No hay nada que arreglar.' };
+        const panel = SHIP.panels.find(x => x.id === a.panel) || this.panelHere(a.p);
+        if (!panel || panel.sab !== this.sab.kind) return { ok: false, error: 'Ese panel no arregla este sabotaje.' };
+        if (Math.hypot(panel.x - pl.x, panel.y - pl.y) > IMPOSTOR_CONSOLE + 0.2) return { ok: false, error: 'Estás demasiado lejos del panel.' };
+        if (pl.busy) return { ok: false, error: 'Ya estás con otra cosa.' };
+        if (this.sab.kind === 'lights') return { ok: true, events: [this.endSab(pl.index)] };
+        pl.busy = { fix: panel.id, since: this.time };
+        pl.ix = pl.iy = 0;
+        const events = [{ type: 'fixHold', p: pl.index, panel: panel.id, held: true }];
+        const held = this.reactorHeld();
+        if (SHIP.panels.filter(x => x.sab === 'reactor').every(x => held.includes(x.id))) events.push(this.endSab(pl.index));
+        return { ok: true, events };
+    }
+
+    // ── Los conductos ─────────────────────────────────
+    /** Entrar en el conducto que tienes al lado, o salir del conducto en el que estás. */
+    ventInOut(a, pl) {
+        if (pl.role !== 'impostor') return { ok: false, error: 'Solo los impostores van por los conductos.' };
+        if (!pl.alive) return { ok: false, error: 'Los fantasmas no necesitan conductos.' };
+        if (!this.rules.vents) return { ok: false, error: 'En esta partida no se usan los conductos.' };
+        if (pl.vent != null) {
+            const v = SHIP.vents[pl.vent];
+            const witnesses = this.witnesses(v.x, v.y, [pl.index]);
+            pl.vent = null;
+            pl.x = v.x; pl.y = v.y; pl.area = v.area;
+            this.turns++;
+            return { ok: true, events: [{ type: 'vent', p: pl.index, kind: 'out', vent: v.id, x: v.x, y: v.y, area: v.area, witnesses }] };
+        }
+        if (pl.busy) return { ok: false, error: 'Ya estás con otra cosa.' };
+        const v = this.ventHere(a.p);
+        if (!v) return { ok: false, error: 'No hay ningún conducto cerca.' };
+        const witnesses = this.witnesses(v.x, v.y, [pl.index]);
+        pl.vent = v.id;
+        pl.x = v.x; pl.y = v.y; pl.area = v.area; pl.ix = pl.iy = 0;
+        this.turns++;
+        return { ok: true, events: [{ type: 'vent', p: pl.index, kind: 'in', vent: v.id, x: v.x, y: v.y, area: v.area, witnesses }] };
+    }
+
+    /** Dentro de un conducto, ir a otro de la misma red (a.to). */
+    ventTo(a, pl) {
+        if (pl.vent == null) return { ok: false, error: 'No estás en un conducto.' };
+        const from = SHIP.vents[pl.vent], v = SHIP.vents[a.to];
+        if (!v || !from.to.includes(v.id)) return { ok: false, error: 'Ese conducto no está unido a este.' };
+        pl.vent = v.id;
+        pl.x = v.x; pl.y = v.y; pl.area = v.area;
+        return { ok: true, events: [{ type: 'vent', p: pl.index, kind: 'move', vent: v.id, from: from.id, x: v.x, y: v.y, area: v.area, witnesses: [] }] };
+    }
+
+    // ── Las consolas ──────────────────────────────────
+    /**
+     * Mirar una consola. Solo lo sabe quien mira:
+     * el mapa dice cuántos hay en cada sala; las cámaras, a quién se ve en cada pasillo;
+     * las constantes vitales, quién está vivo y quién muerto (aunque nadie haya encontrado el cuerpo).
+     */
+    console(a, pl) {
+        const c = SHIP.consoles.find(x => x.id === a.id) || this.consoleHere(a.p);
+        if (!c || this.consoleHere(a.p) !== c) return { ok: false, error: 'No estás junto a esa consola.' };
+        let data;
+        const out = this.players.filter(q => q.alive && q.vent == null);
+        if (c.id === 'admin') {
+            const counts = {};
+            for (const q of out) { const r = SHIP.byId[q.area]; if (r?.kind === 'room') counts[r.id] = (counts[r.id] || 0) + 1; }
+            data = { counts };
+        } else if (c.id === 'cams') {
+            data = {
+                cams: SHIP.cameras.map(cam => ({
+                    area: cam.area,
+                    seen: out.filter(q => Math.hypot(q.x - cam.x, q.y - cam.y) <= IMPOSTOR_CAMERA && shipSight(cam.x, cam.y, q.x, q.y, this.closed)).map(q => q.index),
+                    bodies: this.bodies.filter(b => Math.hypot(b.x - cam.x, b.y - cam.y) <= IMPOSTOR_CAMERA && shipSight(cam.x, cam.y, b.x, b.y, this.closed)).map(b => b.p),
+                })),
+            };
+        } else {
+            data = { alive: this.living(), dead: this.players.filter(q => !q.alive).map(q => q.index) };
+        }
+        return { ok: true, events: [{ type: 'console', p: pl.index, id: c.id, data, secret: true }] };
     }
 
     kill(a, pl) {
@@ -543,6 +863,7 @@ class ImpostorGame {
         if (!pl.alive) return { ok: false, error: 'Los fantasmas no pueden pedir una reunión.' };
         if (!this.atButton(a.p)) return { ok: false, error: 'El botón de emergencia está en la mesa del Comedor.' };
         if (pl.meetingsLeft <= 0) return { ok: false, error: 'Ya no te quedan reuniones de emergencia.' };
+        if (this.sab?.kind === 'reactor') return { ok: false, error: 'Con el reactor a punto de estallar no se puede pedir una reunión: primero, a arreglarlo.' };
         const w = this.buttonWait();
         if (w > 0) return { ok: false, error: `El botón de emergencia estará listo dentro de ${Math.ceil(w)} segundos.` };
         pl.meetingsLeft--;
@@ -561,8 +882,13 @@ class ImpostorGame {
             start: this.time, said: [], votes: new Map(),
         };
         this.bodies = [];
+        // La reunión acaba con los sabotajes y abre las puertas; después, hay que esperar un poco para el siguiente.
+        const sab = this.sab?.kind || null, doors = this.doorsShut?.room || null;
+        this.sab = null; this.sabCd = Math.max(this.sabCd, 15);
+        if (this.doorsShut) { this.closed.fill(0); this.doorsShut = null; }
+        this.doorCd = Math.max(this.doorCd, 10);
         this.gather();
-        return [{ type: 'meeting', by, kind, body: this.meeting.body, area: this.meeting.area, dead, n: this.meeting.n }];
+        return [{ type: 'meeting', by, kind, body: this.meeting.body, area: this.meeting.area, dead, n: this.meeting.n, sab, doors }];
     }
 
     meetingAct(a, pl) {
@@ -642,11 +968,17 @@ class ImpostorGame {
         return {
             phase: this.phase, round: this.round, time: this.time, rules: { ...this.rules }, winners: this.winners,
             bar: this.taskBar(), bodies: this.bodies.map(b => ({ ...b })),
-            players: this.players.map(pl => ({
-                name: pl.name, x: pl.x, y: pl.y, fx: pl.fx, fy: pl.fy, area: pl.area, busy: !!pl.busy, alive: pl.alive || !pl.knownDead,
-                role: pl.index === seat || (imp && pl.role === 'impostor') ? pl.role : null,
-                tasks: pl.index === seat ? pl.tasks.map(t => ({ ...t })) : null,
-            })),
+            sab: this.sab ? { kind: this.sab.kind, until: this.sab.until } : null,
+            doors: this.doorsShut ? { room: this.doorsShut.room, until: this.doorsShut.until } : null,
+            sabCd: imp ? this.sabCd : null, doorCd: imp ? this.doorCd : null,
+            players: this.players.map(pl => {
+                const mine = pl.index === seat || (imp && pl.role === 'impostor');
+                return {
+                    name: pl.name, x: pl.x, y: pl.y, fx: pl.fx, fy: pl.fy, area: pl.area, busy: !!pl.busy, fix: pl.busy?.fix || null,
+                    alive: pl.alive || !pl.knownDead, role: mine ? pl.role : null, vent: mine ? pl.vent : null,
+                    tasks: pl.index === seat ? pl.tasks.map(t => ({ ...t })) : null,
+                };
+            }),
         };
     }
 }
@@ -658,6 +990,7 @@ if (typeof module !== 'undefined') {
     module.exports = {
         IMPOSTOR_DEFAULT_RULES, IMPOSTOR_SPEED, IMPOSTOR_RADIUS, IMPOSTOR_VISION, IMPOSTOR_HEARING, IMPOSTOR_USE, IMPOSTOR_TASKS,
         IMPOSTOR_REPORT, IMPOSTOR_KILL_RANGE, IMPOSTOR_IMP_VISION, IMPOSTOR_SAY_MAX, impostorsFor,
-        SHIP, shipArea, shipTile, shipSolid, shipBlocked, shipSight, shipClear, shipPath, shipStandAt, pathLength, toPlace, inPlace, ImpostorGame,
+        IMPOSTOR_VENT_USE, IMPOSTOR_CONSOLE, IMPOSTOR_LIGHTS, IMPOSTOR_SAB_COOLDOWN, IMPOSTOR_DOORS_TIME, IMPOSTOR_DOORS_COOLDOWN, IMPOSTOR_CAMERA,
+        SHIP, shipArea, tableDist, shipTile, shipSolid, shipBlocked, shipSight, shipClear, shipPath, shipStandAt, pathLength, toPlace, inPlace, ImpostorGame,
     };
 }
