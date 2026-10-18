@@ -9,11 +9,13 @@
      reunión cuentan lo que saben y votan a quien más
      sospechoso les parece.
      Cuando hay un sabotaje, van a arreglarlo: al
-     reactor, todos; a las luces, algunos.
+     reactor y al oxígeno, todos; a las luces y a las
+     comunicaciones, algunos.
    · De impostores, fingen tareas, buscan a alguien
      que esté solo, matan sin testigos y huyen, por un
      conducto si lo hay, o avisan ellos mismos. Apagan
-     las luces, sabotean el reactor y cierran puertas.
+     las luces, sabotean el reactor y el oxígeno, cortan
+     las comunicaciones y cierran puertas.
      En la reunión mienten sobre dónde estaban y echan
      la culpa a otro.
    · De fantasmas, atraviesan las paredes y los
@@ -31,7 +33,8 @@
  * selfReport, las que avisa él mismo del cuerpo; recall, lo que recuerdan de lo que ven;
  * trust, lo que se fían de lo que dicen los demás; noise y threshold, lo que dudan al votar y cuánto
  * tienen que sospechar para votar a alguien; lie, lo bien que mienten de impostores.
- * fixLights, las veces que un tripulante va a encender las luces; fixTime, lo que tarda en hacerlo;
+ * fixLights, las veces que un tripulante va a encender las luces o a arreglar las comunicaciones; fixTime, lo que tarda
+ * en hacerlo (y en teclear el código del oxígeno);
  * sabRate, las veces por segundo que un impostor sabotea cuando puede; vent, las que huye por un conducto.
  */
 const IMPOSTOR_LEVELS = {
@@ -70,7 +73,8 @@ class ImpostorBot {
         this.fakeScan = new Set(); // a quién ha visto en el escáner sin que el escáner haga nada
         this.sabSeen = null;       // el sabotaje que ya ha visto empezar (su t0)
         this.fixing = false;       // va a arreglar el sabotaje
-        this.fixAt = null;         // cuándo acaba de arreglar las luces
+        this.fixAt = null;         // cuándo acaba de arreglar el panel en el que está (las luces, la radio o un teclado)
+        this.fixPanel = null;
         this.ventPlan = null;      // impostor: huir por un conducto { vent, stage, until, from }
         this.noticed = null;       // ha visto un cuerpo: cuándo reacciona
         this.huntAt = null;        // impostor: cuándo va a por alguien
@@ -119,7 +123,7 @@ class ImpostorBot {
     reset() {
         this.goal = null; this.path = null; this.work = 0; this.wait = 0;
         this.noticed = null; this.huntAt = null; this.hunting = false; this.chase = null; this.selfReport = null;
-        this.fixing = false; this.fixAt = null; this.sabSeen = null; this.ventPlan = null;
+        this.fixing = false; this.fixAt = null; this.fixPanel = null; this.sabSeen = null; this.ventPlan = null;
     }
 
     /**
@@ -135,8 +139,8 @@ class ImpostorBot {
             g.input(me, 0, 0);
             // Un impostor que finge una tarea la deja si alguien se queda solo cerca.
             if (this.impostor && pl.alive && this.hunting && this.pickTarget() != null) return { type: 'cancelTask' };
-            // Si estalla el reactor, se deja la tarea y se va corriendo.
-            if (!this.impostor && pl.alive && g.sab?.kind === 'reactor') return { type: 'cancelTask' };
+            // Si va a estallar el reactor o se acaba el oxígeno, se deja la tarea y se va corriendo.
+            if (!this.impostor && pl.alive && g.critical) return { type: 'cancelTask' };
             this.work -= dt;
             if (this.work > 0) return null;
             return this.impostor ? { type: 'cancelTask' } : { type: 'task', i: pl.busy.i };
@@ -186,26 +190,35 @@ class ImpostorBot {
         return null;
     }
 
-    /** El sabotaje: al reactor van todos, a una mano libre; a las luces, algunos. */
+    /**
+     * El sabotaje: al reactor van todos, a una mano libre, y al oxígeno, a un teclado sin arreglar (si los dos
+     * están a una distancia parecida, unos a cada uno). A las luces y a las comunicaciones, algunos.
+     */
     fixThink() {
         const g = this.game, pl = this.me_, sab = g.sab;
         if (!sab) {
-            if (this.fixing) { this.fixing = false; this.fixAt = null; if (this.goal?.kind === 'fix') { this.goal = null; this.path = null; } }
+            if (this.fixing) { this.fixing = false; this.fixAt = null; this.fixPanel = null; if (this.goal?.kind === 'fix') { this.goal = null; this.path = null; } }
             return null;
         }
         if (this.sabSeen !== sab.t0) {
             this.sabSeen = sab.t0;
-            this.fixing = sab.kind === 'reactor' || this.rng.chance(this.level.fixLights);
+            this.fixing = g.critical || this.rng.chance(this.level.fixLights);
             this.fixAt = null;
         }
         if (!this.fixing) return null;
         const held = g.reactorHeld();
-        const panels = SHIP.panels.filter(x => x.sab === sab.kind && !held.includes(x.id));
+        const panels = SHIP.panels.filter(x => x.sab === sab.kind && !held.includes(x.id) && !sab.done?.includes(x.id));
         if (!panels.length) return null;
-        const panel = panels.sort((a, b) => Math.hypot(a.x - pl.x, a.y - pl.y) - Math.hypot(b.x - pl.x, b.y - pl.y))[0];
+        const far = x => pathLength(pl.x, pl.y, shipPath(pl.x, pl.y, x.x, x.y, g.closed) || []) || Math.hypot(x.x - pl.x, x.y - pl.y);
+        if (this.fixPanel == null || !panels.some(x => x.id === this.fixPanel)) {
+            const by = panels.map(x => ({ x, d: far(x) })).sort((a, b) => a.d - b.d);
+            const pick = by.length > 1 && by[1].d - by[0].d < 12 ? by[this.me % 2].x : by[0].x;
+            this.fixPanel = pick.id; this.fixAt = null;
+        }
+        const panel = panels.find(x => x.id === this.fixPanel);
         if (Math.hypot(panel.x - pl.x, panel.y - pl.y) <= IMPOSTOR_CONSOLE - 0.2) {
             if (sab.kind === 'reactor') return { type: 'fix', panel: panel.id };
-            // Las luces: unos segundos con los interruptores.
+            // Las luces, la radio o un teclado del oxígeno: unos segundos con el panel.
             if (this.fixAt == null) this.fixAt = g.time + this.rng.range(...this.level.fixTime);
             return g.time >= this.fixAt ? { type: 'fix', panel: panel.id } : { wait: true };
         }
@@ -218,7 +231,10 @@ class ImpostorBot {
     }
 
     // ── De impostor ───────────────────────────────────
-    /** Los sabotajes: cierra las puertas de la sala donde tiene a alguien solo; apaga las luces para cazar; el reactor, para separarlos. */
+    /**
+     * Los sabotajes: cierra las puertas de la sala donde tiene a alguien solo; apaga las luces (o corta las
+     * comunicaciones) para cazar; el reactor y el oxígeno, para separarlos y que corran.
+     */
     sabThink(dt) {
         const g = this.game, pl = this.me_;
         if (!g.rules.sabotages || pl.vent != null) return null;
@@ -227,7 +243,8 @@ class ImpostorBot {
             if (r?.kind === 'room' && o.area === r.id && this.rng.chance(dt * this.level.sabRate * 20)) return { type: 'sabotage', kind: 'doors', room: r.id };
         }
         if (g.sabWait('lights') === 0 && this.rng.chance(dt * this.level.sabRate)) {
-            const kind = pl.alive && this.hunting ? 'lights' : this.rng.chance(0.45) ? 'reactor' : 'lights';
+            const r = this.rng.next();
+            const kind = pl.alive && this.hunting ? (r < 0.7 ? 'lights' : 'comms') : r < 0.23 ? 'reactor' : r < 0.45 ? 'oxygen' : r < 0.75 ? 'lights' : 'comms';
             return { type: 'sabotage', kind };
         }
         return null;
@@ -347,6 +364,7 @@ class ImpostorBot {
                 // Una tarea en dos sitios que ya ha cambiado de sitio: a buscar el otro.
                 const t = pl.tasks[goal.task];
                 if (!t || t.done || Math.hypot(SHIP.spots[t.spot].x - pl.x, SHIP.spots[t.spot].y - pl.y) > IMPOSTOR_USE) return null;
+                if (t.readyAt != null && g.time < t.readyAt && !this.impostor) return null;
                 this.work = this.impostor ? this.rng.range(2.5, 6) : this.rng.range(...this.level.work);
                 return { type: 'startTask', i: goal.task };
             }
@@ -366,6 +384,8 @@ class ImpostorBot {
             if (g.doorsShut) { this.wait = 0.8; return null; }
             this.goal = null; return null;
         }
+        // Ya está en la casilla del sitio: va derecho.
+        if (!this.path.length) this.path = [{ x: goal.x, y: goal.y }];
         let wp = this.path[0];
         while (this.path.length > 1 && Math.hypot(wp.x - pl.x, wp.y - pl.y) < 0.35) { this.path.shift(); wp = this.path[0]; }
         const dx = wp.x - pl.x, dy = wp.y - pl.y, d = Math.hypot(dx, dy) || 1;
@@ -384,7 +404,9 @@ class ImpostorBot {
         const stroll = this.rng.chance(0.35);
         // Los impostores no fingen el escáner: se vería que no pasa nada.
         const fakes = g.pending(this.me).filter(t => !IMPOSTOR_TASKS[t.type].visible);
-        const tasks = pl.role === 'impostor' ? (pl.alive && this.rng.chance(0.5) ? [this.rng.pick(fakes)].filter(Boolean) : []) : stroll && pl.alive ? [] : g.pending(this.me);
+        // Las muestras que se están analizando, después.
+        const ready = g.pending(this.me).filter(t => t.readyAt == null || g.time >= t.readyAt);
+        const tasks = pl.role === 'impostor' ? (pl.alive && this.rng.chance(0.5) ? [this.rng.pick(fakes)].filter(Boolean) : []) : stroll && pl.alive ? [] : ready;
         if (tasks.length) {
             // Los fáciles van a la que les toca en su lista; los demás, a la más cercana.
             const t = this.char.level === 'facil' ? tasks[0] : tasks.slice().sort((a, b) => Math.hypot(a.spot.x - pl.x, a.spot.y - pl.y) - Math.hypot(b.spot.x - pl.x, b.spot.y - pl.y))[0];
