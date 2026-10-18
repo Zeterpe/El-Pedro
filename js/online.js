@@ -54,7 +54,7 @@ const Online = {
     async create() {
         if (!Net.available()) { UI.say('No se ha podido cargar la parte online del juego. Recarga la página.'); return; }
         this.role = 'host';
-        this.game = this.app.settings.game || 'pedro';
+        this.game = GAMES[this.app.settings.game]?.online === false ? 'pedro' : this.app.settings.game || 'pedro';
         this.showLobbyStatus('Abriendo la sala…');
         const net = this.net = new HostNet({
             onMessage: (c, m) => this.hostMessage(c, m),
@@ -193,7 +193,7 @@ const Online = {
     },
 
     setGame(id) {
-        if (!GAMES[id]) return;
+        if (!GAMES[id] || GAMES[id].online === false) return;
         this.game = id;
         this.app.settings.game = id;
         this.app.save();
@@ -505,7 +505,7 @@ const Online = {
         if (host) {
             // Si ya está, solo se actualiza: así no pierde el foco al cambiar de juego.
             if (box.firstChild?._def) OptionList._fill(box.firstChild);
-            else OptionList.render(box, [{ label: 'Juego', values: GAME_IDS, get: () => this.game, set: v => this.setGame(v), text: v => GAMES[v].name }], null);
+            else OptionList.render(box, [{ label: 'Juego', values: GAME_IDS.filter(id => GAMES[id].online !== false), get: () => this.game, set: v => this.setGame(v), text: v => GAMES[v].name }], null);
             $('lobby-game-text').textContent = '';
         } else {
             box.innerHTML = '';

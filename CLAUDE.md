@@ -2,17 +2,17 @@
 
 Salón de juegos de cartas con baraja española, **en español**, pensado para personas ciegas y jugable por cualquiera. Se publica con GitHub Pages desde `main`: <https://zeterpe.github.io/El-Pedro/>.
 
-Hay cinco juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís** (dado y fichas), **el Trivial** (preguntas y quesitos) y **el Virus** (cartas de órganos, virus y medicinas). Los sonidos, la voz, la mesa y las salas son comunes; cada juego pone sus reglas, sus rivales y cómo se cuenta lo que pasa. Para añadir otro juego, mira «Cómo se añade un juego».
+Hay seis juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís** (dado y fichas), **el Trivial** (preguntas y quesitos), **el Virus** (cartas de órganos, virus y medicinas) y **El Impostor** (una nave en tiempo real que se recorre con el oído; de momento sin impostores ni salas). Los sonidos, la voz, la mesa y las salas son comunes; cada juego pone sus reglas, sus rivales y cómo se cuenta lo que pasa. Para añadir otro juego, mira «Cómo se añade un juego».
 
 **Prioridades, por este orden:** que se pueda jugar sin ver la pantalla, que sea divertido, y lo demás.
 
 ## Tecnología
 
 - HTML + CSS + JavaScript **sin compilación ni dependencias**.
-- Los archivos de `js/` son *scripts clásicos* que comparten el ámbito global, así que **el orden de los `<script>` en `index.html` importa**: rules → brisca → ai → brisca-ai → parchis → parchis-ai → trivial/(geografia, espectaculos, historia, arte, ciencia, deportes) → trivial → trivial-ai → virus → virus-ai → speech → audio → texts → ui → vendor/peerjs → net → mirror → cards → board → match → pedro → brisca-match → parchis-match → trivial-match → virus-match → games → online → app.
+- Los archivos de `js/` son *scripts clásicos* que comparten el ámbito global, así que **el orden de los `<script>` en `index.html` importa**: rules → brisca → ai → brisca-ai → parchis → parchis-ai → trivial/(geografia, espectaculos, historia, arte, ciencia, deportes) → trivial → trivial-ai → virus → virus-ai → impostor → impostor-ai → speech → audio → space-audio → texts → ui → vendor/peerjs → net → mirror → cards → board → match → pedro → brisca-match → parchis-match → trivial-match → virus-match → impostor-match → games → online → app.
 - Única dependencia: PeerJS (MIT), copiada en `js/vendor/peerjs.min.js`. No se carga de ningún CDN.
-- `rules.js`, `ai.js`, `brisca.js`, `brisca-ai.js`, `parchis.js`, `parchis-ai.js`, `trivial.js`, `trivial-ai.js`, `virus.js`, `virus-ai.js` y las preguntas de `js/trivial/` no tocan la pantalla y también se cargan con Node (`require`), para probarlos sin navegador. `node tests/brisca.test.js` juega cientos de partidas de Brisca y comprueba puntos, bazas y lo que ve cada jugador; `node tests/parchis.test.js` prueba cada regla del Parchís con tableros preparados y juega más de cien partidas; `node tests/trivial.test.js` revisa el banco de preguntas, el tablero y cada regla del Trivial, y juega más de cien partidas; `node tests/virus.test.js` prueba el mazo, cada carta y cada tratamiento con mesas preparadas, y juega más de cien partidas.
-- Sonido: todo se sintetiza con Web Audio en `js/audio.js`. No hay archivos de audio.
+- `rules.js`, `ai.js`, `brisca.js`, `brisca-ai.js`, `parchis.js`, `parchis-ai.js`, `trivial.js`, `trivial-ai.js`, `virus.js`, `virus-ai.js`, `impostor.js`, `impostor-ai.js` y las preguntas de `js/trivial/` no tocan la pantalla y también se cargan con Node (`require`), para probarlos sin navegador. `node tests/brisca.test.js` juega cientos de partidas de Brisca y comprueba puntos, bazas y lo que ve cada jugador; `node tests/parchis.test.js` prueba cada regla del Parchís con tableros preparados y juega más de cien partidas; `node tests/trivial.test.js` revisa el banco de preguntas, el tablero y cada regla del Trivial, y juega más de cien partidas; `node tests/virus.test.js` prueba el mazo, cada carta y cada tratamiento con mesas preparadas, y juega más de cien partidas; `node tests/impostor.test.js` prueba la nave, los caminos, andar y chocar, ver y oír y las tareas, y juega sesenta partidas entre rivales.
+- Sonido: todo se sintetiza con Web Audio en `js/audio.js` (y el sonido 3D de El Impostor, en `js/space-audio.js`). No hay archivos de audio.
 - Voz: `speechSynthesis` o el lector de pantalla (regiones `aria-live`), en `js/speech.js`.
 
 | Archivo | Qué contiene |
@@ -28,7 +28,10 @@ Hay cinco juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís**
 | `js/trivial/*.js` | El banco de preguntas, un archivo por categoría (`TRIVIAL_BANK`): `[pregunta, buena, mala, mala, mala, nivel]`, nivel de 1 (fácil) a 3 (difícil) |
 | `js/virus.js` | Reglas del Virus (`VirusGame`, `VIRUS_DEFAULT_RULES`): el mazo de 68 cartas (`makeVirusDeck`), qué hace cada virus y medicina (`virusEffect`), los tratamientos, lo que ve cada uno (`virusEventFor`) y la mesa del invitado (`VirusMirror`) |
 | `js/virus-ai.js` | Rivales del Virus (`VirusBot`): prueban cada jugada y miden cómo queda su cuerpo y el del rival que va por delante |
+| `js/impostor.js` | Reglas de El Impostor (`ImpostorGame`, `IMPOSTOR_DEFAULT_RULES`): la nave (`SHIP`, salas, pasillos, puertas, muebles y consolas), andar y chocar (`tick`), los caminos (`shipPath`, `shipStandAt`), ver y oír (`perceive`) y las tareas |
+| `js/impostor-ai.js` | Compañeros de El Impostor (`ImpostorBot`): van por el camino más corto a sus tareas, tardan en hacerlas según la dificultad y luego pasean |
 | `js/audio.js` | Sonidos: palo de cada carta, sitios de la mesa, momentos del juego |
+| `js/space-audio.js` | Sonido 3D de El Impostor (`SpaceAudio`, con HRTF): el oído siempre mira al norte, lo de detrás suena apagado y lo de tras una pared, amortiguado. También los sonidos de la nave (`ShipSounds`), los pasos de cada uno (`STEP_TIMBRES`) y el ambiente de cada sala (`ROOM_AMBIENCE`) |
 | `js/speech.js` | Voz del juego o lector de pantalla |
 | `js/texts.js` | Cómo se dicen las cartas y los sitios («la sota de oros», «tu carta 2») |
 | `js/ui.js` | Pantallas, foco, `Dialog` (preguntas con opciones) y `OptionList` (opciones) |
@@ -40,6 +43,7 @@ Hay cinco juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís**
 | `js/parchis-match.js` | `ParchisMatch` y `ParchisArt`: el tablero en SVG (girado para que tu casa quede abajo a la derecha), fichas que andan casilla a casilla, dado, peligros y consejos |
 | `js/trivial-match.js` | `TrivialMatch` y `TrivialArt`: la rueda en SVG, la tarjeta de la pregunta con sus cuatro respuestas, elegir casilla y los quesitos de cada uno |
 | `js/virus-match.js` | `VirusMatch` y `VirusArt`: las cartas en SVG (órganos con cara, virus, medicinas y tratamientos), los cuerpos de cada uno, elegir carta y después dónde va, paso a paso, y descartar |
+| `js/impostor-match.js` | `ImpostorMatch` e `ImpostorArt`: la nave en un canvas que sigue a tu personaje, el bucle en tiempo real, las teclas que se mantienen pulsadas, el joystick y la cruceta, la guía, lo que hay cerca (F) y los minijuegos de las tareas |
 | `js/games.js` | `GAMES`: cada juego con su nombre, reglas de la casa, opciones de la partida y el texto de «Cómo se juega» |
 | `js/net.js` | Conexión con PeerJS: `HostNet` (abre la sala `elpedro-NNNNN`) y `ClientNet` |
 | `js/mirror.js` | `MirrorGame`: la mesa tal como la ve un invitado, sin cartas ocultas. `eventFor()` quita a cada jugador las cartas que no puede ver |
@@ -49,6 +53,7 @@ Hay cinco juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís**
 | `tests/parchis.test.js` | Pruebas del Parchís con Node |
 | `tests/trivial.test.js` | Pruebas del Trivial con Node |
 | `tests/virus.test.js` | Pruebas del Virus con Node |
+| `tests/impostor.test.js` | Pruebas de El Impostor con Node |
 
 ### Cómo funcionan las reglas
 
@@ -105,6 +110,17 @@ Cada juego es una máquina de estados con `act()` y `view(seat)`. Cada `act` dev
 - Sucesos: `round`, `deal`, `turn`, `play` (con `effect`), `discard`, `draw`, `flip`, `lostTurn`, `roundOver` y `gameOver`.
 - `VirusMatch` dibuja desde `this.shown` y lo pone al día con cada suceso (`applyShown`). Al elegir una carta, sus jugadas se ofrecen paso a paso (`pathsOf`): el trasplante pregunta primero un órgano y luego el otro, y el contagio cada virus.
 
+**El Impostor.** `ImpostorGame` tiene las fases `ship` → `gameOver`. A diferencia de los demás juegos, va en tiempo real.
+
+- **La nave** (`SHIP`): una cuadrícula de 44 por 27 metros (cada casilla, uno) con seis salas y siete pasillos de tres metros de ancho. x crece hacia la derecha e y hacia abajo; el norte, arriba en la pantalla, es «delante». Las paredes son -1 y los muebles -2 (no se pisan, pero no tapan la vista).
+- **Andar.** `input(p, dx, dy)` dice hacia dónde quiere ir cada uno y `tick(dt)` mueve a todos, eje por eje para resbalar por las paredes; si andas recto contra una esquina, la rodeas (`slideCorner`). Sucesos de `tick`: `area` (entras en una sala o un pasillo) y `bump` (chocas). `ImpostorMatch` llama a `tick` treinta veces por segundo desde `requestAnimationFrame`, y se para con la pausa y los diálogos.
+- **Ver y oír** (`perceive`): se ve a quien está a 6 metros o menos sin pared en medio; se oyen los pasos de quien anda a 10 metros o menos, amortiguados si hay pared.
+- **Las acciones** son `startTask` y `task` (con `i`, cuál de tus tareas) y `cancelTask`. Hay que estar a 1,4 metros o menos de la consola. Sucesos: `round`, `tasks` (secretas), `taskBar`, `taskStart`, `taskStop`, `taskDone` y `gameOver`. Cuando la barra de tareas se llena, gana la tripulación.
+- **La orientación es fija:** el oído siempre mira al norte, así que lo que está a tu derecha en la pantalla suena a tu derecha. Las direcciones se dicen así: «delante», «delante a la derecha», «a la derecha»… (`impDir`).
+- **La voz.** En la nave habla la voz del juego aunque juegues con lector de pantalla (`speech.say` con `tts: true`), porque el lector se queda atrás; con el ajuste `impostorVoice: 'lector'`, habla el lector.
+- **Las tareas** son minijuegos de la mesa (`cables`, `descarga`, `motor`, `codigo`); al acabar uno, la mesa manda `task`.
+- **Todavía no** hay impostores, reuniones, sabotajes ni salas: en `GAMES`, `online: false` lo quita de la lista de juegos de una sala.
+
 ### Cómo funcionan las salas
 
 - **En la sala se elige el juego** (`Online.game`). Al acabar una partida, quien la ha creado puede volver a la sala (`backToLobby`) y elegir otro, sin crear una sala nueva.
@@ -141,14 +157,15 @@ d.brisca()            // empezar partida de Brisca
 d.parchis()           // empezar partida de Parchís
 d.trivial()           // empezar partida de Trivial
 d.virus()             // empezar partida de Virus
+d.impostor()          // empezar partida de El Impostor
 d.practice('brisca')  // partida de práctica de un juego
 d.online              // la sala (Online): code, table, role
 ```
 
 **Comprobación mínima antes de subir un cambio:**
-- `node tests/brisca.test.js`, `node tests/parchis.test.js`, `node tests/trivial.test.js` y `node tests/virus.test.js`.
+- `node tests/brisca.test.js`, `node tests/parchis.test.js`, `node tests/trivial.test.js`, `node tests/virus.test.js` y `node tests/impostor.test.js`.
 - Juega una ronda de cada juego en cada modo: con voz (teclado), con lector de pantalla y sin voz (tocando).
-- En El Pedro, usa una carta de poder, quema una carta y canta Pedro. En la Brisca, juega por parejas y prueba el cambio de muestra y los cantes. En el Parchís, juega por parejas y solo, come una ficha y mete otra en la meta. En el Trivial, juega por equipos, gana un quesito y llega a la final. En el Virus, juega un virus, una medicina y un tratamiento de cada clase, descarta y juega por parejas.
+- En El Pedro, usa una carta de poder, quema una carta y canta Pedro. En la Brisca, juega por parejas y prueba el cambio de muestra y los cantes. En el Parchís, juega por parejas y solo, come una ficha y mete otra en la meta. En el Trivial, juega por equipos, gana un quesito y llega a la final. En el Virus, juega un virus, una medicina y un tratamiento de cada clase, descarta y juega por parejas. En El Impostor, anda con auriculares sin mirar la pantalla, usa la guía y la F, y haz una tarea de cada clase.
 - Prueba una sala con dos navegadores: cambia de juego en la sala y recarga la página de un invitado a mitad de partida.
 - Prueba también en el móvil o con el modo móvil del navegador, y comprueba que la consola no muestra errores.
 
@@ -164,7 +181,7 @@ d.online              // la sala (Online): code, table, role
    - Respeta los ajustes: modo lector de pantalla (`settings.output === 'sr'`), mono, anuncios breves y velocidad de la voz.
 3. **Justo para todos.** El juego no recuerda tus cartas salvo con la «ayuda de memoria», que es opcional. Lo que ve en pantalla quien ve debe poder oírlo quien no ve, y al revés: una carta mirada se enseña unos segundos y también se dice, y se puede repetir con Espacio.
 4. **Azar.** En la lógica de juego usa el `rng` con semilla de `rules.js` (`makeRng`). `Math.random` solo para efectos de sonido.
-5. **No romper partidas guardadas.** Los ajustes nuevos van en `DEFAULT_SETTINGS` (`js/app.js`) y las reglas nuevas en `DEFAULT_RULES` (`js/rules.js`), `BRISCA_DEFAULT_RULES` (`js/brisca.js`), `PARCHIS_DEFAULT_RULES` (`js/parchis.js`) o `TRIVIAL_DEFAULT_RULES` (`js/trivial.js`) o `VIRUS_DEFAULT_RULES` (`js/virus.js`); `loadSaved()` rellena lo que falte.
+5. **No romper partidas guardadas.** Los ajustes nuevos van en `DEFAULT_SETTINGS` (`js/app.js`) y las reglas nuevas en `DEFAULT_RULES` (`js/rules.js`), `BRISCA_DEFAULT_RULES` (`js/brisca.js`), `PARCHIS_DEFAULT_RULES` (`js/parchis.js`) o `TRIVIAL_DEFAULT_RULES` (`js/trivial.js`), `VIRUS_DEFAULT_RULES` (`js/virus.js`) o `IMPOSTOR_DEFAULT_RULES` (`js/impostor.js`); `loadSaved()` rellena lo que falte.
 6. **Textos en español**, tuteando al jugador y escritos para el oído: frases claras, sin símbolos ni abreviaturas.
 
 ## Cómo se añade un juego

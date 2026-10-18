@@ -347,6 +347,93 @@ const GAMES = {
             </ul>
             <p>En el móvil, todo tiene su botón en la pantalla. También puedes tocar los órganos marcados de la mesa.</p>`,
     },
+
+    impostor: {
+        id: 'impostor',
+        name: 'El Impostor',
+        kind: 'Juego de nave, en tiempo real',
+        tagline: 'Anda por una nave espacial guiándote por el oído y haz las tareas con tu tripulación. Primera versión, todavía sin impostores.',
+        players: 'De 2 a 10 tripulantes, de momento con la máquina',
+        art: () => ImpostorArt.tile(),
+        defaults: IMPOSTOR_DEFAULT_RULES,
+        rulesKey: 'impostorRules',
+        rivalsKey: 'impostorRivals',
+        roundWord: null,
+        maxPlayers: 10,
+        online: false,                                   // en una sala, más adelante
+        rivalWords: ['compañero', 'compañeros'],
+        rivalLevelLabel: 'Tus compañeros',
+        levelText: { facil: 'tranquilos', normal: 'normales', dificil: 'rápidos con las tareas', mezcla: 'de todo un poco' },
+        get Match() { return ImpostorMatch; },
+        summary: r => {
+            r = { ...IMPOSTOR_DEFAULT_RULES, ...r };
+            return `${r.tasks} tareas para cada uno${r.easyTasks ? ', fáciles' : ''}.`;
+        },
+        practice(r) { return { ...r, tasks: 2, easyTasks: true }; },
+        setupDefs(s, r) {
+            return [
+                { label: 'Tareas para cada uno', values: [2, 3, 4], get: () => r.tasks, set: v => { r.tasks = v; }, text: v => `${v} tareas` },
+                { label: 'Roce de las paredes', values: [true, false], get: () => s.impostorWalls, set: v => { s.impostorWalls = v; }, text: v => v ? 'sí: al acercarte a una pared, suena por ese lado' : 'no' },
+                { label: 'Decir quién aparece', values: [true, false], get: () => s.impostorNames, set: v => { s.impostorNames = v; }, text: v => v ? 'sí: cuando ves a alguien, se dice su nombre y hacia dónde está' : 'no, solo un sonido' },
+                { label: 'Con lector de pantalla, en la nave habla', values: ['juego', 'lector'], get: () => s.impostorVoice, set: v => { s.impostorVoice = v; }, text: v => v === 'juego' ? 'la voz del juego, que va al momento' : 'tu lector de pantalla' },
+                { label: 'Modo a ciegas', values: [false, true], get: () => s.impostorBlind, set: v => { s.impostorBlind = v; }, text: v => v ? 'sí: la nave no se ve, solo se oye' : 'no' },
+            ];
+        },
+        houseDefs(r) {
+            return [
+                { label: 'Tareas para cada uno', values: [2, 3, 4], get: () => r.tasks, set: v => { r.tasks = v; }, text: v => `${v} tareas` },
+                { label: 'Tareas fáciles', values: [false, true], get: () => r.easyTasks, set: v => { r.easyTasks = v; }, text: v => v ? 'sí: menos que hacer y más margen en cada una' : 'no' },
+                { label: 'Al andar, vas', values: [1, 0.8, 1.25], get: () => r.speed, set: v => { r.speed = v; }, text: v => v === 1 ? 'a paso normal' : v < 1 ? 'más despacio' : 'más deprisa' },
+                { label: 'A los demás los ves y los oyes', values: [1, 0.75, 1.5], get: () => r.vision, set: v => { r.vision = v; }, text: v => v === 1 ? 'a la distancia de siempre' : v < 1 ? 'solo de cerca' : 'desde más lejos' },
+            ];
+        },
+        rulesHtml: `
+            <h2>De qué va</h2>
+            <p>Una tripulación viaja en una nave espacial y tiene que arreglarla: cada tripulante tiene sus tareas, repartidas por las salas. Todos andáis a la vez y en tiempo real, sin turnos. En el juego completo, entre vosotros habrá impostores que intentan impedirlo, y habrá que descubrirlos.</p>
+            <h2>Esta primera versión</h2>
+            <p>Todavía no hay impostores: sirve para aprender a moverse por la nave con el oído y para probar las tareas. Juegas con compañeros de la máquina, que también andan por la nave y hacen las suyas. Cuando entre todos habéis hecho todas las tareas, ganáis.</p>
+            <h2>La nave</h2>
+            <p>Tiene seis salas en dos filas. Arriba, de izquierda a derecha: Motores, el Comedor y el Puente de mando. Abajo: Electricidad, el Almacén y la Enfermería. Un pasillo une cada sala con las de al lado, y otro baja del Comedor al Almacén. Empezáis en el Comedor, alrededor de la mesa.</p>
+            <h2>Cómo te orientas</h2>
+            <p>Juega con auriculares. Siempre miras hacia arriba de la pantalla, como en un mapa: lo que suena a tu derecha está a tu derecha, lo que suena delante está arriba, y lo que está detrás suena más apagado. Lo que está al otro lado de una pared suena amortiguado.</p>
+            <ul>
+                <li>Tus pasos suenan distinto según el suelo: metal, rejilla o moqueta. Los de cada compañero tienen su propio sonido; con la P los oyes uno a uno.</li>
+                <li>Cada sala tiene su ambiente: en Motores retumban las máquinas, en el Comedor tintinean los platos, en el Puente de mando pitan las pantallas, en Electricidad chisporrotea la corriente y en la Enfermería late un monitor.</li>
+                <li>Las puertas de donde estás hacen tic, cada una desde su sitio. Al entrar en una sala o en un pasillo, se dice dónde estás.</li>
+                <li>Al acercarte a una pared, se oye un siseo por ese lado; si chocas, suena un golpe.</li>
+                <li>Tus tareas te llaman con dos notas, cada una desde su consola. Al llegar junto a una, suena una campanita y se dice cuál es.</li>
+                <li>Cuando ves a alguien, se dice su nombre y hacia dónde está. Los pasos de quien está al otro lado de una pared se oyen amortiguados, y en la pantalla se ven como ondas.</li>
+            </ul>
+            <h2>La guía y lo que hay cerca</h2>
+            <p>Con la G eliges adónde ir: una de tus tareas o una sala. Desde ese momento suena un pitido hacia donde tienes que andar, unos metros por delante de ti, siguiendo los pasillos; cuanto más cerca estás, más deprisa pita. Al doblar una esquina se dice hacia dónde sigue el camino, y al llegar suena una campanita.</p>
+            <p>Con la F se dice qué hay cerca: dónde estás, las salidas con su dirección y su distancia, tus tareas, los muebles y quién está contigo.</p>
+            <h2>Las tareas</h2>
+            <p>Cuando estés junto a una tarea tuya, pulsa E para empezarla. Mientras la haces no te mueves; con Escape la dejas y puedes volver luego.</p>
+            <ul>
+                <li>Arreglar los cables: conecta cada cable con el enchufe de su color. Al pulsar el número de un enchufe, se dice su color y suena su nota; el bueno suena igual que el cable. La primera vez lo oyes y la segunda lo conectas.</li>
+                <li>Descargar los datos: pulsa E para empezar la descarga y espera a que se llene la barra.</li>
+                <li>Calibrar el motor: una aguja va de un lado a otro, y su sonido la sigue de izquierda a derecha. Pulsa Espacio cuando esté en el centro, donde suena más aguda. Hacen falta tres aciertos.</li>
+                <li>Teclear el código: oyes y ves un número de cuatro cifras, y lo tecleas. Si te equivocas, se empieza otra vez. Espacio lo repite.</li>
+            </ul>
+            <p>La barra de tareas de la tripulación se llena con las tareas de todos. Cuando se llena, ganáis.</p>
+            <h2>Reglas de la casa</h2>
+            <p>Puedes elegir cuántas tareas tiene cada uno, de 2 a 4; hacerlas más fáciles, con menos que hacer y más margen; andar más deprisa o más despacio, y ver y oír a los demás solo de cerca o desde más lejos.</p>
+            <h2>Al preparar la partida</h2>
+            <p>Eliges cuántos compañeros tienes, de 1 a 9, y si son tranquilos o rápidos con las tareas. También si suena el roce de las paredes, si se dice el nombre de quien aparece, si con lector de pantalla habla la voz del juego, que va al momento, o tu lector, y el modo a ciegas: quien ve no ve la nave, solo la oye, para jugar todos igual.</p>
+            <h2>Las teclas</h2>
+            <ul>
+                <li>W, A, S y D, o las flechas: andar. W va hacia delante, S hacia detrás, A a la izquierda y D a la derecha. Con dos a la vez vas en diagonal.</li>
+                <li>E o Enter: usar la tarea que tienes al lado.</li>
+                <li>F: qué hay cerca. G: la guía. T o C: tus tareas. M: cómo es la nave. P: los pasos de cada uno. I: cómo va la partida.</li>
+                <li>Con una tarea abierta, juegan los números, Espacio y Enter; Escape la deja.</li>
+                <li>Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
+                <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, apaga la navegación de una tecla pulsando a la vez Control, Opción y Q. También puedes moverte con el tabulador y elegir con Enter.</li>
+            </ul>
+            <h2>En el móvil</h2>
+            <p>Toca la nave y arrastra el dedo hacia donde quieras andar: es un joystick. También hay una cruceta con cuatro flechas: mantén pulsada una para andar, o tócala para dar unos pasos. Todo lo demás tiene su botón. Con VoiceOver o TalkBack, cada flecha de la cruceta da unos pasos al tocarla dos veces; para andar seguido, va mejor un teclado conectado al móvil.</p>
+            <h2>Lo que viene</h2>
+            <p>Las siguientes versiones traerán a los impostores, que matan sin que se vea; los cuerpos, que hay que encontrar y avisar; las reuniones para hablar y votar a quién echar de la nave; los sabotajes y los conductos; jugar en una sala con amigos, y voces grabadas para cada personaje.</p>`,
+    },
 };
 
 /** El dibujo de cada juego: un abanico de cartas o su tablero. */
