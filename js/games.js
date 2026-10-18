@@ -373,13 +373,14 @@ const GAMES = {
         summary: r => {
             r = { ...IMPOSTOR_DEFAULT_RULES, ...r };
             const imp = { auto: 'Impostores según cuántos seáis', 0: 'Sin impostores', 1: 'Un impostor', 2: 'Dos impostores', 3: 'Tres impostores' }[r.impostors] || 'Impostores según cuántos seáis';
-            return `${imp}; ${r.tasks} tareas para cada uno${r.easyTasks ? ', fáciles' : ''}.`;
+            const extra = [!r.sabotages && 'sin sabotajes', !r.vents && 'sin conductos'].filter(Boolean);
+            return `${imp}; ${r.tasks} tareas para cada uno${r.easyTasks ? ', fáciles' : ''}${extra.length ? `; ${extra.join(' y ')}` : ''}.`;
         },
         practice(r) { return { ...r, tasks: 2, easyTasks: true, impostors: 0 }; },
         setupDefs(s, r) {
             return [
                 { label: 'Tu papel', values: ['azar', 'tripulante', 'impostor'], get: () => s.impostorRole, set: v => { s.impostorRole = v; }, text: v => v === 'azar' ? 'al azar' : v === 'impostor' ? 'impostor, si hay impostores' : 'tripulante' },
-                { label: 'Tareas para cada uno', values: [2, 3, 4], get: () => r.tasks, set: v => { r.tasks = v; }, text: v => `${v} tareas` },
+                { label: 'Tareas para cada uno', values: [2, 3, 4, 5], get: () => r.tasks, set: v => { r.tasks = v; }, text: v => `${v} tareas` },
                 { label: 'Roce de las paredes', values: [true, false], get: () => s.impostorWalls, set: v => { s.impostorWalls = v; }, text: v => v ? 'sí: al acercarte a una pared, suena por ese lado' : 'no' },
                 { label: 'Decir quién aparece', values: [true, false], get: () => s.impostorNames, set: v => { s.impostorNames = v; }, text: v => v ? 'sí: cuando ves a alguien, se dice su nombre y hacia dónde está' : 'no, solo un sonido' },
                 { label: 'Con lector de pantalla, en la nave habla', values: ['juego', 'lector'], get: () => s.impostorVoice, set: v => { s.impostorVoice = v; }, text: v => v === 'juego' ? 'la voz del juego, que va al momento' : 'tu lector de pantalla' },
@@ -398,7 +399,10 @@ const GAMES = {
                 { label: 'Espera para el botón de emergencia', values: [10, 15, 20, 30], get: () => r.buttonWait, set: v => { r.buttonWait = v; }, text: v => `${v} segundos al empezar y después de cada reunión` },
                 { label: 'Al echar a alguien, decir si era impostor', values: [true, false], get: () => r.confirmEjects, set: v => { r.confirmEjects = v; }, text: v => v ? 'sí' : 'no: nadie lo sabe hasta el final' },
                 { label: 'Votos secretos', values: [false, true], get: () => r.anonymousVotes, set: v => { r.anonymousVotes = v; }, text: v => v ? 'sí: solo se dice cuántos votos tiene cada uno' : 'no: se dice quién vota a quién' },
-                { label: 'Tareas para cada uno', values: [2, 3, 4], get: () => r.tasks, set: v => { r.tasks = v; }, text: v => `${v} tareas` },
+                { label: 'Sabotajes', values: [true, false], get: () => r.sabotages, set: v => { r.sabotages = v; }, text: v => v ? 'sí: los impostores apagan las luces, sabotean el reactor y cierran puertas' : 'no' },
+                { label: 'Tiempo para arreglar el reactor', values: [45, 30, 60], get: () => r.reactorTime, set: v => { r.reactorTime = v; }, text: v => `${v} segundos` },
+                { label: 'Conductos', values: [true, false], get: () => r.vents, set: v => { r.vents = v; }, text: v => v ? 'sí: los impostores van por ellos de una sala a otra' : 'no' },
+                { label: 'Tareas para cada uno', values: [2, 3, 4, 5], get: () => r.tasks, set: v => { r.tasks = v; }, text: v => `${v} tareas` },
                 { label: 'Tareas fáciles', values: [false, true], get: () => r.easyTasks, set: v => { r.easyTasks = v; }, text: v => v ? 'sí: menos que hacer y más margen en cada una' : 'no' },
                 { label: 'Al andar, vas', values: [1, 0.8, 1.25], get: () => r.speed, set: v => { r.speed = v; }, text: v => v === 1 ? 'a paso normal' : v < 1 ? 'más despacio' : 'más deprisa' },
                 { label: 'A los demás los ves y los oyes', values: [1, 0.75, 1.5], get: () => r.vision, set: v => { r.vision = v; }, text: v => v === 1 ? 'a la distancia de siempre' : v < 1 ? 'solo de cerca' : 'desde más lejos' },
@@ -409,19 +413,20 @@ const GAMES = {
             <p>Una tripulación viaja en una nave espacial y tiene que arreglarla: cada tripulante tiene sus tareas, repartidas por las salas. Pero entre vosotros hay uno o más impostores, que fingen ser de la tripulación y la matan a escondidas. Todos andáis a la vez y en tiempo real, sin turnos.</p>
             <ul>
                 <li>La tripulación gana si hace todas las tareas o si echa de la nave a todos los impostores.</li>
-                <li>Los impostores ganan cuando son tantos como los tripulantes que quedan vivos.</li>
+                <li>Los impostores ganan cuando son tantos como los tripulantes que quedan vivos, o si nadie arregla a tiempo el reactor.</li>
             </ul>
             <p>De momento juegas con compañeros de la máquina. Hacen falta al menos cuatro jugadores para que haya impostores: uno, y dos desde siete jugadores. Con menos, solo hay tareas, y sirve para aprender a moverse por la nave.</p>
             <h2>Tu papel</h2>
             <p>Al empezar se dice si eres tripulante o impostor, y lo ves arriba a la izquierda. Al preparar la partida puedes pedir un papel o dejarlo al azar. Los impostores saben quiénes son los otros impostores; la tripulación no sabe nada.</p>
             <h2>Si eres tripulante</h2>
-            <p>Haz tus tareas y fíjate en quién va con quién. Si encuentras un cuerpo, avisa: todos van a una reunión para hablar y votar.</p>
+            <p>Haz tus tareas y fíjate en quién va con quién. Si encuentras un cuerpo, avisa: todos van a una reunión para hablar y votar. Si los impostores sabotean algo, corre a arreglarlo. Las consolas te ayudan a saber dónde está cada uno.</p>
             <h2>Si eres impostor</h2>
             <ul>
-                <li>Tus tareas son de mentira: junto a una consola, la E hace que finjas que la haces, y quien te vea te verá ocupado. Andar o Escape lo deja.</li>
+                <li>Tus tareas son de mentira: en el sitio de una tarea, la E hace que finjas que la haces, y quien te vea te verá ocupado. Andar o Escape lo deja.</li>
                 <li>Para matar, acércate a un tripulante y pulsa la Q. Cuando tienes a alguien a tu alcance suena un aviso y se dice su nombre. Hay que esperar para matar: diez segundos al empezar la partida, y veinticinco después de cada muerte y de cada reunión. Cuando ya puedes, suena como una navaja que se abre.</li>
                 <li>Quien está cerca y a la vista lo ve todo, así que busca a quien ande solo. Tú ves un poco más lejos que la tripulación.</li>
-                <li>Tras matar, aléjate, o avisa tú mismo del cuerpo para disimular.</li>
+                <li>Tras matar, aléjate, por un conducto si tienes uno cerca, o avisa tú mismo del cuerpo para disimular.</li>
+                <li>Con la X saboteas, y con la V vas por los conductos. Lo cuentan los apartados de más abajo.</li>
             </ul>
             <h2>Los cuerpos y las reuniones</h2>
             <ul>
@@ -433,23 +438,41 @@ const GAMES = {
             <p>Suena la alarma y todos vais al Comedor. Se dice quién la ha pedido, de quién es el cuerpo y dónde estaba, y quién más ha muerto. Primero hablan los compañeros de la máquina, cada uno con su voz: dónde estaban, a quién vieron, de quién sospechan. Si alguien miente sobre dónde estaba y otro le vio en otro sitio, puede pillarle; y si acusan a alguien, se defiende.</p>
             <p>Después te toca a ti. Puedes decir hasta cuatro frases, eligiéndolas de una lista: dónde estabas, a quién has visto matar, de quién sospechas, a quién viste cerca del cuerpo, quién estaba contigo, que tú no has sido, que no has visto nada o que mejor saltar el voto. También puedes volver a oír lo que se ha dicho y quién queda en la nave.</p>
             <p>Al final votas: a alguien o saltar el voto. Quien tenga más votos sale de la nave, y se dice si era impostor. Si hay empate, o si gana saltar el voto, no sale nadie. Luego volvéis a la nave.</p>
+            <h2>Los sabotajes</h2>
+            <p>Los impostores, vivos o fantasmas, sabotean con la X. La partida se para mientras eligen. Después de cada sabotaje hay que esperar treinta segundos para el siguiente.</p>
+            <ul>
+                <li>Apagar las luces: la tripulación viva casi no ve, solo lo que tiene muy cerca, y los pasos de quien no ve suenan todos igual, así que no sabe de quién son. Los impostores ven como siempre. Se arreglan en el cuadro de las luces, en Electricidad: hay que encender todos los interruptores, cada uno con su número.</li>
+                <li>Que estalle el reactor: suena una sirena desde el Reactor en toda la nave y se cuentan los segundos; con las reglas de siempre, cuarenta y cinco. Para arreglarlo hacen falta dos personas a la vez, cada una con la mano en un panel del Reactor: uno a la izquierda y otro a la derecha. Si nadie lo arregla, ganan los impostores. Mientras, no se puede pedir una reunión de emergencia.</li>
+                <li>Cerrar las puertas de una sala: durante diez segundos nadie entra ni sale. Suena un portazo en cada puerta. Las puertas cerradas no se pueden cruzar ni dejan ver.</li>
+            </ul>
+            <p>Mientras hay un sabotaje, sus paneles pitan desde su sitio, y la guía te lleva hasta ellos. Una reunión acaba con los sabotajes y abre las puertas.</p>
+            <h2>Los conductos</h2>
+            <p>Solo los impostores vivos van por los conductos. Junto a uno, la V te mete dentro: nadie te ve ni te oye, pero no puedes matar ni hacer nada más. Cada conducto lleva a otros dos o tres; con las flechas vas al que está hacia ese lado, o con su número. La V otra vez te saca. Al entrar y al salir suena la tapa del conducto, y quien te vea sabrá que eres impostor.</p>
+            <h2>Las consolas</h2>
+            <p>Junto a una consola, la E te deja mirarla. Mientras la miras no te mueves; para irte, anda.</p>
+            <ul>
+                <li>El mapa de la nave, en Administración: cuántos hay en cada sala, sin decir quiénes. En los pasillos y en los conductos no se ve.</li>
+                <li>Las cámaras, en Seguridad: a quién se ve en los pasillos más concurridos.</li>
+                <li>Las constantes vitales, en la Enfermería: quién vive y quién ha muerto, aunque nadie haya encontrado el cuerpo.</li>
+            </ul>
+            <p>Lo que dicen se pone al día cada segundo, y si cambia algo, se dice.</p>
             <h2>Los fantasmas</h2>
-            <p>Quien muere o sale de la nave se queda como fantasma: sigue andando, pero los vivos no le ven ni le oyen, y no puede avisar, hablar ni votar. Un tripulante fantasma puede acabar sus tareas, y le cuentan para ganar. Los fantasmas se ven entre ellos.</p>
+            <p>Quien muere o sale de la nave se queda como fantasma: sigue andando y atraviesa las paredes, pero los vivos no le ven ni le oyen, y no puede avisar, hablar, votar ni arreglar sabotajes. Un tripulante fantasma puede acabar sus tareas, y le cuentan para ganar. Un impostor fantasma puede seguir saboteando. Los fantasmas ven a todos, también a través de las paredes, y suenan como un soplo.</p>
             <h2>La nave</h2>
-            <p>Tiene seis salas en dos filas. Arriba, de izquierda a derecha: Motores, el Comedor y el Puente de mando. Abajo: Electricidad, el Almacén y la Enfermería. Un pasillo une cada sala con las de al lado, y otro baja del Comedor al Almacén. Empezáis en el Comedor, alrededor de la mesa.</p>
+            <p>${IMP_SHIP_TEXT}</p>
             <h2>Cómo te orientas</h2>
             <p>Juega con auriculares. Siempre miras hacia arriba de la pantalla, como en un mapa: lo que suena a tu derecha está a tu derecha, lo que suena delante está arriba, y lo que está detrás suena más apagado. Lo que está al otro lado de una pared suena amortiguado.</p>
             <ul>
                 <li>Tus pasos suenan distinto según el suelo: metal, rejilla o moqueta. Los de cada compañero tienen su propio sonido; con la P los oyes uno a uno.</li>
-                <li>Cada sala tiene su ambiente: en Motores retumban las máquinas, en el Comedor tintinean los platos, en el Puente de mando pitan las pantallas, en Electricidad chisporrotea la corriente y en la Enfermería late un monitor.</li>
+                <li>Cada sala tiene su ambiente: en Motores retumban las máquinas, en el Comedor tintinean los platos, en el Puente de mando pitan las pantallas, en Electricidad chisporrotea la corriente, en la Enfermería late un monitor, en Comunicaciones suena la radio, en Oxígeno respira el aire y burbujea el agua, en el Reactor late un zumbido muy grave, en Seguridad zumban los ventiladores y en Administración teclea alguien.</li>
                 <li>Las puertas de donde estás hacen tic, cada una desde su sitio. Al entrar en una sala o en un pasillo, se dice dónde estás.</li>
                 <li>Al acercarte a una pared, se oye un siseo por ese lado; si chocas, suena un golpe.</li>
                 <li>Tus tareas te llaman con dos notas, cada una desde su consola. Al llegar junto a una, suena una campanita y se dice cuál es.</li>
                 <li>Cuando ves a alguien, se dice su nombre y hacia dónde está. Los pasos de quien está al otro lado de una pared se oyen amortiguados, y en la pantalla se ven como ondas.</li>
             </ul>
             <h2>La guía y lo que hay cerca</h2>
-            <p>Con la G eliges adónde ir: una de tus tareas o una sala. Desde ese momento suena un pitido hacia donde tienes que andar, unos metros por delante de ti, siguiendo los pasillos; cuanto más cerca estás, más deprisa pita. Al doblar una esquina se dice hacia dónde sigue el camino, y al llegar suena una campanita.</p>
-            <p>Con la F se dice qué hay cerca: dónde estás, las salidas con su dirección y su distancia, tus tareas, los muebles y quién está contigo.</p>
+            <p>Con la G eliges adónde ir: una de tus tareas, una sala, una consola o, si hay un sabotaje, el panel que lo arregla. Desde ese momento suena un pitido hacia donde tienes que andar, unos metros por delante de ti, siguiendo los pasillos; cuanto más cerca estás, más deprisa pita. Al doblar una esquina se dice hacia dónde sigue el camino, y al llegar suena una campanita.</p>
+            <p>Con la F se dice qué hay cerca: dónde estás, las salidas con su dirección y su distancia (y si alguna está cerrada), el sabotaje que haya, tus tareas, los muebles, las consolas, los conductos y quién está contigo.</p>
             <h2>Las tareas</h2>
             <p>Cuando estés junto a una tarea tuya, pulsa E para empezarla. Mientras la haces no te mueves; con Escape la dejas y puedes volver luego.</p>
             <ul>
@@ -457,26 +480,29 @@ const GAMES = {
                 <li>Descargar los datos: pulsa E para empezar la descarga y espera a que se llene la barra.</li>
                 <li>Calibrar el motor: una aguja va de un lado a otro, y su sonido la sigue de izquierda a derecha. Pulsa Espacio cuando esté en el centro, donde suena más aguda. Hacen falta tres aciertos.</li>
                 <li>Teclear el código: oyes y ves un número de cuatro cifras, y lo tecleas. Si te equivocas, se empieza otra vez. Espacio lo repite.</li>
+                <li>Pasar por el escáner, en la Enfermería: quédate quieto unos segundos mientras te escanea. Se ve y se oye: quien te vea sabrá que eres tripulante. Un impostor se puede poner en el escáner, pero no hace nada, y quien lo vea lo sabrá.</li>
+                <li>Repostar el motor: se hace en dos sitios. Primero llenas la lata en el Almacén y después la echas en un motor, en Motores o en el Reactor. En cada uno, pulsa E y espera.</li>
+                <li>Encender los escudos, en Oxígeno o en Comunicaciones: enciende todos los escudos, cada uno con su número. Suena agudo al encenderse y grave al apagarse.</li>
             </ul>
             <p>La barra de tareas de la tripulación se llena con las tareas de todos los tripulantes; las de los impostores no cuentan. Cuando se llena, gana la tripulación.</p>
             <h2>Reglas de la casa</h2>
-            <p>Puedes elegir cuántos impostores hay; cuánto esperan entre muerte y muerte; desde qué distancia matan; cuántas reuniones de emergencia puede pedir cada uno y cuánto hay que esperar para el botón; si al echar a alguien se dice si era impostor, y si los votos son secretos. También cuántas tareas tiene cada uno, de 2 a 4; hacerlas más fáciles; andar más deprisa o más despacio, y ver y oír a los demás solo de cerca o desde más lejos.</p>
+            <p>Puedes elegir cuántos impostores hay; cuánto esperan entre muerte y muerte; desde qué distancia matan; cuántas reuniones de emergencia puede pedir cada uno y cuánto hay que esperar para el botón; si al echar a alguien se dice si era impostor, y si los votos son secretos. También si hay sabotajes y cuánto tiempo hay para arreglar el reactor; si hay conductos; cuántas tareas tiene cada uno, de 2 a 5; hacerlas más fáciles; andar más deprisa o más despacio, y ver y oír a los demás solo de cerca o desde más lejos.</p>
             <h2>Al preparar la partida</h2>
             <p>Eliges cuántos compañeros tienes, de 1 a 9, y si son despistados o listos: los listos hacen antes las tareas, se fijan más en todo, y como impostores matan sin testigos y mienten mejor. También tu papel, si suena el roce de las paredes, si se dice el nombre de quien aparece, si con lector de pantalla habla la voz del juego, que va al momento, o tu lector, y el modo a ciegas: quien ve no ve la nave, solo la oye, para jugar todos igual.</p>
             <h2>Las teclas</h2>
             <ul>
                 <li>W, A, S y D, o las flechas: andar. W va hacia delante, S hacia detrás, A a la izquierda y D a la derecha. Con dos a la vez vas en diagonal.</li>
-                <li>E o Enter: usar la tarea que tienes al lado, o el botón de emergencia junto a la mesa del Comedor.</li>
-                <li>R: avisar de un cuerpo. Q: matar, si eres impostor.</li>
+                <li>E o Enter: usar lo que tienes al lado: una tarea, el panel de un sabotaje, una consola o el botón de emergencia junto a la mesa del Comedor.</li>
+                <li>R: avisar de un cuerpo. Si eres impostor: Q, matar; X, sabotear; V, entrar en un conducto o salir. Dentro de un conducto, las flechas o los números te llevan a otro.</li>
                 <li>F: qué hay cerca. G: la guía. T o C: tus tareas. M: cómo es la nave. P: los pasos de cada uno. I: cómo va la partida.</li>
-                <li>Con una tarea abierta, juegan los números, Espacio y Enter; Escape la deja.</li>
+                <li>Con una tarea abierta, juegan los números, Espacio y Enter; Escape la deja. Con la mano en el panel del reactor, Escape la quita.</li>
                 <li>Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
                 <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, apaga la navegación de una tecla pulsando a la vez Control, Opción y Q. También puedes moverte con el tabulador y elegir con Enter.</li>
             </ul>
             <h2>En el móvil</h2>
             <p>Toca la nave y arrastra el dedo hacia donde quieras andar: es un joystick. También hay una cruceta con cuatro flechas: mantén pulsada una para andar, o tócala para dar unos pasos. Todo lo demás tiene su botón. Con VoiceOver o TalkBack, cada flecha de la cruceta da unos pasos al tocarla dos veces; para andar seguido, va mejor un teclado conectado al móvil.</p>
             <h2>Lo que viene</h2>
-            <p>Las siguientes versiones traerán los sabotajes, los conductos por los que se esconden los impostores, más tareas, fantasmas que atraviesan paredes, jugar en una sala con amigos y voces grabadas para cada personaje.</p>`,
+            <p>Las siguientes versiones traerán jugar en una sala con amigos, voces grabadas para cada personaje y papeles especiales.</p>`,
     },
 };
 

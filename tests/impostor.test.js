@@ -11,8 +11,8 @@ const { SHIP, ImpostorGame, shipArea, shipBlocked, shipSight, shipPath, pathLeng
 // ── La nave ───────────────────────────────────────
 const rooms = SHIP.areas.filter(a => a.kind === 'room');
 const corridors = SHIP.areas.filter(a => a.kind === 'corridor');
-assert.strictEqual(rooms.length, 6, 'seis salas');
-assert.strictEqual(corridors.length, 7, 'siete pasillos');
+assert.strictEqual(rooms.length, 11, 'once salas');
+assert.strictEqual(corridors.length, 15, 'quince pasillos');
 for (const a of SHIP.areas) {
     // El centro de cada zona es suyo (en el Comedor está la mesa: se mira junto a la pared).
     const [x, y] = shipBlocked(a.cx, a.cy) ? [a.x + 1.5, a.y + 1.5] : [a.cx, a.cy];
@@ -29,7 +29,7 @@ for (const c of corridors) {
     }
 }
 for (const r of rooms) assert(r.doors.length >= 2, `${r.id}: al menos dos salidas`);
-assert.strictEqual(SHIP.doors.length, 14);
+assert.strictEqual(SHIP.doors.length, 30);
 // La mesa es un mueble: no se puede pisar, pero no tapa la vista.
 assert(shipBlocked(22, 6.5), 'la mesa ocupa sitio');
 assert(shipSight(18, 6.5, 26, 6.5), 'por encima de la mesa se ve');
@@ -63,6 +63,18 @@ assert(pathLength(3.5, 3.5, far) < 70, 'y no da vueltas de más');
 function newGame(n, rules = {}, seed = 3, roles = []) {
     const g = new ImpostorGame({ players: Array.from({ length: n }, (_, i) => ({ name: 'J' + i, role: roles[i] })), rules: { impostors: 0, ...rules }, seed });
     return { g, res: g.startRound() };
+}
+/** Un jugador hace todas sus tareas, yendo a cada sitio (también a la segunda parte de las que tienen dos). */
+function doAll(g, p) {
+    let last = null;
+    for (let tk; (tk = g.pending(p)[0]) && g.phase === 'ship';) {
+        const q = g.players[p];
+        q.x = tk.spot.x; q.y = tk.spot.y; q.busy = null;
+        assert(g.act({ type: 'startTask', p, i: tk.i }).ok);
+        last = g.act({ type: 'task', p, i: tk.i });
+        assert(last.ok, last.error);
+    }
+    return last;
 }
 {
     const { g, res } = newGame(6);
@@ -199,13 +211,7 @@ function newGame(n, rules = {}, seed = 3, roles = []) {
     assert(!g.act({ type: 'volar', p: 0 }).ok, 'acciones que no existen');
     // Al terminar todas las tareas de todos, gana la tripulación.
     let last = null;
-    for (const p of [0, 1]) for (const tk of g.pending(p)) {
-        const q = g.players[p];
-        q.x = tk.spot.x; q.y = tk.spot.y; q.busy = null;
-        assert(g.act({ type: 'startTask', p, i: tk.i }).ok);
-        last = g.act({ type: 'task', p, i: tk.i });
-        assert(last.ok);
-    }
+    for (const p of [0, 1]) last = doAll(g, p) || last;
     assert.strictEqual(g.phase, 'gameOver');
     assert.strictEqual(last.events[last.events.length - 1].type, 'gameOver');
     assert.deepStrictEqual(g.winners, [0, 1], 'gana toda la tripulación');
@@ -356,12 +362,7 @@ function shipWith(n, at, rules = {}, seed = 9) {
     // La tripulación gana con las tareas aunque haya impostores (las de los muertos también cuentan).
     const g2 = shipWith(4, [[5, 5], [22, 3.5], [23, 3.5], [5, 20]]);
     let last;
-    for (const p of [1, 2, 3]) for (const tk of g2.pending(p)) {
-        const q = g2.players[p];
-        q.x = tk.spot.x; q.y = tk.spot.y; q.busy = null;
-        g2.act({ type: 'startTask', p, i: tk.i });
-        last = g2.act({ type: 'task', p, i: tk.i });
-    }
+    for (const p of [1, 2, 3]) last = doAll(g2, p) || last;
     const end = last.events.find(e => e.type === 'gameOver');
     assert(end && end.side === 'crew' && end.reason === 'tasks', 'gana la tripulación con las tareas');
     assert.deepStrictEqual(g2.winners, [1, 2, 3], 'ganan todos los tripulantes, no el impostor');
@@ -457,6 +458,201 @@ function meetingWith(n, rules = {}, seed = 9) {
     assert(ej2.impostor === null && ej2.left === null, 'sin confirmar, no se sabe qué era');
 }
 
+// ── Los sabotajes ─────────────────────────────────
+{
+    // Las luces: la tripulación viva casi no ve; el impostor, sí. Se arreglan en el cuadro de Electricidad.
+    const g = shipWith(4, [[18, 4], [22, 4], [24, 8.5], [5, 20]]);
+    assert(g.perceive(1).seen.includes(0), 'con luz, se ve de lejos');
+    assert(/faltan/.test(g.act({ type: 'sabotage', p: 0, kind: 'lights' }).error), 'al empezar hay que esperar para sabotear');
+    assert(!g.act({ type: 'sabotage', p: 1, kind: 'lights' }).ok, 'los tripulantes no sabotean');
+    g.tick(15.1);
+    let res = g.act({ type: 'sabotage', p: 0, kind: 'lights' });
+    assert(res.ok, res.error);
+    assert.strictEqual(res.events[0].type, 'sabotage');
+    assert(g.lightsOff);
+    assert(!g.perceive(1).seen.includes(0), 'a oscuras, a cuatro metros no se ve');
+    assert(g.perceive(0).seen.includes(1), 'pero el impostor sí ve');
+    assert(!g.act({ type: 'sabotage', p: 0, kind: 'reactor' }).ok, 'un sabotaje cada vez');
+    assert(!g.act({ type: 'fix', p: 1, panel: 'luces' }).ok, 'las luces se arreglan en su panel');
+    const q = g.players[3];
+    q.x = 10.3; q.y = 24.2; q.area = 'electricidad';
+    assert.strictEqual(g.panelHere(3)?.id, 'luces');
+    res = g.act({ type: 'fix', p: 3, panel: 'luces' });
+    assert(res.ok, res.error);
+    assert.deepStrictEqual(res.events[0], { type: 'fixed', kind: 'lights', by: 3 });
+    assert(!g.lightsOff && g.perceive(1).seen.includes(0), 'con las luces arregladas, se vuelve a ver');
+    assert(/faltan 30/.test(g.act({ type: 'sabotage', p: 0, kind: 'reactor' }).error), 'y hay que esperar para el siguiente');
+}
+{
+    // El reactor: si nadie lo arregla a tiempo, ganan los impostores.
+    const g = shipWith(4, [[5, 5], [22, 3.5], [23, 3.5], [5, 20]], { reactorTime: 30 });
+    g.tick(15.1);
+    const res = g.act({ type: 'sabotage', p: 0, kind: 'reactor' });
+    assert(res.ok && Math.abs(res.events[0].until - (g.time + 30)) < 1e-9, 'el reactor da sus segundos');
+    assert(/reactor/.test(g.act({ type: 'button', p: 1 }).error), 'con el reactor a punto de estallar no hay reuniones');
+    let over = [];
+    for (let i = 0; i < 31 * 30 && !over.length; i++) over = g.tick(1 / 30).filter(e => e.type === 'gameOver');
+    assert(over.length && over[0].side === 'impostors' && over[0].reason === 'reactor', 'estalla el reactor y ganan los impostores');
+    // Con una persona en cada panel a la vez, se arregla. Con una sola, no.
+    const h = shipWith(4, [[5, 5], [2.6, 30.6], [22, 3.5], [10.4, 30.6]]);
+    h.tick(15.1);
+    h.act({ type: 'sabotage', p: 0, kind: 'reactor' });
+    let r = h.act({ type: 'fix', p: 1, panel: 'reactor0' });
+    assert(r.ok && r.events.length === 1 && r.events[0].type === 'fixHold' && r.events[0].held, 'una mano puesta');
+    assert(h.sab, 'con una sola mano no basta');
+    assert.deepStrictEqual(h.reactorHeld(), ['reactor0']);
+    h.input(1, 1, 0); h.tick(0.5);
+    assert(Math.abs(h.players[1].x - 2.6) < 1e-9, 'con la mano en el panel no te mueves');
+    r = h.act({ type: 'cancelTask', p: 1 });
+    assert(r.ok && r.events[0].type === 'fixHold' && !r.events[0].held, 'se puede soltar');
+    assert(!h.act({ type: 'fix', p: 2, panel: 'reactor1' }).ok, 'desde lejos, no');
+    h.act({ type: 'fix', p: 1, panel: 'reactor0' });
+    r = h.act({ type: 'fix', p: 3, panel: 'reactor1' });
+    assert.deepStrictEqual(r.events.map(e => e.type), ['fixHold', 'fixed'], 'con las dos manos a la vez, arreglado');
+    assert(!h.sab && !h.players[1].busy && !h.players[3].busy, 'y los dos quedan libres');
+}
+{
+    // Las puertas: se cierran las de una sala y no se pasa; quien estaba en la puerta queda a un lado; se abren solas.
+    const g = shipWith(4, [[18, 6.5], [15.5, 6.5], [22, 3.5], [5, 20]]);
+    assert(shipPath(18, 6.5, 5, 5, g.closed), 'del Comedor a Motores hay camino');
+    assert(/faltan/.test(g.act({ type: 'sabotage', p: 0, kind: 'doors', room: 'comedor' }).error));
+    g.tick(15.1);
+    assert(!g.act({ type: 'sabotage', p: 0, kind: 'doors', room: 'p-motores-comedor' }).ok, 'solo se cierran las salas');
+    const res = g.act({ type: 'sabotage', p: 0, kind: 'doors', room: 'comedor' });
+    assert(res.ok, res.error);
+    assert.strictEqual(res.events[0].type, 'doors');
+    assert(!shipPath(18, 6.5, 5, 5, g.closed), 'con las puertas cerradas no hay camino');
+    assert(!shipBlocked(g.players[1].x, g.players[1].y, IMPOSTOR_RADIUS, g.closed), 'quien estaba en la puerta no se queda dentro de ella');
+    assert.strictEqual(g.players[1].area, 'comedor', 'se queda dentro de la sala, que estaba más cerca');
+    assert(!shipSight(18, 6.5, 13, 6.5, g.closed), 'una puerta cerrada tapa la vista');
+    assert(g.sabWait('lights') === 0, 'cerrar puertas no impide otro sabotaje');
+    g.input(1, -1, 0);
+    let bump = null;
+    for (let i = 0; i < 60 && !bump; i++) bump = g.tick(1 / 30).find(e => e.type === 'bump' && e.p === 1);
+    assert(bump && bump.what === 'puerta', 'se choca con la puerta');
+    let open = null;
+    for (let i = 0; i < 11 * 30 && !open; i++) open = g.tick(1 / 30).find(e => e.type === 'doorsOpen');
+    assert(open && open.room === 'comedor', 'a los diez segundos se abren');
+    assert(shipPath(18, 6.5, 5, 5, g.closed), 'y se vuelve a pasar');
+    assert(g.sabWait('doors') > 20, 'hay que esperar para volver a cerrarlas');
+    // La reunión acaba con los sabotajes y abre las puertas.
+    const h = shipWith(5, [[18, 6.5], [22, 3.5], [23, 3.5], [5, 20], [40, 20]], { buttonWait: 0 });
+    h.tick(15.1);
+    h.act({ type: 'sabotage', p: 0, kind: 'lights' });
+    h.act({ type: 'sabotage', p: 0, kind: 'doors', room: 'electricidad' });
+    const m = h.act({ type: 'button', p: 1 });
+    assert(m.ok, m.error);
+    assert(m.events[0].sab === 'lights' && m.events[0].doors === 'electricidad', 'la reunión dice qué se ha acabado');
+    assert(!h.sab && !h.doorsShut && !h.closed.some(Boolean), 'sin sabotajes ni puertas cerradas');
+    // Sin sabotajes en las reglas, no hay.
+    const k = shipWith(4, [[18, 6.5], [22, 3.5], [23, 3.5], [5, 20]], { sabotages: false });
+    k.tick(20);
+    assert(!k.act({ type: 'sabotage', p: 0, kind: 'lights' }).ok, 'regla sin sabotajes');
+}
+
+// ── Los conductos ─────────────────────────────────
+{
+    // El impostor (0) junto al conducto de Motores; el 1 lo ve desde la misma sala.
+    const g = shipWith(4, [[8.2, 8.2], [5, 5], [22, 3.5], [40, 20]]);
+    assert(!g.act({ type: 'vent', p: 1 }).ok, 'los tripulantes no van por los conductos');
+    let res = g.act({ type: 'vent', p: 0 });
+    assert(res.ok, res.error);
+    const e = res.events[0];
+    assert(e.type === 'vent' && e.kind === 'in' && e.area === 'motores', 'entra en el conducto de Motores');
+    assert.deepStrictEqual(e.witnesses, [1], 'y el 1 lo ha visto');
+    assert(!g.perceive(1).seen.includes(0), 'dentro del conducto no se le ve');
+    assert(!g.act({ type: 'kill', p: 0, target: 1 }).ok, 'desde un conducto no se mata');
+    g.input(0, 1, 0); g.tick(0.5);
+    assert.strictEqual(g.players[0].x, SHIP.vents[e.vent].x, 'dentro de un conducto no se anda');
+    const to = SHIP.vents[e.vent].to;
+    assert.strictEqual(SHIP.vents[to[0]].area, 'reactor', 'de Motores se va al Reactor');
+    assert(!g.act({ type: 'ventTo', p: 0, to: 5 }).ok, 'solo a los conductos de su red');
+    res = g.act({ type: 'ventTo', p: 0, to: to[0] });
+    assert(res.ok && g.players[0].area === 'reactor');
+    res = g.act({ type: 'vent', p: 0 });
+    assert(res.ok && res.events[0].kind === 'out' && res.events[0].witnesses.length === 0, 'sale en el Reactor sin que le vean');
+    assert(g.players[0].vent == null && !shipBlocked(g.players[0].x, g.players[0].y));
+    assert(g.act({ type: 'vent', p: 0 }).ok && g.players[0].vent != null, 'y se puede volver a entrar');
+    // Sin conductos en las reglas, no hay.
+    const h = shipWith(4, [[8.2, 8.2], [5, 5], [22, 3.5], [40, 20]], { vents: false });
+    assert(!h.act({ type: 'vent', p: 0 }).ok, 'regla sin conductos');
+    // La reunión saca a todos de los conductos.
+    const k = shipWith(5, [[8.2, 8.2], [22, 3.5], [23, 3.5], [5, 20], [40, 20]], { buttonWait: 0 });
+    k.act({ type: 'vent', p: 0 });
+    k.act({ type: 'button', p: 1 });
+    assert.strictEqual(k.players[0].vent, null, 'en la reunión nadie está en un conducto');
+}
+
+// ── Las consolas ──────────────────────────────────
+{
+    const g = shipWith(5, [[35, 33.5], [22, 3.5], [23, 3.5], [21.5, 13.5], [40.5, 18.5]]);
+    assert(!g.act({ type: 'console', p: 1, id: 'admin' }).ok, 'lejos de la consola, no');
+    let res = g.act({ type: 'console', p: 0, id: 'admin' });
+    assert(res.ok, res.error);
+    assert(res.events[0].secret, 'lo que dice la consola solo lo sabe quien mira');
+    assert.deepStrictEqual(res.events[0].data.counts, { administracion: 1, comedor: 2, enfermeria: 1 }, 'el mapa cuenta quién hay en cada sala, sin los pasillos');
+    // Las cámaras ven el pasillo del Comedor al Almacén.
+    const c = g.players[1];
+    c.x = 21; c.y = 35.4; c.area = 'seguridad';
+    res = g.act({ type: 'console', p: 1, id: 'cams' });
+    assert(res.ok, res.error);
+    const cam = res.events[0].data.cams.find(x => x.area === 'p-comedor-almacen');
+    assert.deepStrictEqual(cam.seen, [3], 'la cámara ve a quien pasa');
+    // Las constantes vitales saben quién ha muerto, aunque nadie haya encontrado el cuerpo.
+    g.players[2].alive = false;
+    res = g.act({ type: 'console', p: 4, id: 'vitals' });
+    assert(res.ok, res.error);
+    assert.deepStrictEqual(res.events[0].data.dead, [2]);
+    assert.deepStrictEqual(res.events[0].data.alive, [0, 1, 3, 4]);
+}
+
+// ── Los fantasmas y las tareas nuevas ─────────────
+{
+    // Los fantasmas atraviesan las paredes y ven a través de ellas.
+    const g = shipWith(4, [[18, 6.5], [22, 3.5], [23, 3.5], [8, 6.5]]);
+    g.players[1].alive = false;
+    g.players[1].x = 17; g.players[1].y = 6.5;
+    g.input(1, -1, 0);
+    g.tick(1.5);
+    assert(g.players[1].x < 13, 'el fantasma atraviesa la pared hacia Motores');
+    assert(g.perceive(1).seen.includes(3), 'y ve a quien está al otro lado');
+    g.input(1, 0, -1);
+    g.tick(5);
+    assert(g.players[1].y >= 1.3, 'pero no sale de la nave');
+    // Repostar el motor: se llena la lata en el Almacén y se echa en Motores o en el Reactor.
+    const h = shipWith(4, [[18, 6.5], [22, 3.5], [23, 3.5], [8, 6.5]]);
+    const fill = SHIP.spots.find(s => s.type === 'combustible' && s.step === 0);
+    const pour = SHIP.spots.find(s => s.type === 'combustible' && s.step === 1);
+    const q = h.players[1];
+    q.tasks = [{ type: 'combustible', spot: fill.id, next: [pour.id], step: 0, done: false }];
+    const before = h.taskBar();
+    q.x = fill.x; q.y = fill.y;
+    h.act({ type: 'startTask', p: 1, i: 0 });
+    let res = h.act({ type: 'task', p: 1, i: 0 });
+    assert(res.ok, res.error);
+    assert.strictEqual(res.events[0].type, 'taskStep', 'hecha la primera parte, queda la segunda');
+    assert.strictEqual(res.events[0].area, pour.area);
+    assert(!q.tasks[0].done && q.tasks[0].spot === pour.id);
+    assert.deepStrictEqual(h.taskBar(), before, 'la barra no sube hasta acabarla');
+    assert(!h.act({ type: 'startTask', p: 1, i: 0 }).ok, 'la segunda parte se hace en su sitio');
+    q.x = pour.x; q.y = pour.y;
+    h.act({ type: 'startTask', p: 1, i: 0 });
+    res = h.act({ type: 'task', p: 1, i: 0 });
+    assert.strictEqual(res.events[0].type, 'taskDone');
+    // El escáner se ve: el tripulante pasa por él; el impostor puede ponerse, pero no pasa nada.
+    const k = shipWith(4, [[18, 6.5], [22, 3.5], [23, 3.5], [8, 6.5]]);
+    const scan = SHIP.spots.find(s => s.type === 'escaner');
+    for (const p of [0, 1]) {
+        const pl = k.players[p];
+        pl.tasks = [{ type: 'escaner', spot: scan.id, done: false }];
+        pl.x = scan.x; pl.y = scan.y;
+        const r = k.act({ type: 'startTask', p, i: 0 });
+        assert(r.ok, r.error);
+        assert.strictEqual(r.events[0].visible, p === 1, p ? 'el tripulante pasa por el escáner y se ve' : 'el impostor no puede fingirlo');
+        k.act({ type: 'cancelTask', p });
+    }
+}
+
 // ── Lo que ve cada uno ────────────────────────────
 {
     const { g } = newGame(8, { impostors: 2 }, 5);
@@ -535,14 +731,20 @@ function botMeeting(g, bots) {
         for (const e of r.events) for (const b of bots) b.observe(e);
     }
 }
-const ends = {}, sides = {};
+const ends = {}, sides = {}, used = {};
 let impGames = 0, impTime = 0, impMeetings = 0, crewEjects = 0, impEjects = 0;
 for (let seed = 1; seed <= 120; seed++) {
     const n = 4 + (seed % 7);
     const levels = ['facil', 'normal', 'dificil'];
     const g = new ImpostorGame({ players: Array.from({ length: n }, (_, i) => ({ name: 'B' + i })), rules: { tasks: 2 + seed % 3, killCooldown: [15, 25, 35][seed % 3] }, seed });
     const bots = g.players.map((_, p) => new ImpostorBot(g, p, { ...CHARACTERS[p % CHARACTERS.length], level: levels[(p + seed) % 3] }, R.makeRng(seed * 37 + p)));
-    const observe = res => { for (const e of res.events) for (const b of bots) b.observe(e); };
+    const observe = res => {
+        for (const e of res.events) {
+            for (const b of bots) b.observe(e);
+            const k = e.type === 'sabotage' ? e.kind : e.type === 'vent' ? 'vent-' + e.kind : ['doors', 'fixed', 'scan'].includes(e.type) ? e.type : e.type === 'taskStart' && e.visible ? 'escaner' : null;
+            if (k) used[k] = (used[k] || 0) + 1;
+        }
+    };
     observe(g.startRound());
     const dt = 1 / 30;
     let t = 0;
@@ -561,9 +763,13 @@ for (let seed = 1; seed <= 120; seed++) {
             if (g.phase !== 'ship') break;
         }
         if (g.phase !== 'ship') continue;
-        g.tick(dt);
+        observe({ events: g.tick(dt) });
         t += dt;
-        for (const pl of g.players) assert(!shipBlocked(pl.x, pl.y, IMPOSTOR_RADIUS - 0.01), 'nadie dentro de una pared');
+        // Los vivos nunca están dentro de una pared; los fantasmas, sí, pero no salen de la nave.
+        for (const pl of g.players) {
+            if (pl.alive) assert(!shipBlocked(pl.x, pl.y, IMPOSTOR_RADIUS - 0.01, g.closed), 'nadie dentro de una pared');
+            else assert(pl.x > 1 && pl.y > 1 && pl.x < SHIP.w - 1 && pl.y < SHIP.h - 1, 'los fantasmas no salen de la nave');
+        }
     }
     assert.strictEqual(g.phase, 'gameOver', `partida ${seed} (${n} jugadores): acaba (${JSON.stringify(g.taskBar())} a los ${Math.round(t)} s)`);
     const imps = g.impostors(), live = g.living();
@@ -576,5 +782,8 @@ for (let seed = 1; seed <= 120; seed++) {
 assert(ends.tasks && ends.ejected && ends.kills, `se gana de las tres maneras: ${JSON.stringify(ends)}`);
 assert(sides.crew > impGames * 0.25 && sides.impostors > impGames * 0.25, `las dos partes ganan a menudo: ${JSON.stringify(sides)}`);
 assert(impEjects > crewEjects * 0.5, `las reuniones echan a impostores a menudo: ${impEjects} impostores y ${crewEjects} tripulantes`);
+assert(used.lights && used.reactor && used.doors && used['vent-in'] && used['vent-out'], `los impostores sabotean y usan los conductos: ${JSON.stringify(used)}`);
+assert(used.fixed >= (used.lights + used.reactor) * 0.5, `la tripulación arregla los sabotajes: ${JSON.stringify(used)}`);
+assert((ends.reactor || 0) < impGames * 0.15, `el reactor estalla pocas veces: ${JSON.stringify(ends)}`);
 
-console.log(`El Impostor: todo bien. ${games} partidas sin impostores (${Math.round(totalTime / games)} segundos de media, ${Math.round(maxTime)} como mucho) y ${impGames} con impostores (${Math.round(impTime / impGames)} segundos de media, ${impMeetings} reuniones). Ganan: ${JSON.stringify(sides)}; cómo: ${JSON.stringify(ends)}; echados: ${impEjects} impostores y ${crewEjects} tripulantes.`);
+console.log(`El Impostor: todo bien. ${games} partidas sin impostores (${Math.round(totalTime / games)} segundos de media, ${Math.round(maxTime)} como mucho) y ${impGames} con impostores (${Math.round(impTime / impGames)} segundos de media, ${impMeetings} reuniones). Ganan: ${JSON.stringify(sides)}; cómo: ${JSON.stringify(ends)}; echados: ${impEjects} impostores y ${crewEjects} tripulantes; sabotajes y conductos: ${JSON.stringify(used)}.`);

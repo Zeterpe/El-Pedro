@@ -12,6 +12,11 @@
      amortiguado.
    · Un cuerpo suena como un monitor plano, y una muerte,
      como un golpe sordo desde donde pasa.
+   · Los sabotajes: la sirena del reactor suena desde el
+     Reactor en toda la nave, y los paneles que lo
+     arreglan pitan desde su sitio. Las puertas que se
+     cierran dan un portazo; los conductos, un golpe de
+     chapa.
    Todo se sintetiza aquí, como en audio.js: no hay
    archivos de sonido.
    ============================================= */
@@ -162,6 +167,8 @@ const STEP_TIMBRES = [
     { f: 1700, low: 70, q: 8 },
     { f: 3000, low: 240, q: 1.6 },
 ];
+/** A oscuras, los pasos de quien no ves suenan todos igual: no se sabe de quién son. */
+const DARK_TIMBRE = { f: 1300, low: 120, q: 1.4 };
 
 const ShipSounds = {
     /** Un paso. floor: metal, rejilla o moqueta. vol: 1 normal. */
@@ -294,6 +301,95 @@ const ShipSounds = {
             k.tone(out, { t: t + 0.18, f: 58, dur: 0.1, peak: 0.22 });
         };
     },
+    // Los sabotajes, las puertas y los conductos.
+    /** Se apagan las luces: un zumbido que se hunde y un chasquido. */
+    lightsOff() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: [[0, 520], [0.9, 60]], type: 'sawtooth', dur: 1, peak: 0.12, filter: { type: 'lowpass', f: 1600 } });
+            k.noise(out, { t: t + 0.9, dur: 0.05, peak: 0.25, filter: { type: 'bandpass', f: 2200, q: 2 } });
+        };
+    },
+    /** Vuelve la luz: el zumbido sube. */
+    lightsOn() {
+        return (k, out, t) => {
+            k.noise(out, { t, dur: 0.04, peak: 0.2, filter: { type: 'bandpass', f: 2200, q: 2 } });
+            k.tone(out, { t: t + 0.05, f: [[0, 80], [0.6, 520]], type: 'sawtooth', dur: 0.7, peak: 0.1, filter: { type: 'lowpass', f: 1600 } });
+            [784, 1175].forEach((f, i) => k.tone(out, { t: t + 0.65 + i * 0.1, f, dur: 0.18, peak: 0.1 }));
+        };
+    },
+    /** La sirena del reactor; más deprisa cuando quedan pocos segundos. */
+    siren(fast = false) {
+        return (k, out, t) => {
+            const d = fast ? 0.2 : 0.42;
+            k.tone(out, { t, f: 740, type: 'square', dur: d * 0.9, peak: 0.07, filter: { type: 'lowpass', f: 2000 } });
+            k.tone(out, { t: t + d, f: 988, type: 'square', dur: d * 0.9, peak: 0.07, filter: { type: 'lowpass', f: 2000 } });
+        };
+    },
+    /** Un panel que hay que arreglar te llama: el del reactor pita y el de las luces chisporrotea. */
+    panel(kind) {
+        return (k, out, t) => {
+            if (kind === 'reactor') {
+                k.tone(out, { t, f: 1245, type: 'square', dur: 0.06, peak: 0.08, filter: { type: 'lowpass', f: 3000 } });
+                k.tone(out, { t: t + 0.12, f: 1245, type: 'square', dur: 0.06, peak: 0.08, filter: { type: 'lowpass', f: 3000 } });
+            } else {
+                k.tone(out, { t, f: 196, type: 'square', dur: 0.16, peak: 0.07, filter: { type: 'lowpass', f: 1200 } });
+                for (let i = 0; i < 3; i++) k.noise(out, { t: t + i * 0.04, dur: 0.012, peak: 0.1, filter: { type: 'highpass', f: 3000 } });
+            }
+        };
+    },
+    /** Alguien pone la mano en un panel. */
+    hold() { return (k, out, t) => k.tone(out, { t, f: [[0, 900], [0.12, 1400]], dur: 0.16, peak: 0.12 }); },
+    /** Sabotaje arreglado. */
+    fixed() { return (k, out, t) => [659, 880, 1109, 1319].forEach((f, i) => k.tone(out, { t: t + i * 0.07, f, dur: 0.22, peak: 0.12, type: 'triangle' })); },
+    /** Una puerta que se cierra de golpe. */
+    doorSlam() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: [[0, 85], [0.2, 40]], dur: 0.25, peak: 0.6 });
+            k.noise(out, { t, dur: 0.18, peak: 0.35, filter: { type: 'bandpass', f: [[0, 1800], [0.15, 500]], q: 1.5 } });
+            k.bell(out, { t: t + 0.02, f: 320, partials: [[1, 1, 0.3], [2.76, 0.4, 0.2]], peak: 0.08 });
+        };
+    },
+    /** Una puerta que se abre: un soplido de aire. */
+    doorOpen() { return (k, out, t) => k.noise(out, { t, dur: 0.35, r: 0.2, peak: 0.16, filter: { type: 'highpass', f: [[0, 4000], [0.3, 1200]] } }); },
+    /** La tapa de un conducto: un golpe de chapa. */
+    vent() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: [[0, 210], [0.12, 150]], type: 'triangle', dur: 0.16, peak: 0.4 });
+            k.bell(out, { t, f: 540, partials: [[1, 1, 0.25], [2.4, 0.6, 0.18], [3.9, 0.3, 0.1]], peak: 0.12 });
+            k.noise(out, { t, dur: 0.06, peak: 0.2, filter: { type: 'bandpass', f: 2600, q: 2 } });
+        };
+    },
+    /** Por dentro de un conducto: te arrastras por la chapa. */
+    ventMove() { return (k, out, t) => k.noise(out, { t, a: 0.05, dur: 0.45, r: 0.2, peak: 0.2, filter: { type: 'bandpass', f: [[0, 300], [0.4, 1100]], q: 2 } }); },
+    /** El escáner de la Enfermería: un barrido que sube. */
+    scan() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: [[0, 420], [0.5, 1500]], type: 'triangle', dur: 0.55, peak: 0.07 });
+            k.tone(out, { t, f: [[0, 425], [0.5, 1510]], dur: 0.55, peak: 0.03 });
+        };
+    },
+    /** El combustible que entra o sale de la lata. */
+    fuel(x) { return (k, out, t) => k.noise(out, { t, dur: 0.07, peak: 0.12, filter: { type: 'bandpass', f: 280 + 700 * x, q: 6 } }); },
+    /** Un interruptor que se enciende (agudo) o se apaga (grave). */
+    flip(on) {
+        return (k, out, t) => {
+            k.noise(out, { t, dur: 0.02, peak: 0.25, filter: { type: 'bandpass', f: 3000, q: 3 } });
+            k.tone(out, { t: t + 0.02, f: on ? 1320 : 330, dur: 0.12, peak: 0.12, type: on ? 'sine' : 'square', filter: { type: 'lowpass', f: 2500 } });
+        };
+    },
+    /** Una consola: dos pitidos suaves. */
+    console() { return (k, out, t) => { k.tone(out, { t, f: 1568, dur: 0.05, peak: 0.07 }); k.tone(out, { t: t + 0.08, f: 2093, dur: 0.05, peak: 0.06 }); }; },
+    /** Los pasos de un fantasma: un soplo, sin suelo. */
+    ghostStep(vol = 1) { return (k, out, t) => k.noise(out, { t, a: 0.03, dur: 0.12, r: 0.12, peak: 0.08 * vol, filter: { type: 'bandpass', f: 2400, q: 1.5 } }); },
+    // Los ruidos de las salas nuevas.
+    radio() {
+        return (k, out, t) => {
+            k.noise(out, { t, dur: 0.18, peak: 0.05, filter: { type: 'bandpass', f: 1800, q: 1.2 } });
+            k.tone(out, { t: t + 0.2, f: [1047, 1568, 1319][Math.floor(Math.random() * 3)], dur: 0.06, peak: 0.04 });
+        };
+    },
+    bubble() { return (k, out, t) => k.tone(out, { t, f: [[0, 300 + Math.random() * 200], [0.08, 700 + Math.random() * 300]], dur: 0.09, peak: 0.05 }); },
+    hiss() { return (k, out, t) => k.noise(out, { t, a: 0.1, dur: 0.6, r: 0.4, peak: 0.07, filter: { type: 'highpass', f: 2500 } }); },
     /** Te han matado: ahora eres un fantasma. */
     ghost() {
         return (k, out, t) => {
@@ -351,6 +447,38 @@ const ROOM_AMBIENCE = {
     enfermeria(c, out, k) {
         const n = noiseBed(c, k, out, { type: 'lowpass', f: 900 }, 0.04, 0.25, 0.015);
         return () => n.stop();
+    },
+    // Comunicaciones: la estática de la radio.
+    comunicaciones(c, out, k) {
+        const n = noiseBed(c, k, out, { type: 'bandpass', f: 2400, q: 1.8 }, 0.03, 0.6, 0.015);
+        return () => n.stop();
+    },
+    // Oxígeno: el aire que entra y sale, como una respiración lenta.
+    oxigeno(c, out, k) {
+        const n = noiseBed(c, k, out, { type: 'lowpass', f: 1300 }, 0.08, 0.22, 0.06);
+        return () => n.stop();
+    },
+    // El Reactor: un zumbido muy grave que late.
+    reactor(c, out, k) {
+        const nodes = [];
+        const g = c.createGain(); g.gain.value = 0.16; g.connect(out);
+        for (const f of [55, 57.5]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); o.start(); nodes.push(o); }
+        nodes.push(noiseBed(c, k, out, { type: 'lowpass', f: 200 }, 0.12, 0.5, 0.05));
+        return () => nodes.forEach(n => n.stop());
+    },
+    // Seguridad: los ventiladores de las pantallas.
+    seguridad(c, out, k) {
+        const o = c.createOscillator(); o.frequency.value = 120;
+        const g = c.createGain(); g.gain.value = 0.025; o.connect(g); g.connect(out); o.start();
+        const n = noiseBed(c, k, out, { type: 'bandpass', f: 420, q: 1.2 }, 0.07, 8, 0.01);
+        return () => { o.stop(); n.stop(); };
+    },
+    // Administración: una sala tranquila, con un zumbido suave.
+    administracion(c, out, k) {
+        const o = c.createOscillator(); o.frequency.value = 174;
+        const g = c.createGain(); g.gain.value = 0.02; o.connect(g); g.connect(out); o.start();
+        const n = noiseBed(c, k, out, { type: 'highpass', f: 5000 }, 0.012, 0.1, 0.004);
+        return () => { o.stop(); n.stop(); };
     },
 };
 
