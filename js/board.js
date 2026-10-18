@@ -80,7 +80,8 @@ const Board = {
         const b = this.acts[kind];
         if (!b) return;
         b.hidden = !on;
-        b.querySelector('.lbl').textContent = label || b._label;
+        const l = b.querySelector('.lbl'), t = label || b._label;
+        if (l.textContent !== t) l.textContent = t;
     },
 
     seatEl(p) { return p === this.match.me ? $('seat-me') : $('seat-' + this.match.audio.seatOf(p)); },
