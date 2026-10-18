@@ -841,3 +841,52 @@ body[data-cards="grande"] #table[data-game="virus"] { --vorg-w: 60px; --vorg-me:
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ── El Impostor ─────────────────────────── */
+.imp-tile { display: block; width: 100%; height: 100%; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .45)); }
+.tile-art .imp-tile { width: 118px; height: 98px; margin: 16px auto 0; }
+.gm-fan .imp-tile { width: 170px; height: 142px; margin: 4px auto 0; }
+.game-tile[data-game="impostor"] { border-color: rgba(69, 201, 201, .55); background: radial-gradient(circle at 15% 50%, rgba(69, 201, 201, .22), transparent 55%), linear-gradient(160deg, rgba(255, 255, 255, .08), rgba(0, 0, 0, .18)); }
+#table[data-game="impostor"] { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #060a14; border-radius: 26px; box-shadow: inset 0 0 0 4px #2b3448, 0 20px 50px rgba(0, 0, 0, .35); }
+#table[data-game="impostor"] .seat:not(.seat-me) { display: none; }
+#table[data-game="impostor"] .center { order: 1; display: block; flex: 1 1 auto; min-width: 0; width: 100%; }
+#table[data-game="impostor"] .seat-me { order: 2; background: transparent; border: 0; padding: 0; }
+#table[data-game="impostor"] .seat-me .seat-name, #table[data-game="impostor"] .seat-me .bubble { display: none; }
+/* Tus «cartas» no se ven: el foco se queda en la nave para que las teclas lleguen al juego. */
+#table[data-game="impostor"] #my-hand { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.imp-wrap { position: relative; }
+.imp-hud { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; font-weight: 700; min-width: 0; }
+.imp-area { flex: 1 1 auto; min-width: 0; max-width: 100%; color: var(--accent); font-size: 1.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.imp-bar { position: relative; flex: 0 1 340px; height: 26px; border-radius: 13px; background: #1b2233; overflow: hidden; box-shadow: inset 0 0 0 2px #3a4560; }
+.imp-bar-fill { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: linear-gradient(90deg, #3f9a52, #5cc46a); transition: width .4s; }
+.imp-bar-text { position: relative; display: block; text-align: center; line-height: 26px; font-size: .85rem; color: #fff; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+.imp-canvas { display: block; width: 100%; height: min(62vh, 560px); height: min(62dvh, 560px); border-radius: 18px; touch-action: none; cursor: crosshair; background: #060a14; }
+.imp-task { position: absolute; left: 50%; top: 54%; transform: translate(-50%, -50%); width: min(92%, 440px); max-height: 92%; overflow: auto; background: rgba(14, 20, 34, .96); border: 2px solid #45c9c9; border-radius: 18px; padding: 14px 16px; box-shadow: 0 16px 40px rgba(0, 0, 0, .6); text-align: center; z-index: 4; }
+.imp-task[hidden] { display: none; }
+.imp-task h3 { margin: 0 0 6px; font-size: 1.2rem; color: #45c9c9; }
+.imp-task p { margin: 0 0 8px; }
+.imp-task-art svg { display: block; width: 100%; max-height: 170px; }
+.imp-task-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
+.imp-tbtn { flex: 1 1 90px; border-left: 8px solid var(--c, transparent); }
+.imp-tbtn.imp-key { flex: 0 0 56px; font-size: 1.2rem; font-weight: 800; border-left: 0; }
+.imp-tbtn.imp-wide, .imp-tbtn.imp-leave { flex: 1 1 100%; border-left: 0; }
+.imp-tbtn.imp-leave { background: rgba(0, 0, 0, .3); }
+.imp-dl { height: 26px; border-radius: 13px; background: #1b2233; overflow: hidden; box-shadow: inset 0 0 0 2px #3a4560; }
+.imp-dl span { display: block; height: 100%; background: linear-gradient(90deg, #2f7fb0, #45c9c9); }
+.imp-dl-pct { font-weight: 800; font-size: 1.3rem; margin: 6px 0 0; }
+.imp-code { display: flex; justify-content: center; gap: 10px; }
+.imp-code span { width: 46px; height: 58px; display: grid; place-items: center; font-size: 2rem; font-weight: 800; background: #1b2233; border-radius: 10px; box-shadow: inset 0 0 0 2px #3a4560; }
+.imp-code span.ok { background: #2f6b3a; box-shadow: inset 0 0 0 2px #5cc46a; }
+/* La cruceta, para andar tocando (en el móvil) */
+.imp-pad { display: none; grid-template-areas: ". up ." "left down right"; grid-template-columns: repeat(3, 64px); gap: 6px; justify-content: center; margin-top: 4px; }
+.imp-dir { min-height: 56px; font-size: 1.4rem; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+@media (pointer: coarse) {
+    .imp-pad { display: grid; }
+    .imp-canvas { height: min(48vh, 480px); height: min(48dvh, 480px); }
+}
+@media (max-width: 640px) {
+    .imp-hud { flex-wrap: wrap; }
+    .imp-bar { flex: 1 1 100%; }
+    .imp-area { font-size: 1rem; }
+    .tile-art .imp-tile { width: 92px; height: 78px; margin-top: 11px; }
+}

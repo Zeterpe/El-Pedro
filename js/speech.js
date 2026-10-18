@@ -98,14 +98,15 @@ class Speech {
     /**
      * Dice un texto. interrupt=true corta lo anterior; false lo pone a la cola.
      * keep=true lo guarda para repetirlo con Espacio. Devuelve una promesa que se resuelve al terminar.
+     * tts=true usa la voz del juego aunque juegues con lector de pantalla (en El Impostor, que va en tiempo real).
      */
-    say(text, { interrupt = true, pitch = 1, rate = 1, keep = false } = {}) {
+    say(text, { interrupt = true, pitch = 1, rate = 1, keep = false, tts = false } = {}) {
         if (!text) return Promise.resolve();
         if (keep) this.last = text;
         if (interrupt) this.cancel();
         const epoch = this.#epoch;
         const valid = () => epoch === this.#epoch;
-        const p = this.#tail.then(() => valid() ? this.#speakText(text, { pitch, rate, assertive: interrupt }, valid) : undefined);
+        const p = this.#tail.then(() => valid() ? this.#speakText(text, { pitch, rate, assertive: interrupt, tts }, valid) : undefined);
         this.#tail = p.catch(() => { });
         return p.then(() => { }, () => { });
     }
@@ -119,11 +120,11 @@ class Speech {
         r?.();
     }
 
-    async #speakText(text, { pitch, rate, assertive }, valid) {
+    async #speakText(text, { pitch, rate, assertive, tts }, valid) {
         this.history.push(text);
         if (this.history.length > 300) this.history.splice(0, 100);
         this.onCaption?.(text);
-        if (!this.useTTS) {
+        if (!(this.useTTS || (tts && this.mode === 'sr' && this.#synth))) {
             // Lector de pantalla: región aria-live. Sin voz: solo se ve; se espera lo que se tarda en leerlo.
             const visual = this.mode === 'visual';
             if (!visual) this.#announceLive(text, assertive);

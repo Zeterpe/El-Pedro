@@ -110,6 +110,9 @@ class AudioEngine {
     constructor(settings) { this.settings = settings; }
 
     get ready() { return !!this.ctx; }
+    /** Para el sonido 3D (space-audio.js): la salida de los efectos y el sintetizador. */
+    get bus() { return this.#sfx; }
+    get synth() { return this.#k; }
 
     /** Hay que llamarlo tras un toque o una tecla (los navegadores lo exigen). */
     unlock() {

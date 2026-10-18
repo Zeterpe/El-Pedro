@@ -9,6 +9,7 @@ En el salón eliges a qué jugar:
 - **El Pedro:** juego de memoria. Las cartas están boca abajo para todos y gana la memoria.
 - **La Brisca:** el clásico de bazas, con triunfo y muestra, de 2 a 6 jugadores y también por parejas.
 - **El Parchís:** el de toda la vida, con dado y fichas, de 2 a 4 jugadores, cada uno por su cuenta o por parejas.
+- **El Impostor:** una nave espacial que se recorre en tiempo real guiándose por el oído, con sonido 3D. En esta primera versión, la tripulación hace sus tareas; los impostores llegarán después.
 
 ## El Pedro
 
@@ -23,6 +24,12 @@ En el salón eliges a qué jugar:
   - Si fallas, te llevas una carta de castigo.
 - **Cantar «¡Pedro!»** Se canta al empezar tu turno, antes de robar, y después juegas ese turno. Los demás juegan una vez más y, cuando vuelve a ti, se descubren las cartas.
 - **Los puntos.** Gana la suma más baja. Si todas tus cartas son del mismo número, valen 1 punto.
+
+## El Impostor
+
+- **Andar.** Con W, A, S y D o las flechas (en el móvil, con el joystick o la cruceta). Siempre miras hacia arriba de la pantalla: lo que suena a tu derecha está a tu derecha. Con auriculares se oye todo desde su sitio: pasos, puertas, el ambiente de cada sala, las paredes al rozarlas y tus tareas.
+- **Orientarse.** La F dice qué hay cerca (salidas, tareas y quién está contigo) y la G pone la guía, un pitido que te lleva a una tarea o a una sala.
+- **Las tareas.** Minijuegos de oído y de reflejos: conectar cables por su sonido, descargar datos, calibrar el motor y teclear un código. Cuando la tripulación las acaba todas, gana.
 
 ## La Brisca
 

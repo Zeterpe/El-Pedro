@@ -38,6 +38,12 @@ const DEFAULT_SETTINGS = {
     trivialRules: { ...TRIVIAL_DEFAULT_RULES },
     virusRivals: 2,
     virusRules: { ...VIRUS_DEFAULT_RULES },
+    impostorRivals: 4,
+    impostorRules: { ...IMPOSTOR_DEFAULT_RULES },
+    impostorWalls: true,      // El Impostor: el roce de las paredes cercanas
+    impostorNames: true,      // El Impostor: decir el nombre de quien aparece a la vista
+    impostorVoice: 'juego',   // El Impostor, con lector de pantalla: habla la voz del juego (va al momento) o el lector
+    impostorBlind: false,     // El Impostor: modo a ciegas (la nave no se ve)
     cardSize: 'normal',       // normal · grande
     contrast: 'normal',       // normal · alto
 };
@@ -53,6 +59,7 @@ function loadSaved() {
     settings.parchisRules = { ...PARCHIS_DEFAULT_RULES, ...(raw?.settings?.parchisRules || {}) };
     settings.trivialRules = { ...TRIVIAL_DEFAULT_RULES, ...(raw?.settings?.trivialRules || {}) };
     settings.virusRules = { ...VIRUS_DEFAULT_RULES, ...(raw?.settings?.virusRules || {}) };
+    settings.impostorRules = { ...IMPOSTOR_DEFAULT_RULES, ...(raw?.settings?.impostorRules || {}) };
     if (!GAMES[settings.game]) settings.game = 'pedro';
     settings.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
     // Las estadísticas eran solo de El Pedro: pasan a su juego.
@@ -336,15 +343,16 @@ const App = {
         const s = this.settings, id = this.gameId, G = GAMES[id], r = this.rulesOf(id);
         const key = G.rivalsKey;
         const max = G.maxPlayers - 1;
+        const [one, many] = G.rivalWords || ['rival', 'rivales'];
         const rivalText = v => {
-            const base = v === 1 ? '1 rival' : `${v} rivales`;
+            const base = v === 1 ? `1 ${one}` : `${v} ${many}`;
             return G.pairs?.(r, v + 1) ? `${base}, por parejas` : base;
         };
         const defs = [
-            { label: 'Rivales', values: Array.from({ length: max }, (_, i) => i + 1), get: () => s[key], set: v => { s[key] = v; }, text: rivalText },
+            { label: cap(many), values: Array.from({ length: max }, (_, i) => i + 1), get: () => s[key], set: v => { s[key] = v; }, text: rivalText },
             {
                 label: G.rivalLevelLabel || 'Dificultad', values: ['facil', 'normal', 'dificil', 'mezcla'], get: () => s.difficulty, set: v => { s.difficulty = v; },
-                text: v => ({ facil: 'fácil', normal: 'normal', dificil: 'difícil', mezcla: 'de todo un poco' })[v],
+                text: v => (G.levelText || { facil: 'fácil', normal: 'normal', dificil: 'difícil', mezcla: 'de todo un poco' })[v],
             },
             ...G.setupDefs(s, r),
             { label: 'Reglas de la casa', action: () => { this.houseBack = null; this.openHouse(id); } },
@@ -546,6 +554,10 @@ const App = {
                 if (UI.trapping && document.activeElement !== UI.keytrap) UI.focus(document.contains(el) ? el : $('my-hand'), { silent: true });
             }, 0);
         });
+        // Al soltar una tecla (en El Impostor se anda mientras está pulsada), y al salir de la ventana se sueltan todas.
+        document.addEventListener('keyup', e => { if (UI.current === 'game') this.match?.onKeyUp?.(e); });
+        window.addEventListener('blur', () => this.match?.releaseKeys?.());
+        document.addEventListener('visibilitychange', () => { if (document.hidden) this.match?.releaseKeys?.(); });
         document.addEventListener('keydown', e => {
             if (e.ctrlKey || e.metaKey || e.altKey) return;
             if (!this.started) {
@@ -613,6 +625,7 @@ const App = {
             parchis: opts => app.startMatch({ game: 'parchis', ...(opts || {}) }),
             trivial: opts => app.startMatch({ game: 'trivial', ...(opts || {}) }),
             virus: opts => app.startMatch({ game: 'virus', ...(opts || {}) }),
+            impostor: opts => app.startMatch({ game: 'impostor', ...(opts || {}) }),
             practice: (game = 'pedro') => app.startPractice(game),
         };
     },
