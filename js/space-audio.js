@@ -10,6 +10,8 @@
      suena delante y lo de abajo, detrás y más apagado.
    · Lo que está al otro lado de una pared suena
      amortiguado.
+   · Un cuerpo suena como un monitor plano, y una muerte,
+     como un golpe sordo desde donde pasa.
    Todo se sintetiza aquí, como en audio.js: no hay
    archivos de sonido.
    ============================================= */
@@ -237,7 +239,82 @@ const ShipSounds = {
     },
     progress(x) { return (k, out, t) => k.tone(out, { t, f: 400 + 900 * x, dur: 0.07, peak: 0.08 }); },
     key() { return (k, out, t) => k.tone(out, { t, f: 1400, dur: 0.03, peak: 0.08, type: 'square', filter: { type: 'lowpass', f: 3000 } }); },
+    // Los impostores y las reuniones.
+    /** Un golpe sordo y un quejido: alguien muere. */
+    kill() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: [[0, 120], [0.18, 45]], dur: 0.22, peak: 0.6 });
+            k.noise(out, { t, dur: 0.12, peak: 0.35, filter: { type: 'lowpass', f: [[0, 2400], [0.1, 400]] } });
+            k.tone(out, { t: t + 0.05, f: [[0, 520], [0.5, 180]], type: 'sawtooth', dur: 0.55, peak: 0.12, filter: { type: 'bandpass', f: 900, q: 3 } });
+        };
+    },
+    /** La alarma de la reunión. */
+    alarm() {
+        return (k, out, t) => {
+            for (let i = 0; i < 3; i++) {
+                k.tone(out, { t: t + i * 0.36, f: 660, type: 'square', dur: 0.16, peak: 0.1, filter: { type: 'lowpass', f: 2200 } });
+                k.tone(out, { t: t + i * 0.36 + 0.18, f: 880, type: 'square', dur: 0.16, peak: 0.1, filter: { type: 'lowpass', f: 2200 } });
+            }
+        };
+    },
+    /** Un voto: un sello sobre la mesa. */
+    vote() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: [[0, 300], [0.06, 140]], dur: 0.08, peak: 0.3 });
+            k.noise(out, { t, dur: 0.03, peak: 0.15, filter: { type: 'lowpass', f: 1800 } });
+        };
+    },
+    /** Alguien sale de la nave por la escotilla. */
+    eject() {
+        return (k, out, t) => {
+            k.noise(out, { t, a: 0.25, dur: 1.4, r: 2.4, peak: 0.28, filter: { type: 'bandpass', f: [[0, 400], [1.3, 3200]], q: 1.5 } });
+            k.tone(out, { t: t + 0.05, f: [[0, 90], [1, 40]], dur: 1.1, r: 1.6, peak: 0.25 });
+        };
+    },
+    /** Eres tripulante: unas notas que suben, claras. */
+    roleCrew() { return (k, out, t) => [523, 659, 784, 1047].forEach((f, i) => k.tone(out, { t: t + i * 0.11, f, dur: 0.3, peak: 0.12, type: 'triangle' })); },
+    /** Eres impostor: un acorde grave y oscuro. */
+    roleImpostor() {
+        return (k, out, t) => {
+            for (const f of [55, 65.4, 82.4]) k.tone(out, { t, f, dur: 1.4, r: 2.2, peak: 0.16, type: 'sawtooth', filter: { type: 'lowpass', f: 420 } });
+            k.tone(out, { t: t + 0.4, f: [[0, 932], [0.6, 880]], dur: 0.7, peak: 0.05, vib: { rate: 5, depth: 6 } });
+        };
+    },
+    /** Ya puedes matar: el filo de un cuchillo. */
+    knife() {
+        return (k, out, t) => {
+            k.noise(out, { t, dur: 0.25, r: 0.3, peak: 0.1, filter: { type: 'highpass', f: [[0, 2000], [0.2, 7000]] } });
+            k.bell(out, { t: t + 0.12, f: 2637, partials: [[1, 1, 0.5], [2.4, 0.3, 0.3]], peak: 0.05 });
+        };
+    },
+    /** Alguien está a tu alcance: dos latidos. */
+    target() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: 70, dur: 0.1, peak: 0.28 });
+            k.tone(out, { t: t + 0.18, f: 58, dur: 0.1, peak: 0.22 });
+        };
+    },
+    /** Te han matado: ahora eres un fantasma. */
+    ghost() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: [[0, 880], [1.2, 440]], dur: 1.3, r: 1.8, peak: 0.08, vib: { rate: 6, depth: 8 } });
+            k.tone(out, { t: t + 0.2, f: [[0, 1320], [1.2, 660]], dur: 1.1, r: 1.6, peak: 0.04, vib: { rate: 5, depth: 10 } });
+        };
+    },
 };
+
+/** Un cuerpo: un zumbido grave que tiembla y el pitido largo de un monitor plano. Suena cuando lo tienes a la vista. */
+function bodyDrone(c, out) {
+    const nodes = [];
+    const g = c.createGain(); g.gain.value = 0.1; g.connect(out);
+    for (const f of [98, 101.5]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); nodes.push(o); }
+    const lfo = c.createOscillator(); lfo.frequency.value = 1.1;
+    const lg = c.createGain(); lg.gain.value = 0.05; lfo.connect(lg); lg.connect(g.gain); nodes.push(lfo);
+    const beep = c.createOscillator(); beep.frequency.value = 1320;
+    const bg = c.createGain(); bg.gain.value = 0.018; beep.connect(bg); bg.connect(out); nodes.push(beep);
+    nodes.forEach(o => o.start());
+    return () => nodes.forEach(o => o.stop());
+}
 
 /** Los ambientes continuos de cada sala. Cada uno crea sus nodos y devuelve con qué pararlos. */
 const ROOM_AMBIENCE = {

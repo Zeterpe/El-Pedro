@@ -877,6 +877,33 @@ body[data-cards="grande"] #table[data-game="virus"] { --vorg-w: 60px; --vorg-me:
 .imp-code { display: flex; justify-content: center; gap: 10px; }
 .imp-code span { width: 46px; height: 58px; display: grid; place-items: center; font-size: 2rem; font-weight: 800; background: #1b2233; border-radius: 10px; box-shadow: inset 0 0 0 2px #3a4560; }
 .imp-code span.ok { background: #2f6b3a; box-shadow: inset 0 0 0 2px #5cc46a; }
+/* Tu papel, arriba a la izquierda */
+.imp-role { flex: 0 0 auto; padding: 2px 12px; border-radius: 999px; font-size: .9rem; white-space: nowrap; background: #1b2233; box-shadow: inset 0 0 0 2px #3a4560; }
+.imp-role[hidden] { display: none; }
+.imp-role[data-role="crew"] { color: #8fd3ff; box-shadow: inset 0 0 0 2px #2f7fb0; }
+.imp-role[data-role="impostor"] { color: #ff8a8a; box-shadow: inset 0 0 0 2px #c0392b; background: #2a1418; }
+.imp-role[data-role="ghost"] { color: #c9d2e3; opacity: .8; }
+#act-kill { background: linear-gradient(180deg, #c0392b, #8e2a20); border-color: #ff8a8a; color: #fff; }
+#act-kill:disabled { opacity: .55; }
+#act-report { background: linear-gradient(180deg, #d35400, #9c3d00); border-color: #ffb27a; color: #fff; }
+#act-report.ready:not([hidden]) { animation: breathe 1.8s ease-in-out infinite; }
+/* La reunión: tapa la nave con los tripulantes, sus votos y lo que dicen */
+.imp-meet { position: absolute; inset: 0; overflow: auto; background: rgba(8, 12, 22, .96); border: 2px solid #c0392b; border-radius: 18px; padding: 12px 14px; z-index: 5; }
+.imp-meet[hidden] { display: none; }
+.imp-meet h3 { margin: 0 0 8px; font-size: 1.2rem; color: #ff8a8a; text-align: center; }
+.imp-meet-crew { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.imp-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 6px 8px; border-radius: 12px; background: #1b2233; box-shadow: inset 0 0 0 2px #3a4560; min-width: 0; }
+.imp-card svg { width: 44px; height: 58px; }
+.imp-card .nm { font-weight: 800; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-card.imp .nm { color: #ff8a8a; }
+.imp-card.dead { opacity: .45; }
+.imp-card.voted { box-shadow: inset 0 0 0 2px #5cc46a; }
+.imp-card.talking { box-shadow: inset 0 0 0 3px #ffd34d; background: #2a2f1b; }
+.imp-card .votes { font-weight: 800; color: #ffd34d; }
+.imp-card .st { font-size: .8rem; color: #8fe39b; }
+.imp-card .said { font-size: .8rem; line-height: 1.25; text-align: center; color: #dfe7f5; background: rgba(255, 255, 255, .08); border-radius: 8px; padding: 3px 6px; }
+.imp-meet-log { list-style: none; margin: 10px 0 0; padding: 0; font-size: .9rem; display: flex; flex-direction: column; gap: 3px; }
+.imp-meet-log li b { color: #8fd3ff; }
 /* La cruceta, para andar tocando (en el móvil) */
 .imp-pad { display: none; grid-template-areas: ". up ." "left down right"; grid-template-columns: repeat(3, 64px); gap: 6px; justify-content: center; margin-top: 4px; }
 .imp-dir { min-height: 56px; font-size: 1.4rem; padding: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -888,5 +915,8 @@ body[data-cards="grande"] #table[data-game="virus"] { --vorg-w: 60px; --vorg-me:
     .imp-hud { flex-wrap: wrap; }
     .imp-bar { flex: 1 1 100%; }
     .imp-area { font-size: 1rem; }
+    .imp-meet { padding: 10px; }
+    .imp-meet-crew { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+    .imp-card svg { width: 34px; height: 46px; }
     .tile-art .imp-tile { width: 92px; height: 78px; margin-top: 11px; }
 }

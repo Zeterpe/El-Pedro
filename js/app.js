@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS = {
     impostorNames: true,      // El Impostor: decir el nombre de quien aparece a la vista
     impostorVoice: 'juego',   // El Impostor, con lector de pantalla: habla la voz del juego (va al momento) o el lector
     impostorBlind: false,     // El Impostor: modo a ciegas (la nave no se ve)
+    impostorRole: 'azar',     // El Impostor: el papel que quieres (azar, tripulante o impostor)
     cardSize: 'normal',       // normal · grande
     contrast: 'normal',       // normal · alto
 };
@@ -346,6 +347,7 @@ const App = {
         const [one, many] = G.rivalWords || ['rival', 'rivales'];
         const rivalText = v => {
             const base = v === 1 ? `1 ${one}` : `${v} ${many}`;
+            if (G.playersNote) return `${base}, ${G.playersNote(r, v + 1)}`;
             return G.pairs?.(r, v + 1) ? `${base}, por parejas` : base;
         };
         const defs = [
@@ -387,7 +389,7 @@ const App = {
         $('rules-title').textContent = `Cómo se juega: ${G.name}`;
         $('rules-text').innerHTML = G.rulesHtml;
         $('btn-suits').hidden = !!G.art;   // los palos, solo en los juegos de cartas
-        UI.show('rules', { intro: `Cómo se juega ${G.name}. Puedes escuchar las reglas, oír cómo suena cada palo o jugar una partida de práctica. Las reglas están debajo de los botones.` });
+        UI.show('rules', { intro: `Cómo se juega ${G.name}. Puedes escuchar las reglas${G.art ? '' : ', oír cómo suena cada palo'} o jugar una partida de práctica. Las reglas están debajo de los botones.` });
     },
 
     openOptions() {

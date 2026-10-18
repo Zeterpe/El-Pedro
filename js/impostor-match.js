@@ -13,6 +13,10 @@
    · La F dice qué hay cerca y la G pone la guía: un
      pitido que te lleva a una tarea o a una sala.
    · Las tareas son minijuegos de oído y de reflejos.
+   · El impostor mata con la Q; quien ve un cuerpo
+     avisa con la R, y junto a la mesa del Comedor se
+     pide una reunión con la E. La reunión va con
+     diálogos, sin prisa: decir algo y votar.
    ImpostorArt dibuja la ficha del salón.
    ============================================= */
 'use strict';
@@ -54,6 +58,16 @@ function impList(items) {
 }
 /** «a Leo», «al robot Chispas». */
 const toWhom = name => name.startsWith('el ') ? 'al ' + name.slice(3) : 'a ' + name;
+/** Un texto para meterlo en HTML. */
+const impEsc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+/** «de Leo», «del robot Chispas». */
+const ofWhom = name => name.startsWith('el ') ? 'del ' + name.slice(3) : 'de ' + name;
+/** Lo que se dice al negar o cuando no se sabe nada, para que no suene siempre igual. */
+const IMP_SAY = {
+    deny: ['¡Yo no he sido!', '¡Que no he sido yo!', 'Os equivocáis conmigo.', '¡Eh, que yo no he hecho nada!'],
+    nothing: ['Yo no he visto nada.', 'No sé nada, la verdad.', 'Yo no he visto nada raro.'],
+    skip: ['Sin pruebas, mejor saltamos el voto.', 'Yo salto el voto: no sabemos nada.'],
+};
 /** Un sitio libre dentro de una sala, para que la guía lleve allí. */
 function impRoomPoint(a) {
     for (const [x, y] of [[a.cx, a.cy], [a.cx, a.y + a.h - 1.5], [a.x + 1.5, a.cy], [a.x + 1.5, a.y + 1.5]]) if (!shipBlocked(x, y, IMPOSTOR_RADIUS + 0.06)) return { x, y };
@@ -93,7 +107,7 @@ const ImpostorArt = {
 class ImpostorMatch extends Match {
     static get kind() { return 'impostor'; }
     get roundWord() { return 'partida'; }
-    get playPhases() { return ['ship']; }
+    get playPhases() { return ['ship', 'meeting']; }
     get againLabel() { return 'Jugar otra vez con los mismos compañeros'; }
 
     setup() {
@@ -118,12 +132,26 @@ class ImpostorMatch extends Match {
         this.frozen = false;
         this.bumps = 0;
         this.uiRng = makeRng(this.seed + 777);
+        this.bodiesSeen = new Set();    // los cuerpos que ya has visto (se dicen una vez)
+        this.bodiesNow = [];            // los que ves ahora
+        this.myKills = new Set();       // de impostor: a quién has matado tú
+        this.deadSaid = new Set();      // los muertos que ya se han dicho en una reunión
+        this.impsOut = 0;               // impostores echados (si se dice al echarlos)
+        this.killReady = false;         // de impostor: ya puedes matar
+        this.inRange = null;            // de impostor: a quién tienes a tu alcance
+        this.rangeSaid = {};            // de impostor: cuándo se dijo que cada uno estaba a tu alcance
+        this.hudT = 0;
+        this.meet = null;               // la reunión: lo que se ha dicho, para el panel
         // En tiempo real, la voz del juego va al momento; el lector de pantalla se queda atrás.
         this.forceVoice = this.settings.impostorVoice !== 'lector';
         this.stars = Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.random(), a: 0.25 + Math.random() * 0.6, r: Math.random() < 0.15 ? 1.6 : 1 }));
     }
 
-    makeGame(rules, seed) { return new ImpostorGame({ players: this.seats.map(s => ({ name: s.name })), rules, seed }); }
+    /** Tu papel lo puedes elegir en las opciones de la partida (al azar, si no). */
+    makeGame(rules, seed) {
+        const wish = { tripulante: 'crew', impostor: 'impostor' }[this.settings.impostorRole] || null;
+        return new ImpostorGame({ players: this.seats.map((s, i) => ({ name: s.name, role: i === this.me ? wish : null })), rules, seed });
+    }
     makeMirror() { throw new Error('El Impostor todavía no se juega en una sala.'); }
     makeBot(p, char, rng) { return new ImpostorBot(this.game, p, char, rng); }
 
@@ -144,9 +172,24 @@ class ImpostorMatch extends Match {
         if (this.speech.history[this.speech.history.length - 1] !== text) this.say(text);
     }
     repeat() { this.say(this.speech.last || 'Nada que repetir.', { interrupt: true }); }
+    /** Sin voz, un rato para leer lo que acaba de salir en la pantalla. */
+    readPause(text) { return this.visual && !this.stopped ? this.sleep(Math.min(5000, 1000 + text.length * 30) * this.speed) : Promise.resolve(); }
+    /** Algo que se pide en la reunión: con voz, se dice; sin voz, se lee en un cuadro. */
+    async inform(title, text) {
+        if (this.visual) await Dialog.open({ title, text, items: [{ label: 'Volver', value: 'back' }], cancel: 'back' });
+        else await this.say(text, { keep: true, interrupt: true });
+    }
 
     // ── Ayudas ────────────────────────────────────────
     get mePl() { return this.game.players[this.me]; }
+    get amImpostor() { return this.game.isImpostor(this.me); }
+    get alive() { return this.mePl.alive; }
+    /** ¿Es otro impostor como tú? Solo lo sabes si tú también lo eres. */
+    isMate(p) { return p !== this.me && this.amImpostor && this.game.isImpostor(p); }
+    colorOf(p) { return IMP_COLORS[(p - this.me + this.game.n) % this.game.n % IMP_COLORS.length]; }
+    /** El nombre de alguien para el narrador: «Leo», «tú». */
+    nm(p) { return this.names[p]; }
+    Nm(p) { return cap(this.names[p]); }
     areaName(id) { return SHIP.byId[id]?.name || ''; }
     taskName(t) { return IMPOSTOR_TASKS[t.type].name; }
     /** Dónde está algo respecto a ti: «a la derecha, a 6 metros». */
@@ -169,17 +212,19 @@ class ImpostorMatch extends Match {
 
     introText() {
         const others = this.seats.filter((_, p) => p !== this.me).map(s => s.name);
-        let t = `Estás en el Comedor de la nave, junto a la mesa, con ${Txt.list(others)}. En esta primera versión no hay impostores: entre todos tenéis que hacer las tareas de la nave.`;
+        let t = `Estás en el Comedor de la nave, junto a la mesa, con ${Txt.list(others)}.`;
+        if (!this.game.impostorCount() && !this.practice) t += ' En esta partida no hay impostores: entre todos tenéis que hacer las tareas de la nave.';
         if (!this.settings.mono) t += ' Ponte auriculares: lo que suena a tu derecha está a tu derecha, y lo que suena delante está arriba en la pantalla.';
         t += this.hint('keys', this.touch
             ? 'Para andar, toca la nave y arrastra el dedo, o usa la cruceta. El botón Qué hay cerca te dice lo que tienes alrededor, y Guía te lleva adonde quieras.'
             : 'Anda con W, A, S y D, o con las flechas. La F te dice qué hay cerca, la G te guía y la H te dice todas las teclas.');
-        if (this.practice) t = 'Partida de práctica, con dos tareas fáciles. ' + t;
+        if (this.practice) t = 'Partida de práctica, sin impostores y con dos tareas fáciles: sirve para aprender a moverte por la nave. ' + t;
         return t;
     }
 
     async intro() {
-        Board.status(this.visual ? `${this.title}: haced entre todos las tareas de la nave` : '');
+        const n = this.game.impostorCount();
+        Board.status(this.visual ? (n ? `${this.title}: haz tus tareas y descubre ${n === 1 ? 'al impostor' : 'a los impostores'}` : `${this.title}: haced entre todos las tareas de la nave`) : '');
         await this.say(`${this.title}. ${this.introText()}`, { keep: true });
         if (this.speech.mode === 'sr' && UI.trapWanted && !Match.voTipDone) {
             Match.voTipDone = true;
@@ -187,10 +232,24 @@ class ImpostorMatch extends Match {
         }
     }
 
+    /** Lo que eres al empezar: tripulante o impostor, y qué tienes que hacer. */
+    roleText(e) {
+        const n = e.impostors;
+        if (e.role === 'impostor') {
+            const mates = e.mates.map(q => this.seats[q].name);
+            let t = `Eres ${n === 1 ? 'el impostor' : 'impostor'}${mates.length ? `, con ${Txt.list(mates)}` : ''}. Mata a la tripulación sin que te vean: cuando tengas a alguien a tu alcance, sonarán dos latidos y ${this.press('Q', 'Matar')}. Al principio tienes que esperar unos segundos.`;
+            t += ` Para disimular, ve a tus tareas, que son de mentira, y finge que las haces con ${this.touch ? 'el botón Usar' : 'la E'}. Ganas cuando ${n === 1 ? 'quedes tú solo con un tripulante' : 'quedéis tantos impostores como tripulantes'}.`;
+            return t;
+        }
+        return `Eres tripulante. ${n === 1 ? 'Entre vosotros hay un impostor' : `Entre vosotros hay ${n} impostores`}. Haz tus tareas y descubre ${n === 1 ? 'quién es' : 'quiénes son'}. Si ves un cuerpo, acércate y ${this.press('R', 'Avisar')} para llamar a todos a una reunión; también puedes pedirla tú desde la mesa del Comedor.`;
+    }
+
     // ── La mesa ───────────────────────────────────────
     actionsDef() {
         return [
             { kind: 'use', label: 'Usar', key: 'E', cls: 'main' },
+            { kind: 'kill', label: 'Matar', key: 'Q', cls: 'main imp-kill' },
+            { kind: 'report', label: 'Avisar', key: 'R', cls: 'main imp-report' },
             { kind: 'near', label: 'Qué hay cerca', key: 'F', cls: 'small talk' },
             { kind: 'guide', label: 'Guía', key: 'G', cls: 'small' },
             { kind: 'tasks', label: 'Mis tareas', key: 'T', cls: 'small' },
@@ -204,6 +263,8 @@ class ImpostorMatch extends Match {
 
     button(kind) {
         if (kind === 'use') return this.use();
+        if (kind === 'kill') return this.killKey();
+        if (kind === 'report') return this.report();
         if (kind === 'near') return this.radar();
         if (kind === 'guide') return this.openGuide();
         if (kind === 'tasks') return this.sayTasks();
@@ -217,6 +278,7 @@ class ImpostorMatch extends Match {
         center.innerHTML = `
             <div class="imp-wrap">
                 <div class="imp-hud" aria-hidden="true">
+                    <span id="imp-role" class="imp-role"></span>
                     <span id="imp-area" class="imp-area"></span>
                     <span class="imp-bar"><span id="imp-bar-fill" class="imp-bar-fill"></span><span id="imp-bar-text" class="imp-bar-text"></span></span>
                 </div>
@@ -226,6 +288,11 @@ class ImpostorMatch extends Match {
                     <p id="imp-task-text"></p>
                     <div id="imp-task-art" class="imp-task-art" aria-hidden="true"></div>
                     <div id="imp-task-btns" class="imp-task-btns"></div>
+                </div>
+                <div id="imp-meet" class="imp-meet" aria-hidden="true" hidden>
+                    <h3 id="imp-meet-title"></h3>
+                    <div id="imp-meet-crew" class="imp-meet-crew"></div>
+                    <ol id="imp-meet-log" class="imp-meet-log"></ol>
                 </div>
             </div>`;
         $('my-hand').setAttribute('aria-label', 'La nave');
@@ -292,30 +359,73 @@ class ImpostorMatch extends Match {
     render() {
         const g = this.game;
         if (!$('imp-bar-fill')) return;
-        const t = !this.task && g.phase === 'ship' ? g.taskHere(this.me) : null;
-        Board.showAct('use', g.phase === 'ship', this.task ? 'Seguir la tarea' : t ? `Usar: ${IMPOSTOR_TASKS[t.type].short}` : 'Usar');
+        const ship = g.phase === 'ship', me = this.mePl;
+        Board.showAct('use', ship, this.useLabel());
+        Board.showAct('kill', ship && this.amImpostor && me.alive, this.killLabel());
+        this.reportBtn();
         const { done, total } = this.bar;
         $('imp-bar-fill').style.width = total ? `${done / total * 100}%` : '0';
         $('imp-bar-text').textContent = `Tareas de la tripulación: ${done} de ${total}`;
-        $('imp-area').textContent = cap(this.areaName(this.mePl.area));
+        $('imp-area').textContent = cap(this.areaName(me.area));
+        this.renderRole();
+    }
+
+    /** Lo que eres, en la pantalla: tripulante, impostor (con la espera para matar) o fantasma. */
+    /** El botón de avisar: se enciende cuando tienes un cuerpo al lado. */
+    reportBtn() {
+        const g = this.game, near = g.phase === 'ship' && !!g.bodyHere(this.me);
+        Board.showAct('report', g.phase === 'ship' && this.alive && g.impostorCount() > 0, near ? 'Avisar del cuerpo' : 'Avisar');
+        $('act-report')?.classList.toggle('ready', near);
+    }
+
+    renderRole() {
+        const el = $('imp-role'), me = this.mePl;
+        if (!el) return;
+        let t = '';
+        if (!me.alive) t = 'Fantasma';
+        else if (this.amImpostor) t = me.killCd > 0 ? `Impostor · matar en ${Math.ceil(me.killCd)} s` : 'Impostor · puedes matar';
+        else if (this.game.impostorCount()) t = 'Tripulante';
+        el.textContent = t;
+        el.dataset.role = !me.alive ? 'ghost' : this.amImpostor ? 'impostor' : 'crew';
+        el.hidden = !t;
+    }
+
+    useLabel() {
+        const g = this.game;
+        if (this.task) return this.task.fake ? 'Dejar de fingir' : 'Seguir la tarea';
+        const t = g.phase === 'ship' ? g.taskHere(this.me) : null;
+        if (t) return `${this.amImpostor ? 'Fingir' : 'Usar'}: ${IMPOSTOR_TASKS[t.type].short}`;
+        if (g.phase === 'ship' && this.alive && g.impostorCount() && g.atButton(this.me)) return 'Botón de emergencia';
+        return 'Usar';
+    }
+
+    killLabel() {
+        const me = this.mePl;
+        if (me.killCd > 0) return `Matar (${Math.ceil(me.killCd)} s)`;
+        const t = this.game.killTargets(this.me)[0];
+        return t != null ? `Matar ${toWhom(this.seats[t].name)}` : 'Matar';
     }
 
     statusIdle() {
         if (this.guide) return `Guía: te llevo ${this.guide.to}`;
+        if (!this.alive) return 'Eres un fantasma: nadie te ve ni te oye';
         return this.touch ? 'Toca la nave y arrastra para andar' : 'Anda con W, A, S y D o las flechas · F: qué hay cerca · G: guía';
     }
 
     // ── El tiempo real ────────────────────────────────
     async phaseStep(phase) {
-        if (phase !== 'ship') return false;
-        await this.realtime();
-        return true;
+        if (phase === 'ship') { await this.realtime(); return true; }
+        if (phase === 'meeting') { await this.meetingStep(); return true; }
+        return false;
     }
 
     /** La partida corre sola: cada fotograma avanza el tiempo, suenan las cosas y se dibuja la nave. */
     realtime() {
         if (!this.scene) this.createScene();
+        this.scene?.setActive(true);
+        this.frozen = false;
         Board.status(this.statusIdle());
+        Board.render(this);
         this.saidArea = this.mePl.area;
         // A quien ya está contigo al empezar no se le anuncia: lo ha dicho la presentación.
         this.seenNow = new Set(this.game.perceive(this.me).seen);
@@ -335,6 +445,8 @@ class ImpostorMatch extends Match {
                     if (steps >= 12) acc = 0;
                     if (this.game.phase === 'ship') this.senses(dt);
                     this.taskTick(dt / Math.max(0.05, this.timeScale));
+                    // La espera para matar, en la pantalla, cada cuarto de segundo.
+                    if ((this.hudT -= dt) <= 0) { this.hudT = 0.25; this.renderRole(); this.reportBtn(); if (this.amImpostor && this.alive) Board.showAct('kill', this.game.phase === 'ship', this.killLabel()); }
                 }
                 this.draw();
                 this.raf = requestAnimationFrame(frame);
@@ -403,6 +515,8 @@ class ImpostorMatch extends Match {
         const g = this.game, me = this.mePl, sc = this.scene;
         for (const pl of g.players) {
             if (!pl.moved) continue;
+            // A los fantasmas no los oyen los vivos.
+            if (!pl.alive && me.alive && pl !== me) continue;
             const p = pl.index;
             this.stepAcc[p] += pl.moved;
             if (this.stepAcc[p] < IMP_STRIDE) continue;
@@ -435,6 +549,8 @@ class ImpostorMatch extends Match {
             this.lastSeen[p] = this.clock;
         }
         this.seenNow = new Set(seen);
+        this.bodyCues(g.perceive(this.me).bodies);
+        this.killCues();
         // La sala en la que entras, si te quedas en ella un momento (al cruzar una puerta no se repite).
         const w = this.areaWait;
         if (w && (w.t -= dt) <= 0) {
@@ -446,13 +562,58 @@ class ImpostorMatch extends Match {
         this.nearCue();
     }
 
+    /** Los cuerpos que tienes a la vista: suenan como un monitor plano, y el primero que ves se dice. */
+    bodyCues(seen) {
+        const g = this.game, sc = this.scene, me = this.mePl;
+        this.bodiesNow = seen;
+        for (const b of g.bodies) {
+            const id = 'body:' + b.p;
+            if (sc?.ok && !sc.loops.has(id)) sc.loop(id, b.x, b.y, bodyDrone, { ref: 1.5 });
+            sc?.setLoop(id, { x: b.x, y: b.y, level: seen.includes(b.p) ? 0.9 : 0, wall: false });
+        }
+        for (const p of seen) {
+            if (this.bodiesSeen.has(p)) continue;
+            this.bodiesSeen.add(p);
+            const b = g.bodies.find(x => x.p === p);
+            if (!b || this.myKills.has(p)) continue;
+            this.ripple(b.x, b.y, 'body');
+            if (!me.alive) { this.tell(`${p === this.me ? 'Tu cuerpo' : `El cuerpo ${ofWhom(this.seats[p].name)}`}, ${this.rel(b.x, b.y)}.`); continue; }
+            this.tell(`¡Un cuerpo! Es ${this.seats[p].name}, ${this.rel(b.x, b.y)}.${this.hint('report', `Acércate y ${this.press('R', 'Avisar')} para llamar a todos a una reunión.`)}`, { keep: true });
+            Board.status(`Un cuerpo: ${this.press('R', 'Avisar')}`);
+            Board.render(this);
+        }
+    }
+
+    /** Siendo impostor: cuándo puedes matar y a quién tienes a tu alcance. */
+    killCues() {
+        const g = this.game, me = this.mePl;
+        if (!this.amImpostor || !me.alive) return;
+        const ready = me.killCd <= 0;
+        if (ready && !this.killReady) {
+            this.scene?.here(ShipSounds.knife());
+            if (!this.task && !this.speech.busy) this.notice('Ya puedes matar.');
+        }
+        this.killReady = ready;
+        const t = ready ? g.killTargets(this.me)[0] ?? null : null;
+        if (t === this.inRange) return;
+        this.inRange = t;
+        Board.render(this);
+        if (t == null) return;
+        this.scene?.here(ShipSounds.target());
+        // En un corro, el alcance salta de uno a otro: cada nombre se dice como mucho cada 8 segundos.
+        const last = this.rangeSaid[t] ?? -99;
+        this.rangeSaid[t] = this.clock;
+        if (this.task || this.clock - last < 8) return;
+        this.tell(`${cap(this.seats[t].name)}, a tu alcance.${this.hint('kill', `${cap(this.press('Q', 'Matar'))} para matar.`)}`, { interrupt: !this.speech.busy });
+    }
+
     appeared(p) {
         const pl = this.game.players[p], me = this.mePl;
         this.scene?.at(pl.x, pl.y, ShipSounds.appear());
         // Se dice quién aparece si hace rato que no lo veías, y no mientras haces una tarea.
         if (!this.settings.impostorNames || this.visual || this.task) return;
         if (this.clock - (this.lastSeen[p] ?? -99) < 12 || this.speech.busy) return;
-        this.say(`${cap(this.names[p])}, ${impDir(pl.x - me.x, pl.y - me.y)}.`);
+        this.say(`${cap(this.names[p])}${pl.alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}, ${impDir(pl.x - me.x, pl.y - me.y)}.`);
     }
 
     announceArea({ id, from }) {
@@ -599,13 +760,22 @@ class ImpostorMatch extends Match {
 
     // ── Lo que pasa ───────────────────────────────────
     async present(e) {
-        const me = this.me;
+        const me = this.me, g = this.game;
         switch (e.type) {
+            case 'role':
+                if (e.p !== me || !e.impostors) break;
+                this.flat(e.role === 'impostor' ? ShipSounds.roleImpostor() : ShipSounds.roleCrew());
+                Board.banner(e.role === 'impostor' ? (e.impostors === 1 ? 'Eres el impostor' : 'Eres impostor') : 'Eres tripulante',
+                    e.role === 'impostor' ? (e.mates.length ? `Con ${Txt.list(e.mates.map(q => this.seats[q].name))}` : 'Que no te pillen') : (e.impostors === 1 ? 'Hay un impostor a bordo' : `Hay ${e.impostors} impostores a bordo`));
+                this.renderRole();
+                await this.say(this.roleText(e), { keep: true });
+                break;
             case 'tasks':
                 if (e.p === me) {
                     Board.render(this);
-                    const list = this.game.pending(me).map(t => `${this.taskName(t)}, ${inPlace(this.areaName(t.spot.area))}`);
-                    await this.say(`Tus tareas: ${impList(list)}.${this.hint('guide', `${cap(this.press('G', 'Guía'))} y la guía te lleva a la que quieras.`)}`, { keep: true });
+                    const list = g.pending(me).map(t => `${this.taskName(t)}, ${inPlace(this.areaName(t.spot.area))}`);
+                    const what = e.fake ? 'Tus tareas de mentira, para disimular' : 'Tus tareas';
+                    await this.say(`${what}: ${impList(list)}.${this.hint('guide', `${cap(this.press('G', 'Guía'))} y la guía te lleva a la que quieras.`)}`, { keep: true });
                 }
                 break;
             case 'taskBar': {
@@ -619,7 +789,7 @@ class ImpostorMatch extends Match {
                 break;
             }
             case 'taskStart':
-                if (e.p === me) this.openTask(e.i, e.task);
+                if (e.p === me) this.openTask(e.i, e.task, e.fake);
                 else this.otherSound(e.p, ShipSounds.beep());
                 break;
             case 'taskStop':
@@ -629,16 +799,96 @@ class ImpostorMatch extends Match {
                 if (e.p === me) {
                     this.closeTask();
                     this.scene?.here(ShipSounds.done());
-                    const left = this.game.pending(me).length;
-                    this.tell(left ? `Tarea hecha. Te ${left === 1 ? 'queda 1' : `quedan ${left}`}.${this.hint('next', `${cap(this.press('G', 'Guía'))} para ir a la siguiente.`)}` : this.game.phase === 'ship' ? '¡Has hecho todas tus tareas! Pasea por la nave mientras los demás acaban las suyas.' : '', { keep: true });
+                    const left = g.pending(me).length;
+                    this.tell(left ? `Tarea hecha. Te ${left === 1 ? 'queda 1' : `quedan ${left}`}.${this.hint('next', `${cap(this.press('G', 'Guía'))} para ir a la siguiente.`)}` : g.phase === 'ship' ? `¡Has hecho todas tus tareas! ${g.impostorCount() ? 'Ahora, a vigilar: pasea por la nave y fíjate en quién va con quién.' : 'Pasea por la nave mientras los demás acaban las suyas.'}` : '', { keep: true });
                 } else this.otherSound(e.p, ShipSounds.clink());
+                break;
+            case 'kill': this.presentKill(e); break;
+            case 'meeting':
+                this.bodiesNow = [];
+                this.closeTask();
+                this.releaseKeys();
+                this.silenceBodies();
+                this.flat(ShipSounds.alarm());
+                Board.banner(e.kind === 'body' ? '¡Un cuerpo!' : '¡Reunión de emergencia!', e.kind === 'body' ? `${e.body === me ? 'Tu cuerpo' : cap(this.seats[e.body].name)}, ${inPlace(this.areaName(e.area))}` : (e.by === me ? 'La pides tú' : `La pide ${this.seats[e.by].name}`));
+                break;
+            case 'say': this.meetLog(e.p, this.lineText(e.p, e.line)); break;
+            case 'vote':
+                this.flat(ShipSounds.vote());
+                if (this.meet) this.meet.voted.add(e.p);
+                this.renderMeeting();
+                break;
+            case 'voteResult': await this.presentVotes(e); break;
+            case 'eject': await this.presentEject(e); break;
+            case 'resume':
+                this.showMeeting(false);
+                this.bodiesSeen.clear();
+                this.inRange = null;
+                Board.render(this);
+                await this.say(`Volvéis a la nave, al Comedor.${this.alive ? this.hint('resume', this.amImpostor ? 'Disimula y vuelve a cazar: tienes que esperar otra vez para matar.' : 'Seguid con las tareas y fijaos en quién va con quién.') : ''}`, { keep: true });
                 break;
             case 'gameOver':
                 this.closeTask();
                 this.guide = null;
-                Board.banner('¡Nave arreglada!', 'La tripulación ha hecho todas las tareas');
-                Board.confetti();
+                this.showMeeting(false);
+                this.silenceBodies();
+                if (e.side === 'impostors') Board.banner('¡Ganan los impostores!', Txt.list(e.impostors.map(q => q === me ? 'tú' : this.seats[q].name)));
+                else Board.banner(e.reason === 'tasks' ? '¡Nave arreglada!' : '¡Impostores fuera!', e.reason === 'tasks' ? 'La tripulación ha hecho todas las tareas' : 'Gana la tripulación');
+                if (g.winners.includes(me)) Board.confetti();
                 break;
+        }
+    }
+
+    /** Un sonido sin sitio (los avisos de la reunión), aunque la nave esté callada. */
+    flat(play) {
+        const a = this.audio;
+        if (!a.ctx) return;
+        a.resume();
+        try { play(a.synth, a.bus, a.ctx.currentTime + 0.01); } catch (_) { /* sin sonido */ }
+    }
+
+    silenceBodies() {
+        const sc = this.scene;
+        if (!sc?.ok) return;
+        for (const id of sc.loops.keys()) if (id.startsWith('body:')) sc.setLoop(id, { level: 0 });
+    }
+
+    /** Una muerte: si te matan, si matas tú, si lo ves o si solo lo oyes. */
+    presentKill(e) {
+        const g = this.game, me = this.me, sc = this.scene;
+        const victim = this.seats[e.target].name, killer = this.seats[e.p].name;
+        if (e.target === me) {
+            this.closeTask();
+            this.setGuide(null);
+            sc?.here(ShipSounds.kill());
+            setTimeout(() => this.scene?.here(ShipSounds.ghost()), 500);
+            Board.banner('Te han matado', `Ha sido ${killer}`);
+            this.tell(`¡${cap(killer)} te ha matado! Ahora eres un fantasma: nadie te ve ni te oye, y no puedes avisar ni votar.${this.amImpostor ? '' : ' Pero puedes acabar tus tareas para ayudar a la tripulación.'}`, { keep: true });
+            Board.status(this.statusIdle());
+            Board.render(this);
+            return;
+        }
+        if (e.p === me) {
+            this.myKills.add(e.target);
+            this.killReady = false;
+            this.inRange = null;
+            sc?.here(ShipSounds.kill());
+            const seen = e.witnesses.length ? ` Cuidado: te ${e.witnesses.length === 1 ? `ha visto ${this.seats[e.witnesses[0]].name}` : `han visto ${Txt.list(e.witnesses.map(q => this.seats[q].name))}`}.` : '';
+            this.tell(`Has matado ${toWhom(victim)}.${seen}${this.hint('fled', 'Aléjate antes de que alguien encuentre el cuerpo, o avisa tú mismo con la R para disimular.')}`, { keep: true });
+            Board.render(this);
+            return;
+        }
+        const pl = this.mePl, d = Math.hypot(e.x - pl.x, e.y - pl.y);
+        if (e.witnesses.includes(me) || (!pl.alive && d <= g.visionOf(me) && shipSight(pl.x, pl.y, e.x, e.y))) {
+            sc?.at(e.x, e.y, ShipSounds.kill());
+            this.bodiesSeen.add(e.target);
+            const mate = this.isMate(e.p) ? ', tu compañero impostor,' : '';
+            this.tell(`¡${cap(killer)}${mate} ha matado ${toWhom(victim)}, ${this.rel(e.x, e.y)}!${pl.alive && !this.amImpostor ? this.hint('witness', `${cap(this.press('R', 'Avisar'))} para avisar a todos.`) : ''}`, { keep: true });
+            Board.render(this);
+        } else if (d <= g.hearing) {
+            // Solo se oye el golpe, desde donde pasa (amortiguado si hay pared).
+            sc?.at(e.x, e.y, ShipSounds.kill(), { wall: !shipSight(pl.x, pl.y, e.x, e.y) });
+            this.ripple(e.x, e.y, 'bump');
         }
     }
 
@@ -649,10 +899,314 @@ class ImpostorMatch extends Match {
         this.scene?.at(pl.x, pl.y, play, { wall: !shipSight(me.x, me.y, pl.x, pl.y) });
     }
 
-    gameOverText() { return 'La tripulación ha hecho todas las tareas de la nave. ¡Habéis ganado!'; }
+    gameOverText(won) {
+        const g = this.game, r = g.result || {}, imps = g.impostors(), me = this.me;
+        if (!imps.length) return 'La tripulación ha hecho todas las tareas de la nave. ¡Habéis ganado!';
+        const who = imps.length === 1 ? (imps[0] === me ? 'El impostor eras tú.' : `El impostor era ${this.seats[imps[0]].name}.`)
+            : `Los impostores eran ${Txt.list(imps.map(p => this.v.name(p)))}.`;
+        let t;
+        if (r.side === 'impostors') t = `Ganan los impostores: ya son tantos como los tripulantes que quedan. ${who}`;
+        else t = `${r.reason === 'tasks' ? '¡La tripulación ha hecho todas las tareas!' : imps.length === 1 ? '¡Habéis echado al impostor!' : '¡Habéis echado a todos los impostores!'} ${who}`;
+        return `${t} ${won ? (g.winners.length > 1 ? '¡Habéis ganado!' : '¡Has ganado!') : 'Has perdido.'}`;
+    }
     resultText() {
-        const g = this.game, { done, total } = g.taskBar(), mine = g.players[this.me].tasks.filter(t => t.done).length;
-        return `Tareas hechas: ${done} de ${total}. Tú has hecho ${mine}.`;
+        const g = this.game, { done, total } = g.taskBar();
+        const parts = [`Tareas hechas: ${done} de ${total}.`];
+        if (this.amImpostor) parts.push(this.myKills.size ? `Has matado a ${this.myKills.size}.` : 'No has matado a nadie.');
+        else parts.push(`Tú has hecho ${this.mePl.tasks.filter(t => t.done).length}.`);
+        if (g.meetings) parts.push(`Reuniones: ${g.meetings}.`);
+        return parts.join(' ');
+    }
+
+    // ── La reunión ────────────────────────────────────
+    /**
+     * La reunión, con calma: se dice quién la ha pedido y quién ha muerto; habla cada compañero de la máquina
+     * (y contestan si les acusan); después hablas y votas tú, con diálogos, y por último votan ellos.
+     */
+    async meetingStep() {
+        const g = this.game, M = g.meeting;
+        if (!M) return;
+        this.meet = { title: '', log: [], last: {}, voted: new Set(), counts: null };
+        this.showMeeting(true);
+        const opening = this.meetingOpening(M);
+        Board.status(this.visual ? opening : 'Reunión');
+        await this.say(opening, { keep: true, interrupt: true });
+        await this.readPause(opening);
+        const speakers = [M.by, ...this.uiRng.shuffle(g.living().filter(p => p !== M.by))].filter(p => this.bots[p] && g.players[p].alive);
+        for (const p of speakers) {
+            if (this.stopped || g.phase !== 'meeting') return;
+            await this.botTalk(p, this.bots[p].meetingLines(M));
+        }
+        if (this.stopped || g.phase !== 'meeting') return;
+        if (this.alive) await this.humanMeeting();
+        else await this.say('Como estás muerto, oyes la reunión, pero no puedes hablar ni votar.', { keep: true });
+        // Votan los de la máquina, uno a uno.
+        for (const p of this.uiRng.shuffle(g.living().filter(q => this.bots[q]))) {
+            if (this.stopped || g.phase !== 'meeting') return;
+            await this.sleep(450);
+            await this.act({ type: 'vote', p, target: this.bots[p].vote(M) });
+        }
+        // Por si alguien se ha quedado sin votar (no debería): salta el voto.
+        while (!this.stopped && g.phase === 'meeting') {
+            const q = g.living().find(x => !g.meeting.votes.has(x));
+            if (q == null) break;
+            await this.act({ type: 'vote', p: q, target: -1 });
+        }
+    }
+
+    meetingOpening(M) {
+        const g = this.game, me = this.me;
+        let t;
+        if (M.kind === 'body') {
+            const whose = M.body === me ? 'tu cuerpo' : `el cuerpo ${ofWhom(this.seats[M.body].name)}`;
+            t = M.by === me ? `¡Reunión! Has avisado: ${whose}, ${inPlace(this.areaName(M.area))}.` : `¡Reunión! ${cap(this.seats[M.by].name)} ha encontrado ${whose} ${inPlace(this.areaName(M.area))}.`;
+        } else t = M.by === me ? '¡Reunión de emergencia! La has pedido tú.' : `¡Reunión de emergencia! La ha pedido ${this.seats[M.by].name}.`;
+        const dead = g.players.filter(pl => !pl.alive && pl.knownDead && !this.deadSaid.has(pl.index) && pl.index !== M.body).map(pl => pl.index);
+        for (const pl of g.players) if (!pl.alive && pl.knownDead) this.deadSaid.add(pl.index);
+        if (dead.length) t += ` También ${dead.length === 1 && dead[0] !== me ? 'ha' : 'han'} muerto ${Txt.list(dead.map(p => this.v.name(p)))}.`;
+        const alive = g.living().length;
+        t += this.alive ? ` Quedáis ${alive} en la nave.` : ` Quedan ${alive} en la nave.`;
+        this.meet.title = M.kind === 'body' ? `Reunión: ${M.body === me ? 'tu cuerpo' : `el cuerpo ${ofWhom(this.seats[M.body].name)}`}, ${inPlace(this.areaName(M.area))}` : 'Reunión de emergencia';
+        this.renderMeeting();
+        return t;
+    }
+
+    /** Lo que dice alguien en la reunión, como una frase. Los de la máquina te hablan de tú. */
+    lineText(p, l) {
+        const me = this.me, aboutMe = l.who === me, w = l.who != null ? this.seats[l.who].name : '';
+        const area = l.area ? inPlace(this.areaName(l.area)) : '';
+        const pick = list => list[(p * 7 + (this.meet?.log.length || 0)) % list.length];
+        switch (l.kind) {
+            case 'where': return `Yo estaba ${area}.`;
+            case 'saw': return aboutMe ? `Te vi ${area} hace poco.` : `Vi ${toWhom(w)} ${area} hace poco.`;
+            case 'kill': return aboutMe ? '¡Te he visto matar!' : `¡He visto ${toWhom(w)} matar!`;
+            case 'with': return aboutMe ? 'Tú estabas conmigo.' : `${cap(w)} estaba conmigo.`;
+            case 'sus': return aboutMe ? 'Sospecho de ti.' : `Sospecho ${ofWhom(w)}.`;
+            case 'agree': return aboutMe ? 'Yo también sospecho de ti.' : `Yo también sospecho ${ofWhom(w)}.`;
+            case 'lie': return aboutMe ? `Mientes: yo te vi ${area}.` : `${cap(w)} miente: yo le vi ${area}.`;
+            case 'deny': return pick(IMP_SAY.deny);
+            case 'nothing': return pick(IMP_SAY.nothing);
+            case 'skip': return pick(IMP_SAY.skip);
+        }
+        return '';
+    }
+
+    /** Un compañero de la máquina dice sus frases, con su voz; quien sale nombrado puede contestar. */
+    async botTalk(p, lines, depth = 0) {
+        const g = this.game, M = g.meeting, said = [];
+        for (const line of lines) {
+            const res = g.act({ type: 'say', p, line });
+            if (!res.ok) continue;
+            await this.apply(res);
+            said.push(line);
+        }
+        if (!said.length || this.stopped) return;
+        const b = this.bots[p], text = `${cap(this.seats[p].name)}: ${said.map(l => this.lineText(p, l)).join(' ')}`;
+        if (this.meet) { this.meet.talking = p; this.renderMeeting(); }
+        await this.say(text, { pitch: b?.char.pitch ?? 1, rate: b?.char.rate ?? 1, keep: true });
+        await this.readPause(text);
+        if (this.meet) { this.meet.talking = null; this.renderMeeting(); }
+        if (depth > 2) return;
+        for (const line of said) {
+            if (line.who == null) continue;
+            for (const q of g.living()) {
+                if (q === p || !this.bots[q] || g.phase !== 'meeting') continue;
+                const reply = this.bots[q].react(p, line, M);
+                if (reply.length) await this.botTalk(q, reply, depth + 1);
+            }
+        }
+    }
+
+    /** Te toca: decir algo, volver a oír lo dicho o votar. */
+    async humanMeeting() {
+        const g = this.game, M = g.meeting;
+        let first = true;
+        while (!this.stopped && g.phase === 'meeting') {
+            const said = M.said.filter(x => x.p === this.me).length;
+            Board.status('Reunión: di algo o vota');
+            const r = await Dialog.open({
+                title: 'Reunión',
+                text: first ? 'Te toca. Di lo que sepas, o vota cuando lo tengas claro.' : '',
+                items: [
+                    { label: 'Votar', value: 'vote' },
+                    { label: said >= IMPOSTOR_SAY_MAX ? 'Decir algo (ya has dicho bastante)' : 'Decir algo', value: 'say', disabled: said >= IMPOSTOR_SAY_MAX },
+                    { label: this.visual ? 'Leer lo que se ha dicho' : 'Oír otra vez lo que se ha dicho', value: 'log' },
+                    { label: 'Quién queda en la nave', value: 'alive' },
+                ],
+                cancel: 'pause',
+            });
+            first = false;
+            if (this.stopped || g.phase !== 'meeting') return;
+            if (r === 'pause') { await this.pause(); continue; }
+            if (r === 'log') { await this.inform('Lo que se ha dicho', this.meetingLogText()); continue; }
+            if (r === 'alive') { await this.inform('Quién queda en la nave', this.aliveText()); continue; }
+            if (r === 'say') { const line = await this.pickLine(); if (line) await this.humanTalk(line); continue; }
+            if (r === 'vote') {
+                const t = await this.pickVote();
+                if (t === undefined) continue;
+                await this.act({ type: 'vote', p: this.me, target: t });
+                await this.say(t === -1 ? 'Saltas el voto.' : `Votas ${toWhom(this.seats[t].name)}.`, { interrupt: true });
+                return;
+            }
+        }
+    }
+
+    /** Qué quieres decir: primero el qué y luego de quién o de dónde. */
+    async pickLine() {
+        const g = this.game, M = g.meeting;
+        const kind = await Dialog.open({
+            title: 'Decir algo',
+            items: [
+                { label: 'Dónde estaba yo', value: 'where' },
+                { label: 'He visto a alguien matar', value: 'kill' },
+                { label: 'Sospecho de alguien', value: 'sus' },
+                ...(M.kind === 'body' ? [{ label: `Vi a alguien ${inPlace(this.areaName(M.area))}`, value: 'saw' }] : []),
+                { label: 'Alguien estaba conmigo', value: 'with' },
+                { label: 'Yo no he sido', value: 'deny' },
+                { label: 'No he visto nada', value: 'nothing' },
+                { label: 'Mejor saltamos el voto', value: 'skip' },
+                { label: 'Volver', value: 'back' },
+            ],
+            cancel: 'back',
+        });
+        if (!kind || kind === 'back' || this.stopped) return null;
+        if (kind === 'nothing' || kind === 'skip' || kind === 'deny') return { kind };
+        if (kind === 'where') {
+            const area = await Dialog.open({
+                title: '¿Dónde estabas?',
+                items: [...SHIP.areas.filter(a => a.kind === 'room').map(a => ({ label: cap(a.name), value: a.id })), { label: 'Volver', value: 'back' }],
+                cancel: 'back',
+            });
+            return area && area !== 'back' ? { kind, area } : null;
+        }
+        const title = { kill: '¿A quién has visto matar?', sus: '¿De quién sospechas?', saw: `¿A quién viste ${inPlace(this.areaName(M.area))}?`, with: '¿Quién estaba contigo?' }[kind];
+        const who = await Dialog.open({
+            title,
+            items: [...g.living().filter(q => q !== this.me).map(q => ({ label: this.voteLabel(q), value: 'p' + q })), { label: 'Volver', value: 'back' }],
+            cancel: 'back',
+        });
+        if (!who || who === 'back') return null;
+        return { kind, who: +who.slice(1), ...(kind === 'saw' ? { area: M.area } : {}) };
+    }
+
+    voteLabel(q) { return `${cap(this.seats[q].name)}${this.isMate(q) ? ', impostor como tú' : ''}`; }
+
+    async humanTalk(line) {
+        const g = this.game, M = g.meeting;
+        const res = g.act({ type: 'say', p: this.me, line });
+        if (!res.ok) { this.audio.error(); await this.say(res.error, { interrupt: true }); return; }
+        await this.apply(res);
+        await this.say(`Dices: ${this.lineText(this.me, line)}`, { keep: true, interrupt: true });
+        if (line.who == null) return;
+        for (const q of g.living()) {
+            if (!this.bots[q] || g.phase !== 'meeting') continue;
+            const reply = this.bots[q].react(this.me, line, M);
+            if (reply.length) await this.botTalk(q, reply, 1);
+        }
+    }
+
+    async pickVote() {
+        const g = this.game;
+        const r = await Dialog.open({
+            title: '¿A quién votas?',
+            text: 'Quien tenga más votos sale de la nave. Si hay empate, o si gana saltar el voto, no sale nadie.',
+            items: [
+                ...g.living().filter(q => q !== this.me).map(q => ({ label: this.voteLabel(q), value: 'p' + q })),
+                { label: 'Saltar el voto', value: 'skip' },
+                { label: 'Volver', value: 'back' },
+            ],
+            cancel: 'back',
+        });
+        if (!r || r === 'back' || this.stopped) return undefined;
+        return r === 'skip' ? -1 : +r.slice(1);
+    }
+
+    /** Lo que se ha dicho en esta reunión, para volver a oírlo. */
+    meetingLogText() {
+        const log = this.meet?.log || [];
+        if (!log.length) return 'Todavía no ha dicho nada nadie.';
+        return log.map(x => `${x.p === this.me ? 'Tú' : cap(this.seats[x.p].name)}: ${x.text}`).join(' ');
+    }
+
+    aliveText() {
+        const g = this.game, alive = g.living(), dead = g.players.filter(pl => !pl.alive && pl.knownDead).map(pl => pl.index);
+        let t = `En la nave quedáis ${alive.length}: ${Txt.list(alive.map(p => p === this.me ? 'tú' : this.seats[p].name + (this.isMate(p) ? ', impostor' : '')))}.`;
+        if (dead.length) t += ` Han muerto o los han echado: ${Txt.list(dead.map(p => this.v.name(p)))}.`;
+        if (this.impsOut) t += ` Ya habéis echado a ${this.impsOut === 1 ? 'un impostor' : `${this.impsOut} impostores`}.`;
+        return t;
+    }
+
+    /** Las votaciones: cuántos votos tiene cada uno y quién sale. */
+    async presentVotes(e) {
+        const g = this.game, who = q => q === this.me ? 'tú' : this.seats[q].name;
+        const parts = [];
+        const by = {};
+        for (const [p, t] of e.votes || []) (by[t] = by[t] || []).push(p);
+        const order = Object.keys(e.counts).map(Number).sort((a, b) => e.counts[b] - e.counts[a]);
+        for (const t of order) {
+            const n = e.counts[t];
+            parts.push(`${cap(who(t))}, ${n} ${n === 1 ? 'voto' : 'votos'}${by[t] ? `: ${Txt.list(by[t].map(who))}` : ''}.`);
+        }
+        if (e.skip) parts.push(`${e.skip === 1 ? 'Salta el voto' : `Saltan el voto ${e.skip}`}${by[-1] ? `: ${Txt.list(by[-1].map(who))}` : ''}.`);
+        if (e.ejected == null) parts.push(e.tie ? 'Hay empate: no sale nadie.' : 'No sale nadie de la nave.');
+        if (this.meet) this.meet.counts = { ...e.counts, skip: e.skip };
+        this.renderMeeting();
+        const text = `Votos. ${parts.join(' ')}`;
+        if (this.visual) Board.status(text);
+        await this.say(text, { keep: true });
+        await this.readPause(text);
+    }
+
+    async presentEject(e) {
+        const g = this.game, me = this.me;
+        this.deadSaid.add(e.p);
+        if (e.impostor) this.impsOut++;
+        this.flat(ShipSounds.eject());
+        const name = this.seats[e.p].name;
+        Board.banner(e.p === me ? 'Te echan de la nave' : `${cap(name)} sale de la nave`, e.impostor == null ? '' : e.impostor ? 'Era impostor' : 'No era impostor');
+        let t = e.p === me ? 'Te han echado de la nave.' : `${cap(name)} sale de la nave por la escotilla.`;
+        if (e.impostor != null) {
+            t += e.p === me ? (e.impostor ? ' Eras impostor, y te han pillado.' : ' Y eras tripulante.') : e.impostor ? ` Era ${g.impostorCount() === 1 ? 'el impostor' : 'impostor'}.` : ' No era impostor.';
+            if (e.left) t += ` ${e.left === 1 ? 'Queda un impostor' : `Quedan ${e.left} impostores`}.`;
+        } else t += ' Nadie sabe si era impostor.';
+        if (e.p === me && g.phase !== 'gameOver') t += ' Ahora eres un fantasma.';
+        this.renderMeeting();
+        if (this.visual) Board.status(t);
+        await this.say(t, { keep: true });
+        await this.sleep(400);
+        await this.readPause(t);
+    }
+
+    meetLog(p, text) {
+        if (!this.meet || !text) return;
+        this.meet.log.push({ p, text });
+        this.meet.last[p] = text;
+        this.renderMeeting();
+    }
+
+    showMeeting(on) {
+        const box = $('imp-meet');
+        if (box) box.hidden = !on;
+        if (!on) this.meet = null;
+        this.renderMeeting();
+    }
+
+    /** El panel de la reunión: cada uno con su dibujo, si vive, si ha votado y lo último que ha dicho. */
+    renderMeeting() {
+        const M = this.meet, box = $('imp-meet');
+        if (!M || !box || box.hidden) return;
+        const g = this.game;
+        $('imp-meet-title').textContent = M.title;
+        $('imp-meet-crew').innerHTML = g.players.map(pl => {
+            const p = pl.index, dead = !pl.alive, votes = M.counts?.[p];
+            return `<div class="imp-card${dead ? ' dead' : ''}${M.talking === p ? ' talking' : ''}${M.voted.has(p) ? ' voted' : ''}${this.isMate(p) || (p === this.me && this.amImpostor) ? ' imp' : ''}">
+                <svg viewBox="-12 -20 24 32" aria-hidden="true">${ImpostorArt.crew(0, 0, 8, this.colorOf(p))}${dead ? '<path d="M -7 -7 L 7 7 M 7 -7 L -7 7" stroke="#e05656" stroke-width="2.5" stroke-linecap="round"/>' : ''}</svg>
+                <span class="nm">${impEsc(p === this.me ? 'Tú' : cap(pl.name))}</span>
+                ${votes ? `<span class="votes">${votes} ${votes === 1 ? 'voto' : 'votos'}</span>` : M.voted.has(p) ? '<span class="st">ha votado</span>' : ''}
+                ${M.last[p] ? `<span class="said">${impEsc(M.last[p])}</span>` : ''}
+            </div>`;
+        }).join('');
+        $('imp-meet-log').innerHTML = M.log.slice(-6).map(x => `<li><b>${impEsc(x.p === this.me ? 'Tú' : cap(this.seats[x.p].name))}:</b> ${impEsc(x.text)}</li>`).join('');
     }
 
     // ── Lo que preguntas ──────────────────────────────
@@ -672,18 +1226,24 @@ class ImpostorMatch extends Match {
             const x = clamp(me.x, f.x, f.x + f.w), y = clamp(me.y, f.y, f.y + f.h);
             parts.push(`${cap(f.name)} está ${this.rel(x, y)}.`);
         }
-        const pend = g.pending(this.me), here = pend.filter(t => t.spot.area === me.area);
-        if (here.length) parts.push(here.map(t => `Tu tarea ${this.taskName(t)} está ${this.rel(t.spot.x, t.spot.y)}.`).join(' '));
-        else if (pend.length) { const n = this.nearestTask(); parts.push(`Tu tarea más cercana es ${this.taskName(n.t)}, ${inPlace(this.areaName(n.t.spot.area))}.`); }
+        if (me.area === SHIP.button.area && g.impostorCount() && me.alive) parts.push('En la mesa está el botón de emergencia.');
+        const pend = g.pending(this.me), here = pend.filter(t => t.spot.area === me.area), mine = this.amImpostor ? 'Tu tarea de mentira' : 'Tu tarea';
+        if (here.length) parts.push(here.map(t => `${mine} ${this.taskName(t)} está ${this.rel(t.spot.x, t.spot.y)}.`).join(' '));
+        else if (pend.length) { const n = this.nearestTask(); parts.push(`${this.amImpostor ? 'Tu tarea de mentira más cercana' : 'Tu tarea más cercana'} es ${this.taskName(n.t)}, ${inPlace(this.areaName(n.t.spot.area))}.`); }
         else parts.push('Ya has hecho todas tus tareas.');
-        const { seen, heard } = g.perceive(this.me);
-        if (seen.length) parts.push(`Ves ${impList(seen.map(p => `${toWhom(this.names[p])}, ${this.rel(g.players[p].x, g.players[p].y)}`))}.`);
+        const { seen, heard, bodies } = g.perceive(this.me);
+        for (const p of bodies) { const b = g.bodies.find(x => x.p === p); parts.push(`${p === this.me ? 'Tu cuerpo' : `El cuerpo ${ofWhom(this.seats[p].name)}`} está ${this.rel(b.x, b.y)}.`); }
+        if (seen.length) parts.push(`Ves ${impList(seen.map(p => `${toWhom(this.names[p])}${g.players[p].alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}, ${this.rel(g.players[p].x, g.players[p].y)}`))}.`);
         const steps = new Set(heard.map(p => {
             const pl = g.players[p];
             return `${impDir(pl.x - me.x, pl.y - me.y)}${shipSight(me.x, me.y, pl.x, pl.y) ? ', lejos' : ', al otro lado de la pared'}`;
         }));
         if (steps.size) parts.push(`Oyes pasos ${impList([...steps])}.`);
         if (!seen.length && !heard.length) parts.push('No hay nadie cerca.');
+        if (this.amImpostor && me.alive) {
+            const t = g.killTargets(this.me)[0];
+            parts.push(me.killCd > 0 ? `Para matar, faltan ${Math.ceil(me.killCd)} segundos.` : t != null ? `Puedes matar ${toWhom(this.seats[t].name)}.` : 'Ya puedes matar, pero no tienes a nadie a tu alcance.');
+        }
         if (this.guide?.carrot) parts.push(`La guía te lleva ${this.guide.to}: sigue ${impDir(this.guide.carrot.x - me.x, this.guide.carrot.y - me.y)}.`);
         this.tell(parts.join(' '), { keep: true });
     }
@@ -702,24 +1262,38 @@ class ImpostorMatch extends Match {
             if (t.done) return `${name}: hecha`;
             return `${name}, ${inPlace(this.areaName(s.area))}${me.area === s.area ? `, ${this.rel(s.x, s.y)}` : ''}`;
         });
-        this.tell(`Tus tareas: ${impList(list)}.`, { keep: true });
+        this.tell(`${this.amImpostor ? 'Tus tareas de mentira' : 'Tus tareas'}: ${impList(list)}.`, { keep: true });
     }
     myCards() { this.sayTasks(); }
 
     info() {
-        const g = this.game, { done, total } = g.taskBar(), mine = this.mePl.tasks, left = mine.filter(t => !t.done).length;
-        const parts = [`La tripulación lleva ${done} tareas de ${total}, el ${total ? Math.round(done / total * 100) : 0} por ciento.`];
-        parts.push(left ? `A ti te quedan ${left} de ${mine.length}.` : 'Tú ya has hecho todas las tuyas.');
-        const a = SHIP.byId[this.mePl.area];
+        const g = this.game, { done, total } = g.taskBar(), me = this.mePl, mine = me.tasks, left = mine.filter(t => !t.done).length;
+        const parts = [];
+        const n = g.impostorCount();
+        if (n) {
+            const role = !me.alive ? 'Eres un fantasma' : this.amImpostor ? 'Eres impostor' : 'Eres tripulante';
+            const mates = this.amImpostor ? g.impostors().filter(q => q !== this.me) : [];
+            parts.push(`${role}${mates.length ? `, con ${Txt.list(mates.map(q => this.seats[q].name))}` : ''}. ${n === 1 ? 'Hay un impostor' : `Hay ${n} impostores`}${this.impsOut ? `, y ya habéis echado a ${this.impsOut}` : ''}.`);
+        }
+        parts.push(`La tripulación lleva ${done} tareas de ${total}, el ${total ? Math.round(done / total * 100) : 0} por ciento.`);
+        if (!this.amImpostor) parts.push(left ? `A ti te quedan ${left} de ${mine.length}.` : 'Tú ya has hecho todas las tuyas.');
+        else if (me.alive) parts.push(me.killCd > 0 ? `Para matar, faltan ${Math.ceil(me.killCd)} segundos.` : 'Ya puedes matar.');
+        if (n && me.alive) {
+            const w = g.buttonWait();
+            parts.push(me.meetingsLeft ? `Te ${me.meetingsLeft === 1 ? 'queda una reunión de emergencia' : `quedan ${me.meetingsLeft} reuniones de emergencia`}${w > 0 ? `, y el botón estará listo dentro de ${Math.ceil(w)} segundos` : ''}.` : 'Ya no te quedan reuniones de emergencia.');
+        }
+        const a = SHIP.byId[me.area];
         if (a) parts.push(`Estás ${inPlace(a.name)}.`);
-        parts.push(`En la nave estáis ${g.n}: ${Txt.list(this.names)}.`);
+        const dead = g.players.filter(pl => !pl.alive && pl.knownDead).map(pl => pl.index);
+        parts.push(`En la nave estáis ${g.n}: ${Txt.list(this.names)}.${dead.length ? ` Se sabe que han muerto o que los han echado: ${Txt.list(dead.map(p => this.v.name(p)))}.` : ''}`);
         this.tell(parts.join(' '), { keep: true });
     }
 
     keysHelp() {
         const t = [
             'W, A, S y D, o las flechas: andar. W va hacia delante, que es arriba en la pantalla; S, hacia detrás; A, a la izquierda, y D, a la derecha. Lo que suena a tu derecha está a tu derecha.',
-            'E o Enter: usar la tarea que tienes al lado.',
+            'E o Enter: usar la tarea que tienes al lado. Junto a la mesa del Comedor, pedir una reunión de emergencia.',
+            'R: avisar de un cuerpo que tienes cerca. Q, si eres impostor: matar a quien tienes a tu alcance.',
             'F: qué hay cerca: dónde estás, las salidas, tus tareas y quién está contigo. G: la guía, que te lleva con un pitido a una tarea o a una sala.',
             'T o C: tus tareas. M: cómo es la nave. P: cómo suenan los pasos de cada uno. I: cómo va la partida.',
             'Espacio: repetir lo último. H: las teclas. Escape: pausa, o dejar la tarea que estás haciendo.',
@@ -775,7 +1349,9 @@ class ImpostorMatch extends Match {
 
     // ── Andar ─────────────────────────────────────────
     walkNudge(k) {
-        if (this.task) { this.busyNotice(); return; }
+        if (this.game.phase !== 'ship') return;
+        if (this.task?.fake) this.act({ type: 'cancelTask', p: this.me });
+        else if (this.task) { this.busyNotice(); return; }
         const [dx, dy] = IMP_MOVE[k];
         this.nudge = { dx, dy, t: 0.45 };
         this.audio.unlock();
@@ -799,23 +1375,75 @@ class ImpostorMatch extends Match {
         this.held.delete(k);
     }
 
-    // ── Usar y las tareas ─────────────────────────────
+    // ── Usar, matar y avisar ──────────────────────────
     use() {
-        if (this.task) { this.taskKey('Enter'); return; }
+        if (this.task) { if (this.task.fake) this.cancelPick(); else this.taskKey('Enter'); return; }
         const g = this.game;
         if (g.phase !== 'ship') { this.explainCant(); return; }
         const t = g.taskHere(this.me);
         if (t) { this.act({ type: 'startTask', p: this.me, i: t.i }); return; }
+        if (this.alive && g.impostorCount() && g.atButton(this.me)) { this.emergency(); return; }
         this.audio.error();
         const n = this.nearestTask();
-        if (!n) { this.tell('Ya has hecho todas tus tareas. Pasea por la nave mientras los demás acaban las suyas.'); return; }
+        if (!n) { this.tell(`Ya has hecho todas tus tareas. ${g.impostorCount() ? 'Vigila quién va con quién.' : 'Pasea por la nave mientras los demás acaban las suyas.'}`); return; }
         this.tell(`Aquí no hay ninguna tarea tuya. La más cercana es ${this.taskName(n.t)}, ${inPlace(this.areaName(n.t.spot.area))}, ${impDist(n.d)}.${this.hint('guideTip', `${cap(this.press('G', 'Guía'))} para que te guíe.`)}`);
     }
 
-    openTask(i, type) {
+    /** El botón de emergencia, en la mesa del Comedor: antes de llamar a todos, se pregunta. */
+    async emergency() {
+        const g = this.game, me = this.mePl;
+        if (Dialog.active) return;
+        if (!me.meetingsLeft) { this.audio.error(); this.tell('Ya no te quedan reuniones de emergencia.'); return; }
+        const w = g.buttonWait();
+        if (w > 0) { this.audio.error(); this.tell(`El botón de emergencia estará listo dentro de ${Math.ceil(w)} segundos.`); return; }
+        const r = await Dialog.open({
+            title: 'El botón de emergencia',
+            text: `¿Llamas a todos a una reunión? ${me.meetingsLeft === 1 ? 'Solo puedes hacerlo una vez.' : `Te quedan ${me.meetingsLeft}.`}`,
+            items: [{ label: 'Sí, pedir una reunión', value: 'yes' }, { label: 'No, seguir', value: 'no' }],
+            cancel: 'no',
+        });
+        if (r === 'yes' && !this.stopped && g.phase === 'ship') this.act({ type: 'button', p: this.me });
+    }
+
+    /** Q: matar a quien tienes a tu alcance (siendo impostor). */
+    killKey() {
+        const g = this.game, me = this.mePl;
+        if (g.phase !== 'ship') { this.explainCant(); return; }
+        if (!this.amImpostor) { this.audio.error(); this.tell(g.impostorCount() ? 'Solo los impostores pueden matar. Tú eres tripulante.' : 'En esta partida no hay impostores.'); return; }
+        if (!me.alive) { this.audio.error(); this.tell('Los fantasmas no pueden matar.'); return; }
+        if (me.killCd > 0) { this.audio.error(); this.tell(`Todavía no: faltan ${Math.ceil(me.killCd)} segundos.`); return; }
+        const t = g.killTargets(this.me)[0];
+        if (t == null) { this.audio.error(); this.tell('No tienes a nadie a tu alcance. Acércate más.'); return; }
+        if (this.task) this.act({ type: 'cancelTask', p: this.me });
+        this.act({ type: 'kill', p: this.me, target: t });
+    }
+
+    /** R: avisar de un cuerpo. */
+    report() {
+        const g = this.game, me = this.mePl;
+        if (g.phase !== 'ship') { this.explainCant(); return; }
+        if (!g.impostorCount()) { this.audio.error(); this.tell('En esta partida no hay impostores, así que no hay cuerpos.'); return; }
+        if (!me.alive) { this.audio.error(); this.tell('Los fantasmas no pueden avisar.'); return; }
+        const b = g.bodyHere(this.me);
+        if (b) { this.act({ type: 'report', p: this.me }); return; }
+        this.audio.error();
+        const seen = g.perceive(this.me).bodies;
+        if (seen.length) { const c = g.bodies.find(x => x.p === seen[0]); this.tell(`Acércate más al cuerpo: está ${this.rel(c.x, c.y)}.`); return; }
+        this.tell(`No ves ningún cuerpo. Para pedir una reunión sin cuerpo, ve a la mesa del Comedor y ${this.press('E', 'Usar')}.`);
+    }
+
+    openTask(i, type, fake = false) {
         this.releaseKeys();
-        const T = this.task = { i, type, easy: !!this.game.rules.easyTasks };
+        const T = this.task = { i, type, fake, easy: !!this.game.rules.easyTasks };
         $('imp-task').hidden = false;
+        if (fake) {
+            $('imp-task-title').textContent = `Finges: ${IMPOSTOR_TASKS[type].name.toLowerCase()}`;
+            Board.status(`Finges ${IMPOSTOR_TASKS[type].short}`);
+            this.taskUI({ text: 'Quien te vea pensará que haces la tarea. Para irte, anda o pulsa Escape.', art: '', buttons: [] });
+            this.tell(`Finges que haces ${IMPOSTOR_TASKS[type].short}. Para irte, anda.`);
+            Board.render(this);
+            return;
+        }
         $('imp-task-title').textContent = IMPOSTOR_TASKS[type].name;
         Board.status(IMPOSTOR_TASKS[type].name);
         this[type + 'Start'](T);
@@ -842,20 +1470,21 @@ class ImpostorMatch extends Match {
 
     cancelPick() {
         if (!this.task) return false;
+        const fake = this.task.fake;
         this.act({ type: 'cancelTask', p: this.me });
-        this.tell('Dejas la tarea. Puedes volver cuando quieras.');
+        this.tell(fake ? 'Dejas de fingir.' : 'Dejas la tarea. Puedes volver cuando quieras.');
         return true;
     }
 
     taskKey(k) {
         const T = this.task;
-        if (!T || T.finished) return;
+        if (!T || T.finished || T.fake) return;
         this[T.type + 'Key'](T, k === 'e' ? 'Enter' : k);
     }
 
     taskTick(dt) {
         const T = this.task;
-        if (T && !T.finished && this[T.type + 'Tick']) this[T.type + 'Tick'](T, dt);
+        if (T && !T.finished && !T.fake && this[T.type + 'Tick']) this[T.type + 'Tick'](T, dt);
     }
 
     /** Lo que se ve en el panel de la tarea: el texto, el dibujo y los botones. */
@@ -1056,7 +1685,10 @@ class ImpostorMatch extends Match {
     gameKey(k, e) {
         if (IMP_MOVE[k]) {
             e.preventDefault();
-            if (this.task) { this.busyNotice(); return true; }
+            if (this.game.phase !== 'ship') return true;
+            // Al andar, el impostor deja de fingir la tarea.
+            if (this.task?.fake) { this.act({ type: 'cancelTask', p: this.me }); }
+            else if (this.task) { this.busyNotice(); return true; }
             this.held.add(k);
             this.audio.unlock();
             return true;
@@ -1070,6 +1702,8 @@ class ImpostorMatch extends Match {
             if (k === 'Enter') return false;
         }
         if (k === 'e' || (k === 'Enter' && !e.target?.closest?.('button'))) { e.preventDefault(); this.use(); return true; }
+        if (k === 'q') { e.preventDefault(); this.killKey(); return true; }
+        if (k === 'r') { e.preventDefault(); this.report(); return true; }
         if (k === 'f') { e.preventDefault(); this.radar(); return true; }
         if (k === 'g') { e.preventDefault(); this.openGuide(); return true; }
         if (k === 't') { e.preventDefault(); this.sayTasks(); return true; }
@@ -1174,18 +1808,37 @@ class ImpostorMatch extends Match {
         this.ripples = this.ripples.filter(r => now - r.t0 < 0.9);
         for (const r of this.ripples) {
             const age = (now - r.t0) / 0.9;
-            c.strokeStyle = r.kind === 'ping' ? `rgba(69,201,201,${0.9 * (1 - age)})` : r.kind === 'bump' ? `rgba(255,140,120,${0.8 * (1 - age)})` : `rgba(255,255,255,${0.45 * (1 - age)})`;
+            c.strokeStyle = r.kind === 'ping' ? `rgba(69,201,201,${0.9 * (1 - age)})` : r.kind === 'bump' ? `rgba(255,140,120,${0.8 * (1 - age)})`
+                : r.kind === 'body' ? `rgba(240,70,70,${0.9 * (1 - age)})` : `rgba(255,255,255,${0.45 * (1 - age)})`;
             c.lineWidth = 2;
             c.beginPath(); c.arc(X(r.x), Y(r.y), S * (0.2 + age * (r.kind === 'step' ? 1.2 : 0.8)), 0, Math.PI * 2); c.stroke();
         }
-        // Los tripulantes que ves, y tú.
+        // El botón de emergencia, en el centro de la mesa del comedor.
+        const B = SHIP.button;
+        c.fillStyle = '#c0392b'; c.strokeStyle = '#ffd7d0'; c.lineWidth = Math.max(1.5, S * 0.06);
+        c.beginPath(); c.arc(X(B.x), Y(B.y), S * 0.32, 0, Math.PI * 2); c.fill(); c.stroke();
+        // Los cuerpos que ves.
         c.font = `700 ${Math.round(S * 0.38)}px system-ui, sans-serif`;
+        for (const p of this.bodiesNow) {
+            const b = g.bodies.find(x => x.p === p);
+            if (b) this.drawBody(c, X(b.x), Y(b.y), S, p);
+        }
+        // Los tripulantes que ves, y tú. Los fantasmas, medio transparentes.
         for (const pl of g.players) {
             if (pl.index !== this.me && !this.seenNow.has(pl.index)) continue;
+            c.globalAlpha = pl.alive ? 1 : 0.45;
             this.drawCrew(c, X(pl.x), Y(pl.y), S, pl, pl.index === this.me);
+            c.globalAlpha = 1;
+        }
+        // Siendo impostor, un aro rojo en quien tienes a tu alcance.
+        const tg = this.inRange != null ? g.players[this.inRange] : null;
+        if (tg && this.seenNow.has(tg.index)) {
+            c.strokeStyle = `rgba(240,70,70,${0.6 + 0.3 * Math.sin(now * 8)})`; c.lineWidth = 3;
+            c.beginPath(); c.arc(X(tg.x), Y(tg.y), S * 0.62, 0, Math.PI * 2); c.stroke();
         }
         // La niebla: más allá de lo que ves, se ve oscuro.
-        const fog = c.createRadialGradient(w / 2, h / 2, g.vision * S * 0.75, w / 2, h / 2, g.vision * S * 1.15);
+        const vis = g.visionOf(this.me);
+        const fog = c.createRadialGradient(w / 2, h / 2, vis * S * 0.75, w / 2, h / 2, vis * S * 1.15);
         fog.addColorStop(0, 'rgba(4,7,15,0)');
         fog.addColorStop(1, 'rgba(4,7,15,.72)');
         c.fillStyle = fog;
@@ -1200,8 +1853,22 @@ class ImpostorMatch extends Match {
         }
     }
 
+    /** Un cuerpo: medio tripulante tumbado, de su color, con un hueso y una cruz roja. */
+    drawBody(c, x, y, S, p) {
+        const r = S * 0.38;
+        c.fillStyle = this.colorOf(p); c.strokeStyle = '#0b1020'; c.lineWidth = Math.max(1.5, r * 0.18);
+        c.beginPath(); c.ellipse(x, y + r * 0.2, r * 1.15, r * 0.6, 0, 0, Math.PI * 2); c.fill(); c.stroke();
+        c.fillStyle = '#f2efe6';
+        c.beginPath(); c.arc(x + r * 0.9, y - r * 0.15, r * 0.24, 0, Math.PI * 2); c.arc(x + r * 0.9, y + r * 0.25, r * 0.24, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = '#e05656'; c.lineWidth = Math.max(2, r * 0.22); c.lineCap = 'round';
+        c.beginPath(); c.moveTo(x - r * 0.5, y - r * 0.3); c.lineTo(x + r * 0.2, y + r * 0.6); c.moveTo(x + r * 0.2, y - r * 0.3); c.lineTo(x - r * 0.5, y + r * 0.6); c.stroke();
+        c.fillStyle = '#ffb3b3'; c.strokeStyle = 'rgba(0,0,0,.7)'; c.lineWidth = 3;
+        const label = p === this.me ? 'Tú' : cap(this.seats[p].name);
+        c.strokeText(label, x, y + r * 2); c.fillText(label, x, y + r * 2);
+    }
+
     drawCrew(c, x, y, S, pl, isMe) {
-        const r = S * 0.32, col = IMP_COLORS[(pl.index - this.me + this.game.n) % this.game.n % IMP_COLORS.length];
+        const r = S * 0.32, col = this.colorOf(pl.index);
         if (isMe) { c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r * 1.7, 0, Math.PI * 2); c.stroke(); }
         // La antena, siempre hacia arriba, y el cuerpo.
         c.strokeStyle = '#dfe7f5'; c.lineWidth = Math.max(1.5, r * 0.18);
@@ -1214,7 +1881,8 @@ class ImpostorMatch extends Match {
         c.fillStyle = '#bfe6ff'; c.lineWidth = Math.max(1, r * 0.12);
         c.beginPath(); c.ellipse(x + Math.cos(ang) * r * 0.42, y + Math.sin(ang) * r * 0.42, r * 0.36, r * 0.6, ang, 0, Math.PI * 2); c.fill(); c.stroke();
         if (pl.busy) { c.fillStyle = '#ffd34d'; c.fillText('…', x, y - r * 2.3); }
-        c.fillStyle = '#fff'; c.strokeStyle = 'rgba(0,0,0,.7)'; c.lineWidth = 3;
+        // Los impostores ven en rojo el nombre de sus compañeros.
+        c.fillStyle = this.isMate(pl.index) ? '#ff8a8a' : '#fff'; c.strokeStyle = 'rgba(0,0,0,.7)'; c.lineWidth = 3;
         const label = isMe ? 'Tú' : cap(pl.name);
         c.strokeText(label, x, y + r * 2); c.fillText(label, x, y + r * 2);
     }

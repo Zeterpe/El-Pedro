@@ -9,7 +9,7 @@ En el salón eliges a qué jugar:
 - **El Pedro:** juego de memoria. Las cartas están boca abajo para todos y gana la memoria.
 - **La Brisca:** el clásico de bazas, con triunfo y muestra, de 2 a 6 jugadores y también por parejas.
 - **El Parchís:** el de toda la vida, con dado y fichas, de 2 a 4 jugadores, cada uno por su cuenta o por parejas.
-- **El Impostor:** una nave espacial que se recorre en tiempo real guiándose por el oído, con sonido 3D. En esta primera versión, la tripulación hace sus tareas; los impostores llegarán después.
+- **El Impostor:** una nave espacial que se recorre en tiempo real guiándose por el oído, con sonido 3D. La tripulación hace sus tareas mientras los impostores matan a escondidas; en las reuniones se habla y se vota a quién echar. De momento, contra la máquina.
 
 ## El Pedro
 
@@ -30,6 +30,10 @@ En el salón eliges a qué jugar:
 - **Andar.** Con W, A, S y D o las flechas (en el móvil, con el joystick o la cruceta). Siempre miras hacia arriba de la pantalla: lo que suena a tu derecha está a tu derecha. Con auriculares se oye todo desde su sitio: pasos, puertas, el ambiente de cada sala, las paredes al rozarlas y tus tareas.
 - **Orientarse.** La F dice qué hay cerca (salidas, tareas y quién está contigo) y la G pone la guía, un pitido que te lleva a una tarea o a una sala.
 - **Las tareas.** Minijuegos de oído y de reflejos: conectar cables por su sonido, descargar datos, calibrar el motor y teclear un código. Cuando la tripulación las acaba todas, gana.
+- **Los impostores.** Desde 4 jugadores hay uno, y desde 7, dos. Matan con la Q cuando tienen a alguien a su alcance y nadie mira, y fingen tareas para disimular.
+- **Los cuerpos.** Suenan como un monitor sin pulso. Con la R se avisa y empieza una reunión; también se puede pedir una con el botón de emergencia, en la mesa del Comedor.
+- **La reunión.** Cada uno dice dónde estaba, a quién vio o de quién sospecha, eligiendo frases, y después se vota. Quien tenga más votos sale de la nave. Los muertos siguen como fantasmas y pueden acabar sus tareas.
+- **Ganar.** La tripulación gana con todas las tareas hechas o echando a todos los impostores; los impostores, cuando son tantos como los tripulantes vivos.
 
 ## La Brisca
 
