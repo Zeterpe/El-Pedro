@@ -546,7 +546,7 @@ class Match {
         this.speech.cancel();
         const host = this.mode === 'host';
         const r = await Dialog.open({
-            title: 'Pausa', speak: true,
+            title: 'Pausa', text: this.pauseNote(), speak: true,
             items: [
                 { label: 'Seguir jugando', value: 'go' },
                 ...(this.visual ? [] : [{ label: 'Teclas', value: 'keys' }, { label: 'Cómo va la partida', value: 'info' }]),
@@ -562,6 +562,9 @@ class Match {
         else if (r === 'menu') this.app.leaveMatch();
         else if (!this.visual) this.speech.say('Seguimos.', { interrupt: true });
     }
+
+    /** Lo que se dice al abrir la pausa (en El Impostor, en una sala, que la partida sigue). */
+    pauseNote() { return ''; }
 
     cancelPick() { return false; }
 
