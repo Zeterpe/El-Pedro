@@ -68,6 +68,15 @@ const IMP_LEAF = { ArrowUp: [0, -1, 'delante'], ArrowRight: [1, 0, 'a la derecha
 const IMP_WASD = { w: 'ArrowUp', d: 'ArrowRight', s: 'ArrowDown', a: 'ArrowLeft' };
 
 /** Hacia dónde está algo, mirando siempre al norte: «delante a la derecha». */
+/**
+ * Cuánto sube el tono de la guía (en semitonos) según hacia dónde hay que ir: una quinta más agudo justo delante,
+ * una quinta más grave justo detrás y el de siempre a los lados.
+ */
+function aheadSemis(dx, dy) {
+    const d = Math.hypot(dx, dy);
+    return d < 1e-6 ? 0 : 7 * (-dy / d);
+}
+
 function impDir(dx, dy) {
     const a = Math.atan2(dx, -dy);
     return IMP_DIRS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
@@ -103,6 +112,88 @@ const ventName = v => `el conducto ${ofWhom(SHIP.byId[v.area].name)}`;
 function impRoomPoint(a) {
     for (const [x, y] of [[a.cx, a.cy], [a.cx, a.y + a.h - 1.5], [a.x + 1.5, a.cy], [a.x + 1.5, a.y + 1.5]]) if (!shipBlocked(x, y, IMPOSTOR_RADIUS + 0.06)) return { x, y };
     return { x: a.x + 1.5, y: a.y + 1.5 };
+}
+
+// ── Los sonidos de la nave ─────────────────────────
+/** Los grupos de sonidos (SOUND_GROUPS), como se dicen en el menú. */
+const IMP_SOUND_ROWS = [
+    { id: 'amb', label: 'El ambiente de las salas' },
+    { id: 'people', label: 'Los demás: sus pasos y su nota' },
+    { id: 'mine', label: 'Tus pasos, los golpes y las paredes' },
+    { id: 'guide', label: 'La guía' },
+    { id: 'cues', label: 'Los avisos: puertas, tareas, cuerpos y sabotajes' },
+];
+const IMP_VOLUMES = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5];
+const impVolText = v => v === 0 ? 'apagado' : v === 1 ? '100 por ciento, lo normal' : `${Math.round(v * 100)} por ciento`;
+
+/**
+ * Los sonidos de la nave: el volumen de cada grupo y la nota de cada persona. Se abre al preparar la partida y
+ * desde la pausa (scene: la nave, que cambia al momento). Al elegir un volumen, suena una muestra.
+ */
+async function impostorSoundMenu(app, scene = null) {
+    const s = app.settings;
+    let at = 0, intro = true;
+    for (;;) {
+        const items = [
+            ...IMP_SOUND_ROWS.map((row, i) => ({ label: `${row.label}: ${impVolText(s.impostorSound[row.id])}`, value: i })),
+            { label: `La nota de cada persona que ves: ${s.impostorPresence ? 'sí, más deprisa cuanto más cerca está' : 'no, solo sus pasos'}`, value: 'presence' },
+            { label: 'Volver', value: 'back' },
+        ];
+        const r = await Dialog.open({
+            title: 'Sonidos de la nave', items, cancel: 'back', focusIndex: at, speak: intro,
+            text: intro ? 'Elige un sonido para cambiar su volumen; al cambiarlo, suena de muestra. El volumen de todo está en las opciones del salón.' : '',
+        });
+        intro = false;
+        // Si otra cosa ha abierto su diálogo (en una sala, una reunión), se deja.
+        if (r === 'back' || r == null || Dialog.active) return;
+        if (r === 'presence') {
+            s.impostorPresence = !s.impostorPresence;
+            app.save();
+            at = IMP_SOUND_ROWS.length;
+            UI.say(s.impostorPresence ? 'Cada persona que ves suena con su nota.' : 'Sin notas: solo se oyen los pasos.');
+            if (s.impostorPresence) impSoundSample(app, scene, 'people');
+            continue;
+        }
+        const row = IMP_SOUND_ROWS[r], cur = s.impostorSound[row.id];
+        at = r;
+        const v = await Dialog.open({
+            title: row.label, items: IMP_VOLUMES.map(x => ({ label: cap(impVolText(x)), value: x })),
+            cancel: cur, focusIndex: Math.max(0, IMP_VOLUMES.indexOf(cur)),
+        });
+        if (Dialog.active) return;
+        s.impostorSound = { ...s.impostorSound, [row.id]: v };
+        app.save();
+        scene?.setMix(s.impostorSound);
+        if (v !== cur) impSoundSample(app, scene, row.id);
+    }
+}
+
+/** Cómo suena un grupo, de muestra, a tu alrededor. Va aparte de la nave, que en la pausa está callada. */
+function impSoundSample(app, scene, group) {
+    app.audio.unlock();
+    const x = scene?.lx ?? 0, y = scene?.ly ?? 0;
+    const sc = new SpaceAudio(app.audio, { x, y });
+    if (!sc.ok) return;
+    sc.setMix(app.settings.impostorSound);
+    const later = (s, fn) => setTimeout(fn, s * 1000);
+    if (group === 'amb') {
+        sc.loop('muestra', x + 1, y - 2, ROOM_AMBIENCE.motores, { ref: 3, group });
+        sc.setLoop('muestra', { level: 1 });
+        later(1.8, () => sc.setLoop('muestra', { level: 0 }));
+    } else if (group === 'people') {
+        for (let i = 0; i < 3; i++) later(i * 0.3, () => sc.at(x + 2, y - 1.5, ShipSounds.step(STEP_TIMBRES[1], 'metal', 1.6), { ref: 2.5, group }));
+        if (app.settings.impostorPresence) for (let i = 0; i < 3; i++) later(1 + i * 0.45, () => sc.at(x + 2, y - 1.5, ShipSounds.presence(PRESENCE_NOTES[1]), { ref: 2, group }));
+    } else if (group === 'mine') {
+        for (let i = 0; i < 3; i++) later(i * 0.3, () => sc.here(ShipSounds.step(STEP_TIMBRES[0], 'metal', 0.5), group));
+        later(1, () => sc.at(x, y - 0.6, ShipSounds.bump('pared'), { group }));
+    } else if (group === 'guide') {
+        // Delante, más agudo; a la derecha, el de siempre; detrás, más grave.
+        [[0, -2.5], [2.5, 0], [0, 2.5]].forEach(([dx, dy], i) => later(i * 0.6, () => sc.at(x + dx, y + dy, ShipSounds.ping(aheadSemis(dx, dy)), { ref: 2, group })));
+    } else {
+        sc.at(x - 1.5, y - 1.5, ShipSounds.task(), { group });
+        later(0.7, () => sc.at(x + 1.5, y - 1, ShipSounds.door(), { group }));
+    }
+    later(3, () => sc.dispose());
 }
 
 // ═══════════════════════════════════════════════════════
@@ -162,7 +253,7 @@ class ImpostorMatch extends Match {
         this.areaWait = null;           // la sala en la que acabas de entrar (se dice si te quedas)
         this.saidArea = null;
         this.nearKey = null;
-        this.timers = { door: 0.6, beacon: 1.4, slow: 0, sparks: {}, panel: 0, alarm: 0, scan: 0, console: 0 };
+        this.timers = { door: 0.6, beacon: 1.4, slow: 0, sparks: {}, panel: 0, alarm: 0, scan: 0, console: 0, presence: {} };
         this.ripples = [];              // ondas que se ven donde suena algo que no se ve
         this.clock = 0;
         this.scene = null;
@@ -226,6 +317,8 @@ class ImpostorMatch extends Match {
     }
     async gate() { while (this.paused && !this.room && !this.stopped) await new Promise(r => setTimeout(r, 50)); }
     pauseNote() { return this.room ? 'La partida sigue mientras tanto: los demás siguen jugando.' : ''; }
+    pauseItems() { return [{ label: 'Sonidos de la nave', value: 'sound' }]; }
+    async pauseItem(r) { if (r === 'sound') await impostorSoundMenu(this.app, this.scene); }
 
     /** Lo que pasa se aprende al momento; se cuenta en orden, uno detrás de otro. */
     apply(res) {
@@ -831,8 +924,9 @@ class ImpostorMatch extends Match {
         this.audio.unlock();
         const sc = this.scene = new SpaceAudio(this.audio);
         if (!sc.ok) return;
-        for (const a of SHIP.areas) if (a.kind === 'room' && ROOM_AMBIENCE[a.id]) sc.loop('amb:' + a.id, a.cx, a.cy, ROOM_AMBIENCE[a.id], { ref: 3 });
-        if (this.settings.impostorWalls) IMP_SIDES.forEach((_, k) => sc.loop('wall' + k, 0, 0, wallRub, { ref: 0.6 }));
+        sc.setMix(this.settings.impostorSound);
+        for (const a of SHIP.areas) if (a.kind === 'room' && ROOM_AMBIENCE[a.id]) sc.loop('amb:' + a.id, a.cx, a.cy, ROOM_AMBIENCE[a.id], { ref: 3, group: 'amb' });
+        if (this.settings.impostorWalls) IMP_SIDES.forEach((_, k) => sc.loop('wall' + k, 0, 0, wallRub, { ref: 0.6, group: 'mine' }));
     }
 
     /** Hacia dónde quieres andar: teclas, cruceta y joystick. */
@@ -895,7 +989,7 @@ class ImpostorMatch extends Match {
     onTick(e) {
         if (e.p !== this.me) return;
         if (e.type === 'bump') {
-            this.scene?.at(e.x, e.y, ShipSounds.bump(e.what));
+            this.scene?.at(e.x, e.y, ShipSounds.bump(e.what), { group: 'mine' });
             this.ripple(e.x, e.y, 'bump');
             if (++this.bumps === 4) { const h = this.hint('bump', `Si no encuentras la salida, ${this.press('F', 'Qué hay cerca')} para saber por dónde se sale, o ${this.press('G', 'Guía')} para que te guíe.`); if (h && !this.speech.busy) this.notice(h.trim()); }
         } else if (e.type === 'area') this.areaWait = { id: e.area, from: e.from, t: 0.3 };
@@ -915,13 +1009,14 @@ class ImpostorMatch extends Match {
             if (!sc) continue;
             const floor = shipArea(pl.x, pl.y)?.floor || 'metal';
             // Los fantasmas no pisan el suelo: suenan como un soplo.
-            if (p === this.me) { sc.here(pl.alive ? ShipSounds.step(STEP_TIMBRES[0], floor, 0.5) : ShipSounds.ghostStep(0.7)); continue; }
+            if (p === this.me) { sc.here(pl.alive ? ShipSounds.step(STEP_TIMBRES[0], floor, 0.5) : ShipSounds.ghostStep(0.7), 'mine'); continue; }
             const d = Math.hypot(pl.x - me.x, pl.y - me.y);
             if (d > g.hearing) continue;
             const sight = shipSight(me.x, me.y, pl.x, pl.y, g.closed), seen = this.seenNow.has(p);
             // A oscuras, los pasos de quien no ves suenan todos igual.
             const tb = g.lightsOff && me.alive && !this.amImpostor && !seen ? DARK_TIMBRE : STEP_TIMBRES[this.timbreOf(p)];
-            sc.at(pl.x, pl.y, pl.alive ? ShipSounds.step(tb, floor, seen ? 1 : 0.9) : ShipSounds.ghostStep(), { wall: !seen && !sight });
+            // Los de los demás, más fuertes que los tuyos y desde más lejos: tienen que oírse por encima del ambiente.
+            sc.at(pl.x, pl.y, pl.alive ? ShipSounds.step(tb, floor, seen ? 1.6 : 1.45) : ShipSounds.ghostStep(1.6), { wall: !seen && !sight, ref: 2.5, group: 'people' });
             if (!seen) this.ripple(pl.x, pl.y, 'step');
         }
     }
@@ -943,6 +1038,7 @@ class ImpostorMatch extends Match {
             this.lastSeen[p] = this.clock;
         }
         this.seenNow = new Set(seen);
+        this.presenceCues(dt);
         this.bodyCues(g.perceive(this.me).bodies);
         this.killCues();
         this.samplesCue();
@@ -1041,9 +1137,28 @@ class ImpostorMatch extends Match {
         this.tell(`${cap(this.seats[t].name)}, a tu alcance.${this.hint('kill', `${cap(this.press('Q', 'Matar'))} para matar.`)}`, { interrupt: !this.speech.busy });
     }
 
+    /**
+     * Cada uno a quien ves suena con su nota (impostorPresence), desde su sitio: más deprisa cuanto más cerca está,
+     * para saber al momento a qué distancia lo tienes, ande o esté quieto.
+     */
+    presenceCues(dt) {
+        const T = this.timers.presence, sc = this.scene, g = this.game, me = this.mePl;
+        if (!sc?.ok || !this.settings.impostorPresence || me.vent != null) return;
+        for (const p of this.seenNow) {
+            if (p === this.me) continue;
+            const pl = g.players[p];
+            // A quien aparece, primero le suena la aparición y después su nota.
+            if ((T[p] = (T[p] ?? 0.35) - dt) > 0) continue;
+            const d = Math.hypot(pl.x - me.x, pl.y - me.y);
+            T[p] = clamp(0.4 + d * 0.15, 0.45, 1.4);
+            sc.at(pl.x, pl.y, ShipSounds.presence(PRESENCE_NOTES[this.timbreOf(p)]), { ref: 2, group: 'people' });
+        }
+        for (const p of Object.keys(T)) if (!this.seenNow.has(+p)) delete T[p];
+    }
+
     appeared(p) {
         const pl = this.game.players[p], me = this.mePl;
-        this.scene?.at(pl.x, pl.y, ShipSounds.appear());
+        this.scene?.at(pl.x, pl.y, ShipSounds.appear(), { group: 'people' });
         // Se dice quién aparece si hace rato que no lo veías, y no mientras haces una tarea.
         if (!this.settings.impostorNames || this.visual || this.task) return;
         if (this.clock - (this.lastSeen[p] ?? -99) < 12 || this.speech.busy) return;
@@ -1076,7 +1191,7 @@ class ImpostorMatch extends Match {
             // Has llegado: suena la campanita y se dice qué tarea es (nearCue ya no la repite).
             this.guide = null;
             this.nearKey = G.i;
-            this.scene?.here(ShipSounds.arrive());
+            this.scene?.here(ShipSounds.arrive(), 'guide');
             const t = me.tasks[G.i];
             this.tell(`Has llegado: ${this.taskName(t)}.${this.hint('use', `${cap(this.press('E', 'Usar'))} para empezar.`)}`);
             Board.status(`${cap(this.press('E', 'Usar'))}: ${this.taskName(t)}`);
@@ -1085,7 +1200,7 @@ class ImpostorMatch extends Match {
         }
         if (G.kind === 'room' && me.area === G.id) {
             this.guide = null;
-            this.scene?.here(ShipSounds.arrive());
+            this.scene?.here(ShipSounds.arrive(), 'guide');
             this.tell(`Has llegado ${toPlace(this.areaName(G.id))}.`);
             Board.status(this.statusIdle());
             return;
@@ -1096,7 +1211,7 @@ class ImpostorMatch extends Match {
         if ((G.kind === 'panel' || G.kind === 'console') && Math.hypot(G.x - me.x, G.y - me.y) <= IMPOSTOR_CONSOLE - 0.25) {
             // Al llegar, nearCue dice qué es y cómo se usa.
             this.guide = null;
-            this.scene?.here(ShipSounds.arrive());
+            this.scene?.here(ShipSounds.arrive(), 'guide');
             Board.status(this.statusIdle());
             return;
         }
@@ -1114,12 +1229,12 @@ class ImpostorMatch extends Match {
         const turn = Math.abs(((ang - G.ang + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
         if (turn > 0.9 && this.clock - (G.saidAt || 0) > 1.2) {
             G.ang = ang; G.saidAt = this.clock;
-            this.scene?.here(ShipSounds.waypoint());
+            this.scene?.here(ShipSounds.waypoint(), 'guide');
             if (!this.speech.busy) this.say(cap(impDir(dx, dy)) + '.');
         }
         if ((G.ping -= dt) <= 0) {
             G.ping = clamp(pathLength(me.x, me.y, G.path) / 12, 0.35, 1);
-            this.scene?.at(G.carrot.x, G.carrot.y, ShipSounds.ping(), { ref: 2 });
+            this.scene?.at(G.carrot.x, G.carrot.y, ShipSounds.ping(aheadSemis(dx, dy)), { ref: 2, group: 'guide' });
             this.ripple(G.carrot.x, G.carrot.y, 'ping');
         }
     }
@@ -1178,7 +1293,7 @@ class ImpostorMatch extends Match {
             const a = SHIP.byId[id];
             if (Math.hypot(a.cx - me.x, a.cy - me.y) > 18) continue;
             const x = a.x + 1 + Math.random() * (a.w - 2), y = a.y + 1 + Math.random() * (a.h - 2);
-            sc.at(x, y, ShipSounds[name](), { wall: me.area !== id && !shipSight(me.x, me.y, x, y) });
+            sc.at(x, y, ShipSounds[name](), { wall: me.area !== id && !shipSight(me.x, me.y, x, y), group: 'amb' });
         }
         // El ambiente y las paredes, unas diez veces por segundo.
         if ((T.slow -= dt) > 0) return;
@@ -1600,7 +1715,7 @@ class ImpostorMatch extends Match {
     otherSound(p, play, e = null) {
         const g = this.game, pl = g.players[p], me = this.mePl, x = e?.x ?? pl.x, y = e?.y ?? pl.y, d = Math.hypot(x - me.x, y - me.y);
         if (d > g.hearing) return;
-        this.scene?.at(x, y, play, { wall: !shipSight(me.x, me.y, x, y, g.closed) });
+        this.scene?.at(x, y, play, { wall: !shipSight(me.x, me.y, x, y, g.closed), group: 'people' });
     }
 
     gameOverText(won) {
@@ -2180,13 +2295,13 @@ class ImpostorMatch extends Match {
             'E o Enter: usar lo que tienes al lado: una tarea, el panel de un sabotaje o una consola. Junto a la mesa del Comedor, pedir una reunión de emergencia.',
             'R: avisar de un cuerpo que tienes cerca. Si eres impostor: Q, matar a quien tienes a tu alcance; X, sabotear, y V, entrar en un conducto o salir. Dentro de un conducto, las flechas o los números te llevan a otro.',
             'F: qué hay cerca: dónde estás, las salidas, tus tareas y quién está contigo. G: la guía, que te lleva con un pitido a una tarea o a una sala.',
-            'T o C: tus tareas. M: cómo es la nave. P: cómo suenan los pasos de cada uno. I: cómo va la partida.',
+            'T o C: tus tareas. M: cómo es la nave. P: cómo suenan los pasos y la nota de cada uno. I: cómo va la partida.',
             'Espacio: repetir lo último. H: las teclas. Escape: pausa, o dejar la tarea que estás haciendo.',
         ];
         this.tell(t.join(' ') + this.srKeysTip(), { keep: true });
     }
 
-    /** P: los pasos de cada uno, para reconocerlos sin verlos. */
+    /** P: los pasos y la nota de cada uno, para reconocerlos sin verlos. */
     async stepsDemo() {
         if (this.demoing || !this.scene?.ok) { if (!this.scene?.ok) this.tell('No hay sonido.'); return; }
         this.demoing = true;
@@ -2194,8 +2309,11 @@ class ImpostorMatch extends Match {
         for (const [k, p] of order.entries()) {
             if (this.stopped) break;
             await this.say(p === this.me ? 'Tus pasos.' : `${cap(this.names[p])}.`, { interrupt: k === 0 });
-            for (let i = 0; i < 3; i++) setTimeout(() => this.scene?.here(ShipSounds.step(STEP_TIMBRES[this.timbreOf(p)], 'metal', 0.8)), i * 300);
-            await new Promise(r => setTimeout(r, 1000));
+            for (let i = 0; i < 3; i++) setTimeout(() => this.scene?.here(ShipSounds.step(STEP_TIMBRES[this.timbreOf(p)], 'metal', p === this.me ? 0.8 : 1.3), p === this.me ? 'mine' : 'people'), i * 300);
+            // Y la nota que suena mientras le ves.
+            const note = p !== this.me && this.settings.impostorPresence;
+            if (note) for (let i = 0; i < 2; i++) setTimeout(() => this.scene?.here(ShipSounds.presence(PRESENCE_NOTES[this.timbreOf(p)]), 'people'), 1000 + i * 450);
+            await new Promise(r => setTimeout(r, note ? 1900 : 1000));
         }
         this.demoing = false;
     }
@@ -2912,8 +3030,8 @@ class ImpostorMatch extends Match {
     rumboTick(T, dt) {
         if ((T.beat -= dt) > 0) return;
         T.beat = Math.abs(this.rumboRel(T)) <= T.tol ? 0.45 : 0.9;
-        const a = this.rumboRel(T) * Math.PI / 180, me = this.mePl;
-        this.scene?.at(me.x + Math.sin(a) * 2.5, me.y - Math.cos(a) * 2.5, ShipSounds.ping(), { ref: 2 });
+        const a = this.rumboRel(T) * Math.PI / 180, me = this.mePl, dx = Math.sin(a), dy = -Math.cos(a);
+        this.scene?.at(me.x + dx * 2.5, me.y + dy * 2.5, ShipSounds.ping(aheadSemis(dx, dy)), { ref: 2 });
     }
     rumboArt(T) {
         const pt = (deg, r) => { const a = deg * Math.PI / 180; return [(100 + Math.sin(a) * r).toFixed(1), (60 - Math.cos(a) * r).toFixed(1)]; };

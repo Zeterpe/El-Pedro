@@ -390,6 +390,7 @@ const GAMES = {
                 { label: 'Decir quién aparece', values: [true, false], get: () => s.impostorNames, set: v => { s.impostorNames = v; }, text: v => v ? 'sí: cuando ves a alguien, se dice su nombre y hacia dónde está' : 'no, solo un sonido' },
                 { label: 'Con lector de pantalla, en la nave habla', values: ['juego', 'lector'], get: () => s.impostorVoice, set: v => { s.impostorVoice = v; }, text: v => v === 'juego' ? 'la voz del juego, que va al momento' : 'tu lector de pantalla' },
                 { label: 'Modo a ciegas', values: [false, true], get: () => s.impostorBlind, set: v => { s.impostorBlind = v; }, text: v => v ? 'sí: la nave no se ve, solo se oye' : 'no' },
+                { label: 'Sonidos de la nave: volumen de cada uno', action: () => impostorSoundMenu(App) },
             ];
         },
         houseDefs(r) {
@@ -476,7 +477,8 @@ const GAMES = {
             <h2>Cómo te orientas</h2>
             <p>Juega con auriculares. Siempre miras hacia arriba de la pantalla, como en un mapa: lo que suena a tu derecha está a tu derecha, lo que suena delante está arriba, y lo que está detrás suena más apagado. Lo que está al otro lado de una pared suena amortiguado.</p>
             <ul>
-                <li>Tus pasos suenan distinto según el suelo: metal, rejilla o moqueta. Los de cada compañero tienen su propio sonido; con la P los oyes uno a uno.</li>
+                <li>Tus pasos suenan distinto según el suelo: metal, rejilla o moqueta. Los de cada compañero tienen su propio sonido y se oyen más fuertes que los tuyos.</li>
+                <li>Cada persona a la que ves suena además con su nota, desde donde está, aunque esté quieta: cuanto más cerca, más deprisa. Con la P oyes los pasos y la nota de cada uno.</li>
                 <li>Cada sala tiene su ambiente: en Motores retumban las máquinas, en el Comedor tintinean los platos, en el Puente de mando pitan las pantallas, en Electricidad chisporrotea la corriente, en la Enfermería late un monitor, en Comunicaciones suena la radio, en Oxígeno respira el aire y burbujea el agua, en el Reactor late un zumbido muy grave, en Seguridad zumban los ventiladores y en Administración teclea alguien.</li>
                 <li>Las puertas de donde estás hacen tic, cada una desde su sitio. Al entrar en una sala o en un pasillo, se dice dónde estás.</li>
                 <li>Al acercarte a una pared, se oye un siseo por ese lado; si chocas, suena un golpe.</li>
@@ -484,7 +486,7 @@ const GAMES = {
                 <li>Cuando ves a alguien, se dice su nombre y hacia dónde está. Los pasos de quien está al otro lado de una pared se oyen amortiguados, y en la pantalla se ven como ondas.</li>
             </ul>
             <h2>La guía y lo que hay cerca</h2>
-            <p>Con la G eliges adónde ir: una de tus tareas, una sala, una consola o, si hay un sabotaje, el panel que lo arregla. Desde ese momento suena un pitido hacia donde tienes que andar, unos metros por delante de ti, siguiendo los pasillos; cuanto más cerca estás, más deprisa pita. Al doblar una esquina se dice hacia dónde sigue el camino, y al llegar suena una campanita.</p>
+            <p>Con la G eliges adónde ir: una de tus tareas, una sala, una consola o, si hay un sabotaje, el panel que lo arregla. Desde ese momento suena un pitido hacia donde tienes que andar, unos metros por delante de ti, siguiendo los pasillos; cuanto más cerca estás, más deprisa pita. El pitido es más agudo cuando hay que ir hacia delante, más grave hacia detrás y el de siempre a los lados. Al doblar una esquina se dice hacia dónde sigue el camino, y al llegar suena una campanita.</p>
             <p>Con la F se dice qué hay cerca: dónde estás, las salidas con su dirección y su distancia (y si alguna está cerrada), el sabotaje que haya, tus tareas, los muebles, las consolas, los conductos y quién está contigo.</p>
             <h2>Las tareas</h2>
             <p>Cuando estés junto a una tarea tuya, pulsa E para empezarla. Mientras la haces no te mueves; con Escape la dejas y puedes volver luego.</p>
@@ -510,12 +512,13 @@ const GAMES = {
             <p>Puedes elegir cuántos impostores hay; cuánto esperan entre muerte y muerte; desde qué distancia matan; cuántas reuniones de emergencia puede pedir cada uno y cuánto hay que esperar para el botón; si al echar a alguien se dice si era impostor; cuánto tiempo hay para hablar y para votar en la reunión, si hay frases para hablar y si los votos son secretos, y cuándo se pone al día la barra de tareas. También si hay sabotajes y cuánto tiempo hay para arreglar el reactor o el oxígeno; si hay conductos; cuántas tareas tiene cada uno, de 2 a 5; hacerlas más fáciles; andar más deprisa o más despacio, y ver y oír a los demás solo de cerca o desde más lejos.</p>
             <h2>Al preparar la partida</h2>
             <p>Eliges cuántos compañeros tienes, de 1 a 9, y si son despistados o listos: los listos hacen antes las tareas, se fijan más en todo, y como impostores matan sin testigos y mienten mejor. También tu papel, si suena el roce de las paredes, si se dice el nombre de quien aparece, si con lector de pantalla habla la voz del juego, que va al momento, o tu lector, y el modo a ciegas: quien ve no ve la nave, solo la oye, para jugar todos igual.</p>
+            <p>En Sonidos de la nave, aquí o en la pausa de la partida, cambias el volumen de cada clase de sonido: el ambiente de las salas, los pasos y la nota de los demás, tus pasos y las paredes, la guía, y los avisos. También puedes quitar la nota de cada persona.</p>
             <h2>Las teclas</h2>
             <ul>
                 <li>W, A, S y D, o las flechas: andar. W va hacia delante, S hacia detrás, A a la izquierda y D a la derecha. Con dos a la vez vas en diagonal.</li>
                 <li>E o Enter: usar lo que tienes al lado: una tarea, el panel de un sabotaje, una consola o el botón de emergencia junto a la mesa del Comedor.</li>
                 <li>R: avisar de un cuerpo. Si eres impostor: Q, matar; X, sabotear; V, entrar en un conducto o salir. Dentro de un conducto, las flechas o los números te llevan a otro.</li>
-                <li>F: qué hay cerca. G: la guía. T o C: tus tareas. M: cómo es la nave. P: los pasos de cada uno. I: cómo va la partida.</li>
+                <li>F: qué hay cerca. G: la guía. T o C: tus tareas. M: cómo es la nave. P: los pasos y la nota de cada uno. I: cómo va la partida.</li>
                 <li>Con una tarea abierta, juegan los números, Espacio y Enter, y en el filtro, las flechas; Escape la deja. Con la mano en el panel del reactor, Escape la quita.</li>
                 <li>Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
                 <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, apaga la navegación de una tecla pulsando a la vez Control, Opción y Q. También puedes moverte con el tabulador y elegir con Enter.</li>
