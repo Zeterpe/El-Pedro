@@ -331,10 +331,37 @@ const ShipSounds = {
             if (kind === 'reactor') {
                 k.tone(out, { t, f: 1245, type: 'square', dur: 0.06, peak: 0.08, filter: { type: 'lowpass', f: 3000 } });
                 k.tone(out, { t: t + 0.12, f: 1245, type: 'square', dur: 0.06, peak: 0.08, filter: { type: 'lowpass', f: 3000 } });
+            } else if (kind === 'oxygen') {
+                // El teclado del oxígeno: tres pitidos que bajan.
+                [1568, 1319, 1047].forEach((f, i) => k.tone(out, { t: t + i * 0.09, f, dur: 0.07, peak: 0.07, type: 'triangle' }));
+            } else if (kind === 'comms') {
+                // La radio sin señal: estática y un pitido.
+                k.noise(out, { t, dur: 0.22, peak: 0.08, filter: { type: 'bandpass', f: 2200, q: 0.8 } });
+                k.tone(out, { t: t + 0.24, f: 2637, dur: 0.05, peak: 0.05 });
             } else {
                 k.tone(out, { t, f: 196, type: 'square', dur: 0.16, peak: 0.07, filter: { type: 'lowpass', f: 1200 } });
                 for (let i = 0; i < 3; i++) k.noise(out, { t: t + i * 0.04, dur: 0.012, peak: 0.1, filter: { type: 'highpass', f: 3000 } });
             }
+        };
+    },
+    /** Se acaba el oxígeno: una alarma que sube y baja, sin sitio. */
+    oxygenAlarm() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: [[0, 520], [0.35, 880]], dur: 0.4, peak: 0.06, type: 'triangle' });
+            k.tone(out, { t: t + 0.45, f: [[0, 880], [0.35, 520]], dur: 0.4, peak: 0.06, type: 'triangle' });
+        };
+    },
+    /** El reloj de la votación, en los últimos segundos. */
+    tick() { return (k, out, t) => k.tone(out, { t, f: 2000, dur: 0.02, peak: 0.07, type: 'square', filter: { type: 'lowpass', f: 3500 } }); },
+    /** Una hoja seca que se mueve en el filtro. */
+    leaf() { return (k, out, t) => { for (let i = 0; i < 3; i++) k.noise(out, { t: t + i * 0.07, a: 0.01, dur: 0.06, r: 0.05, peak: 0.12, filter: { type: 'bandpass', f: 3200 + Math.random() * 1500, q: 2 } }); }; },
+    /** La palanca de la basura: un rugido que sube mientras la mantienes. */
+    trash(x) { return (k, out, t) => k.noise(out, { t, dur: 0.2, peak: 0.14, filter: { type: 'lowpass', f: 300 + 900 * x } }); },
+    /** La radio: más estática cuanto más lejos de la frecuencia buena (d de 0 a 1); en ella, un tono limpio. */
+    tuner(d) {
+        return (k, out, t) => {
+            if (d > 0) k.noise(out, { t, dur: 0.35, peak: 0.03 + 0.12 * d, filter: { type: 'bandpass', f: 1800, q: 0.7 } });
+            k.tone(out, { t, f: 880, dur: 0.35, peak: 0.12 * (1 - d) * (1 - d) });
         };
     },
     /** Alguien pone la mano en un panel. */
