@@ -877,7 +877,7 @@ function oneTask(g, p) {
     // Las tareas de los demás: solo que alguien está con una, si está cerca; y si es el escáner.
     s.players[1].x = 18; s.players[1].y = 4; s.players[2].x = 19; s.players[2].y = 4; s.players[3].x = 40; s.players[3].y = 20;
     const ts = { type: 'taskStart', p: 1, i: 0, task: 'cables', step: 0, fake: false, visible: false };
-    assert.deepStrictEqual(I.impostorEventFor(s, ts, 2), { type: 'taskStart', p: 1, task: null, visible: false });
+    assert.deepStrictEqual(I.impostorEventFor(s, ts, 2), { type: 'taskStart', p: 1, task: null, visible: false, x: 18, y: 4 });
     assert.strictEqual(I.impostorEventFor(s, ts, 3), null);
 }
 {

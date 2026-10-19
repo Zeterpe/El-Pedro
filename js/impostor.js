@@ -1220,12 +1220,13 @@ function impostorEventFor(g, e, seat) {
             if (e.p === seat || imp || ghost || e.witnesses?.includes(seat)) return e;
             if (e.kind === 'move') return null;
             return near(e.x, e.y) ? { type: 'vent', heard: true, kind: e.kind, x: e.x, y: e.y } : null;
+        // Con su sitio, por si quien lo oye no sabe dónde está (está quieto al otro lado de una pared).
         case 'taskStart':
             if (e.p === seat) return e;
-            return ghost || nearP(e.p) ? { type: 'taskStart', p: e.p, task: e.task === 'escaner' ? 'escaner' : null, visible: e.visible } : null;
+            return ghost || nearP(e.p) ? { type: 'taskStart', p: e.p, task: e.task === 'escaner' ? 'escaner' : null, visible: e.visible, x: g.players[e.p].x, y: g.players[e.p].y } : null;
         case 'taskStop': case 'taskStep': case 'taskDone':
             if (e.p === seat) return e;
-            return ghost || nearP(e.p) ? { type: e.type, p: e.p } : null;
+            return ghost || nearP(e.p) ? { type: e.type, p: e.p, x: g.players[e.p].x, y: g.players[e.p].y } : null;
         case 'sabotage': case 'doors':
             return imp ? e : { ...e, by: null };
         default:
