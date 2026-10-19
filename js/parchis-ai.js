@@ -16,6 +16,13 @@ const PARCHIS_LEVELS = {
     dificil: { sloppy: 0,    fear: 1.4, noise: 0 },
 };
 
+/** Con dos dados: la probabilidad de poder avanzar justo d casillas con una ficha (un dado o los dos sumados). */
+const PARCHIS_TWO_DICE = Array.from({ length: 13 }, (_, d) => {
+    let n = 0;
+    for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) if (a === d || b === d || a + b === d) n++;
+    return n / 36;
+});
+
 class ParchisBot {
     constructor(game, me, character, rng) {
         this.game = game;
@@ -32,7 +39,7 @@ class ParchisBot {
         const g = this.game, me = this.me;
         if (g.phase === 'roll') return { type: 'roll', p: me };
         const m = this.chooseMove(g.options);
-        return { type: 'move', p: me, o: m.o, i: m.i };
+        return { type: 'move', p: me, o: m.o, i: m.i, d: m.die };
     }
 
     chooseMove(options) {
@@ -61,7 +68,8 @@ class ParchisBot {
                 if (qc.pos < 0 || qc.pos > PARCHIS_LAST) return;
                 if (ignore && ignore.o === q && ignore.i === j) return;
                 const d = need - qc.pos;
-                if (d >= 1 && d <= 6 && !(seven && d === 6)) risk += 1 / 6;
+                if (g.rules.twoDice) { if (d >= 1 && d <= 12) risk += PARCHIS_TWO_DICE[d]; }
+                else if (d >= 1 && d <= 6 && !(seven && d === 6)) risk += 1 / 6;
                 else if (d === 7 && seven) risk += 1 / 6;
                 else if (d > 6 && d <= 12) risk += 1 / 36;   // con un 6 y otra tirada
                 if (d === 20 && g.rules.eatCount) risk += 1 / 30;
@@ -105,5 +113,5 @@ class ParchisBot {
 if (typeof module !== 'undefined') {
     const P = require('./parchis.js');
     Object.assign(globalThis, P);
-    module.exports = { ParchisBot, PARCHIS_LEVELS };
+    module.exports = { ParchisBot, PARCHIS_LEVELS, PARCHIS_TWO_DICE };
 }

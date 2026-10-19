@@ -151,6 +151,7 @@ class ParchisMatch extends Match {
 
     setup() {
         this.sel = null;               // tu ficha elegida, a la espera del segundo toque
+        this.dieSel = null;            // con dos dados: el dado con el que quieres mover
         this.promptedKey = null;
         this.stamp = 0;
         this.advisor = new ParchisBot(this.game, this.me, { level: 'dificil' }, makeRng(this.seed + 4242));
@@ -171,11 +172,38 @@ class ParchisMatch extends Match {
             done: g.players.map(pl => !!pl.done),
             turn: g.current,
             die: g.dice,
+            pair: g.pair ? g.pair.slice() : null,
+            left: (g.left || []).slice(),
         };
         this.stamp = Math.max(0, ...this.shown.at.flat());
     }
 
     // ── Ayudas ────────────────────────────────────────
+    /** ¿Se juega con dos dados? */
+    get two() { return !!this.game.rules.twoDice; }
+    /** «un 3 y un 5», «dobles de 4». */
+    pairText(a, b) { return a === b ? `dobles de ${a}` : `un ${a} y un ${b}`; }
+    /** Lo que ha salido en los dados, para el oído: «un 3 y un 5; te queda el 5». */
+    diceNow() {
+        const S = this.shown;
+        if (!this.two) return S.die ? `El dado: ${S.die}.` : null;
+        if (!S.pair) return null;
+        let t = `Los dados: ${this.pairText(...S.pair)}.`;
+        if (S.turn === this.game.current && this.game.phase === 'move' && S.left.length === 1) t += ` Queda el ${S.left[0]}.`;
+        return t;
+    }
+    /** Las jugadas de tu ficha i (con dos dados, una por dado). */
+    pieceOpts(i) {
+        const g = this.game, ctrl = this.ctrlOf(this.me);
+        return g.options.filter(x => x.o === ctrl && x.i === i);
+    }
+    /** La jugada de tu ficha i con el dado elegido (o con el que valga). */
+    pieceOpt(i) {
+        const list = this.pieceOpts(i);
+        return list.find(m => m.die === this.dieSel) || list[0] || null;
+    }
+    /** Los dados distintos que te quedan por mover. */
+    leftDice() { return this.two && this.game.phase === 'move' ? [...new Set(this.game.left)] : []; }
     colorOf(p) { return this.game.players[p].color; }
     /** De quién son las fichas que mueves (las tuyas o, si ya has acabado, las de tu pareja). */
     ctrlOf(p) { const g = this.game; return g.teamPlay && this.shown.done[p] ? g.partner(p) : p; }
@@ -234,8 +262,16 @@ class ParchisMatch extends Match {
     /** Por qué no se puede mover esa ficha ahora. */
     whyNot(o, i) {
         const g = this.game, pos = this.shown.pos[o][i];
-        if (pos < 0) return `Tu ficha ${i + 1} está en casa: sale con un 5.`;
+        if (pos < 0) return `Tu ficha ${i + 1} está en casa: sale con un 5${this.two ? ', o si los dados suman 5' : ''}.`;
         if (pos === PARCHIS_META) return `Tu ficha ${i + 1} ya está en la meta.`;
+        if (this.two && g.phase === 'move') {
+            if (g.options.some(m => m.out)) return 'Con un 5, o si los dados suman 5, si puedes sacar ficha, hay que sacarla.';
+            if (g.left.length === 2 && g.left[0] === g.left[1] && g.rules.openBarrier && g.barrierPieces(o).size && !g.barrierPieces(o).has(i)) return 'Con dobles hay que abrir tu barrera.';
+            const ds = this.leftDice();
+            const n = ds.length > 1 ? `ni ${ds[0]} ni ${ds[1]}` : ds[0];
+            if (ds.every(d => pos + d > PARCHIS_META) && g.rules.exact) return `Tu ficha ${i + 1} está a ${PARCHIS_META - pos} de la meta: hace falta la cuenta justa.`;
+            return `Tu ficha ${i + 1} no puede avanzar ${n}: hay una barrera en el camino, o la casilla está llena.`;
+        }
         if (g.phase === 'move' && g.dice === 5 && g.options.some(m => m.out)) return 'Con un 5, si puedes sacar ficha, hay que sacarla.';
         if (g.phase === 'move' && g.dice === 6 && g.rules.openBarrier && g.barrierPieces(o).size && !g.barrierPieces(o).has(i)) return 'Con un 6 hay que abrir tu barrera.';
         const n = g.phase === 'bonus' ? g.bonus : g.steps;
@@ -253,6 +289,7 @@ class ParchisMatch extends Match {
         let text = `Llevas las ${PARCHIS_PLURAL[this.colorOf(me)]}. Juegas contra ${Txt.list(others)}.`;
         if (g.teamPlay) text = `Llevas las ${PARCHIS_PLURAL[this.colorOf(me)]}. Jugáis por parejas: vas con ${this.names[g.partner(me)]}, que lleva las ${PARCHIS_PLURAL[this.colorOf(g.partner(me))]}, contra ${Txt.list([1, 3].map(k => this.names[(me + k) % 4]))}.`;
         if (g.rules.pieces !== 4) text += ` Cada uno con ${g.rules.pieces} fichas.`;
+        if (this.two) text += ' Se juega con dos dados.';
         if (this.practice) text = 'Partida de práctica: con la A te doy un consejo. ' + text;
         return text;
     }
@@ -260,8 +297,9 @@ class ParchisMatch extends Match {
     // ── La mesa ───────────────────────────────────────
     actionsDef() {
         return [
-            { kind: 'roll', label: 'Tirar el dado', key: 'T', cls: 'main' },
+            { kind: 'roll', label: this.game?.rules?.twoDice ? 'Tirar los dados' : 'Tirar el dado', key: 'T', cls: 'main' },
             { kind: 'play', label: 'Mover la ficha', key: 'Enter', cls: 'main' },
+            { kind: 'die', label: 'Cambiar de dado', key: 'D' },
             { kind: 'advice', label: 'Consejo', key: 'A' },
             { kind: 'board', label: 'El tablero', key: 'M', cls: 'small talk' },
             { kind: 'danger', label: 'Peligros', key: 'P', cls: 'small talk' },
@@ -275,6 +313,7 @@ class ParchisMatch extends Match {
     button(kind) {
         if (kind === 'board') return this.describeBoard();
         if (kind === 'danger') return this.describeDanger();
+        if (kind === 'die') return this.switchDie();
         if (kind === 'advice' && !this.want?.kinds.has('advice')) return this.advise();
         return super.button(kind);
     }
@@ -288,14 +327,16 @@ class ParchisMatch extends Match {
                     <g class="pb-nums">${ParchisArt.numbersSvg(k)}</g>
                     <g id="pb-marks"></g>
                     <g id="pb-pieces"></g>
-                    <g id="p-die" class="die"><g class="die-in"><rect x="-1.1" y="-1.1" width="2.2" height="2.2" rx="0.42"/><g class="pips"></g></g></g>
+                    <g id="p-die" class="die" data-k="0"><g class="die-in"><rect x="-1.1" y="-1.1" width="2.2" height="2.2" rx="0.42"/><g class="pips"></g></g></g>
+                    ${this.two ? '<g id="p-die2" class="die" data-k="1"><g class="die-in"><rect x="-1.1" y="-1.1" width="2.2" height="2.2" rx="0.42"/><g class="pips"></g></g></g>' : ''}
                 </svg>
             </div>`;
         const svg = $('pboard');
         svg.addEventListener('click', e => {
             const pz = e.target.closest?.('.pz');
             if (pz) { this.boardPieceClick(+pz.dataset.o, +pz.dataset.i); return; }
-            if (e.target.closest?.('#p-die')) this.dieClick();
+            const die = e.target.closest?.('.die');
+            if (die) this.dieClick(+die.dataset.k);
         });
         // Las fichas de todos: un grupo por ficha, que se mueve casilla a casilla.
         const box = $('pb-pieces');
@@ -377,7 +418,7 @@ class ParchisMatch extends Match {
         }
         // La casilla a la que iría la ficha elegida.
         const marks = $('pb-marks');
-        const m = choosing && this.sel != null ? g.options.find(x => x.o === ctrl && x.i === this.sel) : null;
+        const m = choosing && this.sel != null ? this.pieceOpt(this.sel) : null;
         const k = m ? `${m.o}:${m.i}:${m.to}` : '';
         if (marks.dataset.k !== k) {
             marks.dataset.k = k;
@@ -386,16 +427,32 @@ class ParchisMatch extends Match {
                 marks.innerHTML = `<circle class="pb-dest" cx="${x}" cy="${y}" r="0.62"/>`;
             } else marks.innerHTML = '';
         }
-        // El dado, en la casa de quien tiene el turno.
-        const die = $('p-die');
+        // El dado (o los dos), en la casa de quien tiene el turno.
         const [dx, dy] = this.view(...ParchisArt.homeCenter(this.colorOf(S.turn)));
-        die.style.transform = `translate(${dx}px, ${dy}px)`;
-        if (!this.rolling) {
-            const face = String(S.die || '');
-            if (die.dataset.face !== face) { die.dataset.face = face; die.querySelector('.pips').innerHTML = ParchisArt.pips(S.die); }
-        }
-        die.classList.toggle('ready', !!want?.has('roll'));
-        die.classList.toggle('blank', !S.die && !this.rolling);
+        const dice = this.two ? [$('p-die'), $('p-die2')] : [$('p-die')];
+        const values = this.two ? (S.pair || [null, null]) : [S.die];
+        const used = this.usedDice();
+        const pickDie = choosing && g.phase === 'move' && this.leftDice().length > 1 ? (m ? m.die : this.dieSel) : null;
+        dice.forEach((die, j) => {
+            const x = this.two ? dx + (j ? 1.2 : -1.2) : dx;
+            die.style.transform = `translate(${x}px, ${dy}px)${this.two ? ' scale(0.85)' : ''}`;
+            if (!this.rolling) {
+                const face = String(values[j] || '');
+                if (die.dataset.face !== face) { die.dataset.face = face; die.querySelector('.pips').innerHTML = ParchisArt.pips(values[j]); }
+            }
+            die.classList.toggle('ready', !!want?.has('roll'));
+            die.classList.toggle('blank', !values[j] && !this.rolling);
+            die.classList.toggle('used', !this.rolling && used[j]);
+            die.classList.toggle('chosen', pickDie != null && values[j] === pickDie && !used[j] && (j === 0 || values[0] !== values[1]));
+        });
+    }
+
+    /** Con dos dados: cuáles ya se han movido (para verlos apagados). */
+    usedDice() {
+        const S = this.shown;
+        if (!this.two || !S.pair) return [false, false];
+        const left = S.left.slice();
+        return S.pair.map(v => { const k = left.indexOf(v); if (k < 0) return true; left.splice(k, 1); return false; });
     }
 
     render() {
@@ -445,7 +502,7 @@ class ParchisMatch extends Match {
         $('seat-me').dataset.color = this.colorOf(ctrl);
         [...hand.children].forEach((b, i) => {
             const pos = pcs[i];
-            const m = opts.find(x => x.o === ctrl && x.i === i);
+            const m = choosing ? this.pieceOpt(i) : null;
             b.dataset.color = this.colorOf(ctrl);
             b.querySelector('.pzb-txt').textContent = pos < 0 ? 'En casa' : pos === PARCHIS_META ? 'En la meta' : pos > PARCHIS_LAST ? `Pasillo: a ${PARCHIS_META - pos}` : `Casilla ${parchisSquare(this.colorOf(ctrl), pos)}`;
             b.classList.toggle('pickable', !!m);
@@ -457,13 +514,16 @@ class ParchisMatch extends Match {
         this.renderPieces();
         Board.showAct('roll', !!want?.has('roll'));
         Board.showAct('play', !!want?.has('play') && this.sel != null && this.settings.confirmPlay);
+        Board.showAct('die', choosing && g.phase === 'move' && this.leftDice().length > 1);
         Board.showAct('advice', this.practice && !!want);
     }
 
     pieceLabel(o, i, m) {
         const pos = this.shown.pos[o][i];
         let t = `${o === this.me ? 'Tu ficha' : 'Ficha de tu pareja'} ${i + 1}: ${this.whereText(o, pos, { far: pos >= 0 && pos <= PARCHIS_LAST })}`;
-        if (m) t += `. Puede ir ${this.destText(m)}${m.capture ? ', y comes' : ''}`;
+        const list = m && this.two ? this.pieceOpts(i) : [];
+        if (list.length > 1) t += '. ' + list.map(x => `Con el ${x.die}, ${this.destText(x)}${x.capture ? ', y comes' : ''}`).join('. ');
+        else if (m) t += `. Puede ir ${this.destText(m)}${m.capture ? ', y comes' : ''}`;
         if (m && this.sel === i) t += '. Elegida: pulsa otra vez para moverla';
         return t;
     }
@@ -489,21 +549,20 @@ class ParchisMatch extends Match {
         if (ms) await this.sleep(140);
     }
 
-    async rollAnim(value) {
-        const die = $('p-die');
+    async rollAnim(value, value2 = null) {
+        const dice = [$('p-die'), $('p-die2')].filter(Boolean);
         this.rolling = true;
-        die.classList.add('rolling');
-        die.classList.remove('blank');
+        for (const die of dice) { die.classList.add('rolling'); die.classList.remove('blank', 'used', 'chosen'); }
         if (!Board.still) {
             for (let k = 0; k < 6; k++) {
-                die.querySelector('.pips').innerHTML = ParchisArt.pips(1 + Math.floor(Math.random() * 6));
+                for (const die of dice) die.querySelector('.pips').innerHTML = ParchisArt.pips(1 + Math.floor(Math.random() * 6));
                 await this.sleep(70);
             }
         }
         this.rolling = false;
-        die.classList.remove('rolling');
-        this.shown.die = value;
-        die.dataset.face = '';
+        for (const die of dice) { die.classList.remove('rolling'); die.dataset.face = ''; }
+        if (this.two) { this.shown.pair = [value, value2]; this.shown.left = [value, value2]; }
+        else this.shown.die = value;
         this.renderPieces();
     }
 
@@ -535,24 +594,25 @@ class ParchisMatch extends Match {
             case 'round': {
                 this.syncShown();
                 S.turn = e.first;
-                S.die = null;
+                S.die = null; S.pair = null; S.left = [];
                 B.render(this);
                 A.dice(0);
                 const first = e.first === me ? 'Empiezas tú' : `Empieza ${this.names[e.first]}`;
                 B.banner('Parchís', first);
                 B.status(first);
-                await this.say(`${first}. Se sale con un 5. ${this.hint('start', 'Tira el dado con la T o con Enter, o tocando el dado.')}`.trim(), { keep: true });
+                await this.say(`${first}. ${this.two ? 'Se juega con dos dados: se sale con un 5, o si suman 5.' : 'Se sale con un 5.'} ${this.hint('start', this.two ? 'Tira los dados con la T o con Enter, o tocándolos.' : 'Tira el dado con la T o con Enter, o tocando el dado.')}`.trim(), { keep: true });
                 break;
             }
             case 'turn': {
                 S.turn = e.p;
-                S.die = null;
+                S.die = null; S.pair = null; S.left = [];
                 this.sel = null;
+                this.dieSel = null;
                 B.render(this);
                 if (e.p === me) {
                     A.yourTurn();
-                    const t = e.again ? 'Has sacado un 6: vuelves a tirar' : 'Tu turno: tira el dado';
-                    this.prompt(t, `${t}.${this.hint('roll', ' Pulsa la T o Enter, o toca el dado.')}`);
+                    const t = e.again ? `Has sacado ${this.two ? 'dobles' : 'un 6'}: vuelves a tirar` : `Tu turno: tira ${this.two ? 'los dados' : 'el dado'}`;
+                    this.prompt(t, `${t}.${this.hint('roll', ` Pulsa la T o Enter, o toca ${this.two ? 'los dados' : 'el dado'}.`)}`);
                 } else {
                     A.otherTurn(e.p);
                     B.status(e.again ? `${cap(this.names[e.p])} vuelve a tirar` : `Turno de ${this.names[e.p]}`);
@@ -563,6 +623,7 @@ class ParchisMatch extends Match {
             }
             case 'roll': {
                 A.dice(homePan(e.p));
+                if (this.two) { await this.presentRoll2(e); break; }
                 await this.rollAnim(e.value);
                 const seven = e.steps === 7 ? (this.brief ? ', cuenta 7' : ': sin fichas en casa, cuenta 7') : '';
                 const third = e.value === 6 && e.sixes === 3 && g.rules.threeSixes;
@@ -577,8 +638,22 @@ class ParchisMatch extends Match {
                 break;
             }
             case 'noMove': {
+                if (e.partial) {
+                    const d = e.value2 != null ? `el ${e.value} ni el ${e.value2}` : `el ${e.value}`;
+                    S.left = [];
+                    this.renderPieces();
+                    if (e.p === me) {
+                        B.status(`No puedes mover ${d}`);
+                        await this.say(`No puedes mover nada con ${d}: ${e.value2 != null ? 'se pierden' : 'se pierde'}.`, { keep: true });
+                    } else {
+                        B.bubble(e.p, `Pierde ${e.value2 != null ? 'los dados' : `el ${e.value}`}`);
+                        if (!this.brief) await this.say(`No puede mover ${d}.`);
+                    }
+                    await this.beat('noMove');
+                    break;
+                }
                 if (e.p === me) {
-                    B.status(`Sacas un ${e.value}: no puedes mover`);
+                    B.status(`Sacas ${this.two ? this.pairText(e.value, e.value2) : `un ${e.value}`}: no puedes mover`);
                     await this.say('No puedes mover ninguna ficha.', { keep: true });
                 } else {
                     B.bubble(e.p, 'No puede mover');
@@ -588,6 +663,7 @@ class ParchisMatch extends Match {
                 break;
             }
             case 'move': {
+                if (e.left) { S.left = e.left.slice(); this.renderPieces(); }
                 const color = this.colorOf(e.o);
                 const mine = e.p === me;
                 let text;
@@ -706,16 +782,17 @@ class ParchisMatch extends Match {
             case 'penalty': {
                 A.penalty(homePan(e.p));
                 let t;
-                if (e.o == null) t = e.p === me ? '¡Tercer 6 seguido! Pierdes el turno.' : `¡Tercer 6 seguido! ${v.Name(e.p)} pierde el turno.`;
+                const third = this.two ? '¡Terceros dobles seguidos!' : '¡Tercer 6 seguido!';
+                if (e.o == null) t = e.p === me ? `${third} Pierdes el turno.` : `${third} ${v.Name(e.p)} pierde el turno.`;
                 else {
                     const pt = this.piecePoint(e.o, e.i);
                     this.flashCell(pt);
                     S.pos[e.o][e.i] = -1;
                     S.at[e.o][e.i] = 0;
                     B.render(this);
-                    t = e.p === me ? `¡Tercer 6 seguido! ${cap(this.pieceName(e.o, e.i))} vuelve a casa.` : `¡Tercer 6 seguido! La ficha ${e.i + 1} de ${this.names[e.p]} vuelve a casa.`;
+                    t = e.p === me ? `${third} ${cap(this.pieceName(e.o, e.i))} vuelve a casa.` : `${third} La ficha ${e.i + 1} de ${this.names[e.p]} vuelve a casa.`;
                 }
-                B.banner('¡Tercer 6!', e.o == null ? 'Se pierde el turno' : 'La última ficha vuelve a casa');
+                B.banner(this.two ? '¡Terceros dobles!' : '¡Tercer 6!', e.o == null ? 'Se pierde el turno' : 'La última ficha vuelve a casa');
                 B.status(t.replace(/[¡!]/g, ''));
                 await this.say(t, { keep: true });
                 await this.beat('penalty');
@@ -728,6 +805,22 @@ class ParchisMatch extends Match {
                 break;
             }
         }
+    }
+
+    /** Con dos dados: lo que sale en cada uno. */
+    async presentRoll2(e) {
+        const me = this.me, v = this.v, B = Board;
+        await this.rollAnim(e.value, e.value2);
+        const what = this.pairText(e.value, e.value2);
+        const third = e.double && e.sixes === 3 && this.game.rules.threeSixes;
+        if (e.p === me) {
+            B.status(`Sacas ${what}`);
+            if (!third) await this.say(`Sacas ${what}.`, { keep: true });
+        } else {
+            B.bubble(e.p, e.double ? `Dobles de ${e.value}` : `Saca ${e.value} y ${e.value2}`);
+            if (!third) await this.say(this.brief ? `${v.Name(e.p)}: ${e.double ? `dobles de ${e.value}` : `${e.value} y ${e.value2}`}.` : `${v.Name(e.p)} saca ${what}.`);
+        }
+        await this.beat('roll');
     }
 
     resultText() {
@@ -761,7 +854,7 @@ class ParchisMatch extends Match {
         const v = this.shownGame(), me = this.me, o = this.ctrlOf(me);
         const whose = o === me ? 'tu ficha' : 'la ficha de tu pareja';
         const threats = v.threats(o).map(t => `${cap(whose)} ${t.i + 1}, en la ${t.sq}: ${this.pieceName(t.by.o, t.by.i, { short: true })} está a ${t.d} detrás.`);
-        const chances = v.chances(o).map(c => `Con un ${c.d === 7 ? '6, que cuenta 7' : c.d}, ${o === me ? 'tu' : 'la'} ${c.i + 1} se come ${this.pieceName(c.prey.o, c.prey.i, { short: true })}, en la ${c.sq}.`);
+        const chances = v.chances(o).map(c => `${this.two && c.d > 6 ? `Si los dados suman ${c.d}` : `Con un ${c.d === 7 ? '6, que cuenta 7' : c.d}`}, ${o === me ? 'tu' : 'la'} ${c.i + 1} se come ${this.pieceName(c.prey.o, c.prey.i, { short: true })}, en la ${c.sq}.`);
         const parts = [];
         parts.push(threats.length ? threats.join(' ') : 'Ninguna ficha tuya está en peligro.');
         if (chances.length) parts.push(chances.join(' '));
@@ -774,7 +867,8 @@ class ParchisMatch extends Match {
         const parts = [];
         if (g.phase === 'gameOver') parts.push('La partida ha terminado.');
         else parts.push(S.turn === this.me ? 'Es tu turno.' : `Es el turno de ${v.name(S.turn)}.`);
-        if (S.die) parts.push(`Último dado: ${S.die}.`);
+        if (this.two) { if (S.pair) parts.push(`Últimos dados: ${this.pairText(...S.pair)}.`); }
+        else if (S.die) parts.push(`Último dado: ${S.die}.`);
         if (g.phase === 'bonus' && S.turn === this.me) parts.push(`Estás contando ${g.bonus}.`);
         parts.push('En la meta: ' + Txt.list(g.players.map((_, p) => `${v.name(p)} ${S.pos[p].filter(q => q === PARCHIS_META).length}`)) + '.');
         parts.push('En casa: ' + Txt.list(g.players.map((_, p) => `${v.name(p)} ${S.pos[p].filter(q => q < 0).length}`)) + '.');
@@ -791,10 +885,11 @@ class ParchisMatch extends Match {
 
     keysHelp() {
         const t = [
-            'T o Enter: tirar el dado.',
+            `T o Enter: tirar ${this.two ? 'los dados' : 'el dado'}.`,
+            this.two ? 'D: con dos dados, cambia el dado con el que mueves; si no, dice lo que ha salido.' : '',
             `Del 1 al ${this.shown.pos[this.me].length}: tus fichas. ${this.settings.confirmPlay ? 'La primera vez te dice adónde va y la segunda la mueve. Enter mueve la elegida.' : 'Al pulsarla, la mueves.'}`,
             'Flechas: moverte por tus fichas.',
-            'M: dónde está cada ficha. P: peligros, las fichas que tienes cerca. D: el último dado.',
+            `M: dónde está cada ficha. P: peligros, las fichas que tienes cerca.${this.two ? '' : ' D: el último dado.'}`,
             this.practice ? 'A: un consejo.' : '',
             'I: cómo va la partida. C: tus fichas. Espacio: repetir lo último. Escape: pausa.',
         ].filter(Boolean);
@@ -810,8 +905,10 @@ class ParchisMatch extends Match {
         else {
             const m = this.advisor.chooseMove(g.options);
             this.sel = m.i;
+            if (m.die != null) this.dieSel = m.die;
             Board.render(this);
-            text = `Te aconsejo ${m.out ? 'sacar ficha' : `mover la ${m.i + 1} ${this.destText(m)}`}${m.capture ? ', y te comes una' : ''}.`;
+            const withDie = this.two && m.die != null && !m.sum && this.leftDice().length > 1 ? ` con el ${m.die}` : '';
+            text = `Te aconsejo ${m.out ? 'sacar ficha' : `mover la ${m.i + 1}${withDie} ${this.destText(m)}`}${m.capture ? ', y te comes una' : ''}.`;
         }
         this.audio.peek(0);
         Board.status(text);
@@ -835,9 +932,32 @@ class ParchisMatch extends Match {
         if (!this.visual) this.speech.say(`${cap(this.pieceName(o, i))}: ${this.whereText(o, this.shown.pos[o][i])}.`, { interrupt: true });
     }
 
-    dieClick() {
+    dieClick(k = 0) {
         if (this.input('roll')) return;
-        if (!this.visual) this.speech.say(this.shown.die ? `El dado: ${this.shown.die}.` : 'Todavía no se ha tirado el dado.', { interrupt: true });
+        const S = this.shown;
+        if (this.leftDice().length > 1 && this.game.current === this.me && S.pair && !this.usedDice()[k]) { this.switchDie(S.pair[k]); return; }
+        if (!this.visual) this.speech.say(this.diceNow() || `Todavía no se ha tirado ${this.two ? 'ningún dado' : 'el dado'}.`, { interrupt: true });
+    }
+
+    /** Con dos dados: elegir con qué dado mueves (to) o pasar al otro. Si hay una ficha elegida, dice adónde iría. */
+    switchDie(to = null) {
+        const ds = this.leftDice();
+        const g = this.game;
+        if (g.current !== this.me || ds.length < 2 || !this.want?.kinds.has('slot')) {
+            if (!this.visual) this.speech.say(this.diceNow() || 'Todavía no se ha tirado.', { interrupt: true });
+            return;
+        }
+        const cur = this.sel != null ? this.pieceOpt(this.sel)?.die : this.dieSel ?? ds[0];
+        this.dieSel = to ?? (ds.find(d => d !== cur) ?? ds[0]);
+        this.audio.select();
+        let t = `Mueves con el ${this.dieSel}`;
+        if (this.sel != null) {
+            const m = this.pieceOpts(this.sel).find(x => x.die === this.dieSel);
+            t = m ? `La ${this.sel + 1}, con el ${m.die}: ${m.out ? 'sale' : 'va ' + this.destText(m)}${m.capture ? `, y comes ${this.pieceName(m.capture.o, m.capture.i, { short: true })}` : ''}` : `Con el ${this.dieSel}, la ${this.sel + 1} no puede moverse`;
+        }
+        Board.render(this);
+        Board.status(t);
+        if (!this.visual) this.speech.say(t + '.', { interrupt: true });
     }
 
     async humanStep() {
@@ -866,16 +986,23 @@ class ParchisMatch extends Match {
             }
             await this.sleep(this.visual ? 650 : 200);
             if (this.stopped || this.stateKey() !== key) return;
-            await this.act({ type: 'move', p: me, o: m.o, i: m.i });
+            await this.act({ type: 'move', p: me, o: m.o, i: m.i, d: m.die });
             return;
         }
         if (this.promptedKey !== key) {
             this.promptedKey = key;
-            const what = g.phase === 'bonus' ? `Cuentas ${g.bonus}` : `Sacas un ${g.dice}${g.steps === 7 ? ', cuenta 7' : ''}`;
-            const list = opts.map(m => this.optionText(m)).join('; ');
-            this.prompt(`${what}: elige ficha`, `Elige ficha: ${list}.${this.hint('pick', ' Pulsa su número, o tócala.')}`);
+            let what = g.phase === 'bonus' ? `Cuentas ${g.bonus}` : `Sacas un ${g.dice}${g.steps === 7 ? ', cuenta 7' : ''}`;
+            if (this.two && g.phase === 'move') what = g.left.length === 1 ? `Te queda el ${g.left[0]}` : opts.length === 1 && opts[0].sum ? 'Suman 5' : `Tienes ${this.pairText(g.left[0], g.left[1])}`;
+            const ds = this.leftDice();
+            const list = ds.length > 1 && !opts.some(m => m.out)
+                ? ds.map(d => { const mine = opts.filter(m => m.die === d); return `con el ${d}, ${mine.length ? mine.map(m => this.optionText(m)).join(', ') : 'ninguna'}`; }).join('; ')
+                : opts.map(m => this.optionText(m)).join('; ');
+            const dieHint = this.leftDice().length > 1 ? this.hint('die', ' Si una ficha puede ir con los dos dados, la D cambia de dado.') : '';
+            const lead = this.two && g.phase === 'move' && g.left.length === 1 ? `${what}. ` : '';
+            this.prompt(`${what}: elige ficha`, `${lead}Elige ficha: ${list}.${this.hint('pick', ' Pulsa su número, o tócala.')}${dieHint}`);
         }
         if (this.sel != null && !opts.some(m => m.o === ctrl && m.i === this.sel)) this.sel = null;
+        if (this.dieSel != null && !this.leftDice().includes(this.dieSel)) this.dieSel = null;
         const kinds = ['slot', 'play'];
         if (this.practice) kinds.push('advice');
         const a = await this.wait(kinds);
@@ -883,7 +1010,7 @@ class ParchisMatch extends Match {
         if (a.kind === 'advice') { this.advise(); return; }
         const i = a.kind === 'play' ? this.sel : a.slot;
         if (i == null) { this.audio.error(); this.prompt('Primero elige una ficha', 'Primero elige una ficha, con su número o tocándola.', { interrupt: true }); return; }
-        const m = opts.find(x => x.o === ctrl && x.i === i);
+        const m = this.pieceOpt(i);
         if (!m) {
             this.audio.error();
             this.prompt(this.whyNot(ctrl, i), null, { interrupt: true });
@@ -894,13 +1021,19 @@ class ParchisMatch extends Match {
             this.sel = i;
             this.audio.select();
             Board.render(this);
-            const t = `La ${i + 1}: ${m.out ? 'sale' : 'va ' + this.destText(m)}${m.capture ? `, y comes ${this.pieceName(m.capture.o, m.capture.i, { short: true })}` : ''}`;
-            Board.status(`${t}. Toca otra vez para moverla`);
-            if (!this.visual) this.speech.say(`${t}.${this.hint('confirm', ' Pulsa otra vez para moverla.')}`, { interrupt: true });
+            const both = this.pieceOpts(i).length > 1;
+            const where = x => `${x.out ? 'sale' : 'va ' + this.destText(x)}${x.capture ? `, y comes ${this.pieceName(x.capture.o, x.capture.i, { short: true })}` : ''}`;
+            let t = `La ${i + 1}: ${both ? `con el ${m.die}, ` : ''}${where(m)}`;
+            if (both) {
+                const other = this.pieceOpts(i).find(x => x.die !== m.die);
+                t += `. Con el ${other.die}, ${where(other)}`;
+            }
+            Board.status(`${t}. Toca otra vez para moverla${both ? ` con el ${m.die}, o toca el otro dado` : ''}`);
+            if (!this.visual) this.speech.say(`${t}.${this.hint('confirm', ` Pulsa otra vez para moverla${both ? ` con el ${m.die}; la D cambia de dado` : ''}.`)}`, { interrupt: true });
             return;
         }
         this.sel = null;
-        await this.act({ type: 'move', p: me, o: m.o, i: m.i });
+        await this.act({ type: 'move', p: me, o: m.o, i: m.i, d: m.die });
     }
 
     describeOwn(i) {
@@ -949,7 +1082,9 @@ class ParchisMatch extends Match {
         if (k === 'd') {
             e.preventDefault();
             const S = this.shown;
-            this.speech.say(S.die ? `El dado: ${S.die}.` : S.turn === this.me ? 'Todavía no has tirado el dado.' : `${cap(this.v.name(S.turn))} todavía no ha tirado el dado.`, { interrupt: true });
+            if (this.leftDice().length > 1 && this.game.current === this.me && this.want?.kinds.has('slot')) { this.switchDie(); return true; }
+            const word = this.two ? 'los dados' : 'el dado';
+            this.speech.say(this.diceNow() || (S.turn === this.me ? `Todavía no has tirado ${word}.` : `${cap(this.v.name(S.turn))} todavía no ha tirado ${word}.`), { interrupt: true });
             return true;
         }
         if (k === 'a') { e.preventDefault(); if (!this.practice) { this.audio.error(); this.notice('Los consejos son para la partida de práctica.'); } else if (!this.input('advice')) this.advise(); return true; }

@@ -170,6 +170,7 @@ const GAMES = {
             return [
                 { label: 'Con 3 rivales, por parejas', values: [false, true], get: () => r.pairs, set: v => { r.pairs = v; }, text: v => v ? 'sí: tu pareja es el de enfrente' : 'no, cada uno por su cuenta' },
                 { label: 'Fichas para cada uno', values: [4, 3, 2], get: () => r.pieces, set: v => { r.pieces = v; }, text: v => v === 4 ? '4, las de siempre' : `${v}, para una partida más corta` },
+                { label: 'Dados', values: [false, true], get: () => r.twoDice, set: v => { r.twoDice = v; }, text: v => v ? 'dos: mueves lo de cada uno, y los dobles repiten' : 'uno, el de siempre' },
                 { label: 'Tocar dos veces para mover una ficha', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice adónde va' : 'no: se mueve al tocarla' },
             ];
         },
@@ -177,11 +178,12 @@ const GAMES = {
             return [
                 { label: 'Fichas para cada uno', values: [4, 3, 2], get: () => r.pieces, set: v => { r.pieces = v; }, text: v => v === 4 ? '4, las de siempre' : `${v}, para una partida más corta` },
                 { label: 'Con 4 jugadores, por parejas', values: [false, true], get: () => r.pairs, set: v => { r.pairs = v; }, text: v => v ? 'sí: cada uno con el de enfrente' : 'no' },
+                { label: 'Dados', values: [false, true], get: () => r.twoDice, set: v => { r.twoDice = v; }, text: v => v ? 'dos: mueves lo de cada uno, y los dobles repiten' : 'uno, el de siempre' },
                 { label: 'Al comer una ficha, cuentas', values: [20, 10, 0], get: () => r.eatCount, set: v => { r.eatCount = v; }, text: v => v ? String(v) : 'nada' },
                 { label: 'Al meter una ficha en la meta, cuentas', values: [10, 20, 0], get: () => r.metaCount, set: v => { r.metaCount = v; }, text: v => v ? String(v) : 'nada' },
-                { label: 'Sin fichas en casa, el 6 cuenta 7', values: [true, false], get: () => r.sixSeven, set: v => { r.sixSeven = v; }, text: yesNo },
-                { label: 'Al tercer 6 seguido, la última ficha movida vuelve a casa', values: [true, false], get: () => r.threeSixes, set: v => { r.threeSixes = v; }, text: yesNo },
-                { label: 'Con un 6, hay que abrir tu barrera', values: [true, false], get: () => r.openBarrier, set: v => { r.openBarrier = v; }, text: yesNo },
+                { label: 'Con un dado, sin fichas en casa, el 6 cuenta 7', values: [true, false], get: () => r.sixSeven, set: v => { r.sixSeven = v; }, text: yesNo },
+                { label: 'Al tercer 6 seguido (con dos dados, a los terceros dobles), la última ficha movida vuelve a casa', values: [true, false], get: () => r.threeSixes, set: v => { r.threeSixes = v; }, text: yesNo },
+                { label: 'Con un 6 (con dos dados, con dobles), hay que abrir tu barrera', values: [true, false], get: () => r.openBarrier, set: v => { r.openBarrier = v; }, text: yesNo },
                 { label: 'Para entrar en la meta', values: [true, false], get: () => r.exact, set: v => { r.exact = v; }, text: v => v ? 'con la cuenta justa' : 'si te pasas, rebotas' },
             ];
         },
@@ -203,13 +205,16 @@ const GAMES = {
             <p>A la meta se entra con la cuenta justa. Cuando metes una ficha, cuentas 10 con otra. Si no puedes contar con ninguna ficha, la cuenta se pierde.</p>
             <h2>Por parejas</h2>
             <p>Con 4 jugadores se puede jugar por parejas: vas con el de enfrente. A tu pareja no te la puedes comer, y podéis hacer barrera juntos. Cuando metes todas tus fichas, sigues tirando y mueves las de tu pareja.</p>
+            <h2>Con dos dados</h2>
+            <p>Si lo eliges al preparar la partida, se tiran dos dados y se mueve lo de cada uno por separado, con la misma ficha o con dos distintas, en el orden que quieras. Se sale con un 5 en un dado, o si los dos suman 5; con dos cincos salen dos fichas. Los dobles hacen de 6: vuelves a tirar, obligan a abrir tu barrera y, a los terceros dobles seguidos, la última ficha que has movido vuelve a casa. El 6 no cuenta 7. Si comes o llegas a la meta con el primer dado, cuentas antes de mover el segundo. Un dado que no se puede mover se pierde.</p>
+            <p>Si una ficha puede ir con los dos dados, la primera vez que la tocas te dice adónde va con cada uno. La D, o tocar el otro dado, cambia el dado con el que mueves.</p>
             <h2>Reglas de la casa</h2>
-            <p>Puedes jugar con 3 o 2 fichas para que la partida sea más corta, cambiar lo que se cuenta al comer y al llegar a la meta, quitar el 7 del seis, el castigo del tercer 6 o la obligación de abrir la barrera, y jugar con rebote en la meta.</p>
+            <p>Puedes jugar con dos dados o con 3 o 2 fichas para que la partida sea más corta, cambiar lo que se cuenta al comer y al llegar a la meta, quitar el 7 del seis, el castigo del tercer 6 o la obligación de abrir la barrera, y jugar con rebote en la meta.</p>
             <h2>Las teclas</h2>
             <ul>
-                <li>T o Enter: tirar el dado.</li>
+                <li>T o Enter: tirar el dado (o los dados).</li>
                 <li>Del 1 al 4: tus fichas. La primera vez te dice adónde va y la segunda la mueve. Enter mueve la elegida. Si solo puedes mover una, se mueve sola.</li>
-                <li>M: dónde está cada ficha. P: peligros, las fichas que tienes cerca por detrás y por delante. D: el último dado.</li>
+                <li>M: dónde está cada ficha. P: peligros, las fichas que tienes cerca por detrás y por delante. D: el último dado; con dos dados, cuando eliges ficha, cambia el dado con el que mueves.</li>
                 <li>I: cómo va la partida. C: tus fichas. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
                 <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, apaga la navegación de una tecla pulsando a la vez Control, Opción y Q. También puedes moverte con el tabulador y elegir con Enter.</li>
             </ul>

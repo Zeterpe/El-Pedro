@@ -396,6 +396,8 @@ body[data-players="3"] #table[data-game="parchis"] .seat-left { align-self: star
 .die.ready rect { stroke: #e8a900; stroke-width: .2; }
 .die.ready .die-in { animation: dieready 1.2s ease-in-out infinite; }
 .die.rolling .die-in { animation: dieroll .14s linear infinite; }
+.die.used .die-in { opacity: .35; }
+.die.chosen rect { stroke: #11a34e; stroke-width: .24; }
 @keyframes dieready { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); } }
 @keyframes dieroll { 0% { transform: rotate(-16deg) scale(1.08); } 50% { transform: rotate(16deg) scale(1.08); } 100% { transform: rotate(-16deg) scale(1.08); } }
 

@@ -197,6 +197,117 @@ const kinds = r => r.events.map(e => e.t);
     assert.deepStrictEqual(h.winners, [0, 2], 'gana la pareja');
 }
 
+// ── Con dos dados ───────────────────────────────────
+const roll2 = (g, a, b, p = g.current) => { g.nextDice.push(a, b); const r = g.act({ type: 'roll', p }); assert(r.ok, r.error); return r; };
+const move2 = (g, i, d, o) => { const r = g.act({ type: 'move', p: g.current, o, i, d }); assert(r.ok, r.error); return r; };
+const TWO = { twoDice: true };
+{   // Cada dado se mueve por separado: con la misma ficha o con otra.
+    const g = setup(4, TWO);
+    place(g, 0, 0, 10); place(g, 0, 1, 30); place(g, 0, 2, 40); place(g, 0, 3, 50);
+    let r = roll2(g, 2, 4);
+    assert.deepStrictEqual(r.events[0], { t: 'roll', p: 0, value: 2, value2: 4, double: false, sixes: 0 });
+    assert.strictEqual(g.phase, 'move');
+    assert(g.options.some(m => m.i === 0 && m.die === 2) && g.options.some(m => m.i === 0 && m.die === 4), 'jugadas con cada dado');
+    r = move2(g, 0, 4);
+    assert.strictEqual(g.players[0].pieces[0].pos, 14);
+    assert.deepStrictEqual(r.events[0].left, [2], 'queda el 2');
+    assert.strictEqual(g.phase, 'move');
+    assert(g.options.every(m => m.die === 2));
+    move2(g, 0, 2);
+    assert.strictEqual(g.players[0].pieces[0].pos, 16, 'la misma ficha avanza los dos dados');
+    assert.strictEqual(g.current, 1, 'sin dobles, pasa el turno');
+}
+{   // Sin d, se mueve con el primer dado que vale. Un dado que no vale ya no cuenta.
+    const g = setup(4, { ...TWO, pieces: 1 });
+    place(g, 0, 0, 68);                          // a 3 de la meta
+    const r = roll2(g, 3, 6);
+    assert.strictEqual(g.options.length, 1);
+    const m = move2(g, 0);
+    assert(kinds(m).includes('meta'));
+}
+{   // Se sale con un 5, o si los dados suman 5; con 5 y 5, salen dos.
+    const g = setup(4, TWO);
+    let r = roll2(g, 1, 4);
+    assert.strictEqual(g.options.length, 1);
+    assert(g.options[0].out && g.options[0].sum, 'sumando 5 se sale');
+    r = move2(g, g.options[0].i, 5);
+    assert.deepStrictEqual(r.events[0].left, [], 'se usan los dos dados');
+    assert.strictEqual(g.current, 1);
+    const h = setup(4, TWO);
+    roll2(h, 5, 5);
+    move2(h, h.options[0].i, 5);
+    assert.strictEqual(h.options.length, 1);
+    assert(h.options[0].out, 'con el otro 5 sale otra');
+    move2(h, h.options[0].i, 5);
+    assert.strictEqual(h.homeCount(0), 2);
+    assert.strictEqual(h.current, 0, 'con dobles se vuelve a tirar');
+    assert.strictEqual(h.phase, 'roll');
+    const k = setup(4, TWO);
+    r = roll2(k, 2, 6);
+    assert.deepStrictEqual(kinds(r), ['roll', 'noMove', 'turn'], 'sin 5 ni suma 5, todas en casa, no se mueve');
+    const q = setup(4, TWO);
+    place(q, 0, 0, 10);
+    roll2(q, 5, 3);
+    assert.strictEqual(q.options.length, 1, 'con un 5 hay que sacar primero');
+    move2(q, q.options[0].i, 5);
+    assert(q.options.length && q.options.every(m => m.die === 3), 'después, el 3');
+}
+{   // Comer con el primer dado: se cuentan 20 y después se mueve el otro.
+    const g = setup(4, TWO);
+    place(g, 0, 0, 20); place(g, 0, 1, 2); place(g, 0, 2, 40); place(g, 0, 3, 45);
+    const sq = parchisSquare('amarillo', 23);
+    place(g, 1, 0, parchisProgress('azul', sq));
+    roll2(g, 3, 1);
+    move2(g, 0, 3);
+    assert.strictEqual(g.phase, 'bonus');
+    move2(g, 1);
+    assert.strictEqual(g.players[0].pieces[1].pos, 22, 'cuenta 20');
+    assert.strictEqual(g.phase, 'move', 'queda el otro dado');
+    assert.deepStrictEqual(g.left, [1]);
+    move2(g, 2, 1);
+    assert.strictEqual(g.current, 1);
+}
+{   // El dado que queda, si no se puede mover, se pierde.
+    const g = setup(4, { ...TWO, pieces: 1 });
+    place(g, 0, 0, 66);                          // a 5 de la meta
+    roll2(g, 2, 4);
+    const r = move2(g, 0, 2);                    // a 3: el 4 ya no entra
+    assert(kinds(r).includes('noMove'));
+    assert(r.events.find(e => e.t === 'noMove').partial);
+    assert.strictEqual(g.current, 1);
+}
+{   // Dobles: hay que abrir la barrera; el 6 no cuenta 7; a los terceros dobles, la última ficha vuelve a casa.
+    const g = setup(4, { ...TWO, pieces: 3 });
+    place(g, 0, 0, 10); place(g, 0, 1, 10); place(g, 0, 2, 30);
+    roll2(g, 3, 3);
+    assert(g.options.length && g.options.every(m => m.i === 0 || m.i === 1), 'con dobles se abre la barrera');
+    move2(g, 0, 3);
+    assert(g.options.some(m => m.i === 2), 'abierta, el otro dado va con cualquiera');
+    move2(g, 2, 3);
+    assert.strictEqual(g.current, 0, 'repite');
+    const h = setup(4, { ...TWO, pieces: 2 });
+    place(h, 0, 0, 10); place(h, 0, 1, 30);
+    roll2(h, 6, 6);
+    assert(h.options.every(m => m.amount === 6), 'con dos dados el 6 es 6');
+    move2(h, 0, 6); move2(h, 0, 6);
+    roll2(h, 2, 2); move2(h, 1, 2); move2(h, 1, 2);
+    const r = roll2(h, 4, 4);
+    assert(kinds(r).includes('penalty'), 'terceros dobles');
+    assert.strictEqual(h.players[0].pieces[1].pos, -1, 'la última ficha movida vuelve a casa');
+    assert.strictEqual(h.current, 1);
+}
+{   // El invitado ve los dados y las jugadas.
+    const g = setup(4, TWO);
+    place(g, 0, 0, 10);
+    roll2(g, 2, 3);
+    const m = new ParchisMirror({ names: g.players.map(p => p.name), rules: TWO });
+    m.setView(JSON.parse(JSON.stringify(g.view())));
+    assert.deepStrictEqual(m.pair, [2, 3]);
+    assert.deepStrictEqual(m.left, [2, 3]);
+    assert.deepStrictEqual(m.options, g.options);
+    assert.deepStrictEqual(m.pairOptions(0), g.pairOptions(0));
+}
+
 // ── Partidas enteras entre la máquina ────────────────
 function play(n, rules, seed, levels) {
     const g = new ParchisGame({ players: Array.from({ length: n }, (_, i) => ({ name: 'J' + i })), rules, seed });
@@ -239,7 +350,7 @@ function play(n, rules, seed, levels) {
         assert(steps < 20000, 'la partida no acaba');
         const p = g.current;
         const a = bots[p].chooseTurn();
-        if (a.type === 'move') assert(g.options.some(m => m.o === a.o && m.i === a.i), 'jugada válida');
+        if (a.type === 'move') assert(g.options.some(m => m.o === a.o && m.i === a.i && (m.die == null || m.die === a.d)), 'jugada válida');
         feed(g.act(a));
     }
     assert(g.winners && g.winners.length, 'hay ganador');
@@ -256,6 +367,9 @@ const ruleSets = [
     { eatCount: 0, metaCount: 0 },
     { sixSeven: false, threeSixes: false, openBarrier: false },
     { pairs: true, pieces: 2, exact: false },
+    { twoDice: true },
+    { twoDice: true, pairs: true },
+    { twoDice: true, pieces: 2, exact: false, openBarrier: false },
 ];
 const levelSets = [['facil'], ['normal'], ['dificil'], ['facil', 'dificil'], ['dificil', 'normal', 'facil']];
 let games = 0;
@@ -284,4 +398,14 @@ for (let k = 0; k < 60; k++) {
 console.log(`Partidas de prueba: ${games}. Tiradas: ${total.rolls}. Comidas: ${total.captures}. Fichas en la meta: ${total.metas}. Cuentas: ${total.bonus} (perdidas: ${total.lost}). Tercer seis: ${total.penalties}.`);
 console.log(`Difícil contra fácil: ${hardWins} de 60.`);
 assert(hardWins > 33, 'la máquina difícil juega mejor');
+let hardWins2 = 0;
+for (let k = 0; k < 60; k++) {
+    const g = new ParchisGame({ players: [{ name: 'F' }, { name: 'D' }], rules: { pieces: 4, twoDice: true }, seed: 7000 + k });
+    const bots = [new ParchisBot(g, 0, { level: 'facil' }, R.makeRng(k)), new ParchisBot(g, 1, { level: 'dificil' }, R.makeRng(k + 99))];
+    g.startRound();
+    while (g.phase !== 'gameOver') g.act(bots[g.current].chooseTurn());
+    if (g.winners[0] === 1) hardWins2++;
+}
+console.log(`Con dos dados, difícil contra fácil: ${hardWins2} de 60.`);
+assert(hardWins2 > 33, 'con dos dados, la máquina difícil también juega mejor');
 console.log('Parchís: todo bien.');
