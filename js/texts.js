@@ -52,9 +52,10 @@ const Txt = {
             `${r.pieces} fichas cada uno.${r.pairs ? ' Con 4 jugadores, por parejas.' : ''}`,
             r.eatCount ? `Al comer cuentas ${r.eatCount}.` : 'Al comer no se cuenta nada.',
             r.metaCount ? `Al llegar a la meta cuentas ${r.metaCount}.` : 'Al llegar a la meta no se cuenta nada.',
-            r.sixSeven ? 'Sin fichas en casa, el 6 cuenta 7.' : '',
-            r.threeSixes ? 'Al tercer 6 seguido, la última ficha movida vuelve a casa.' : '',
-            r.openBarrier ? 'Con un 6 hay que abrir tu barrera.' : '',
+            r.twoDice ? 'Con dos dados: se sale con un 5 o si suman 5, y los dobles repiten.' : '',
+            r.sixSeven && !r.twoDice ? 'Sin fichas en casa, el 6 cuenta 7.' : '',
+            r.threeSixes ? `Al tercer ${r.twoDice ? 'doble' : '6'} seguido, la última ficha movida vuelve a casa.` : '',
+            r.openBarrier ? `Con ${r.twoDice ? 'dobles' : 'un 6'} hay que abrir tu barrera.` : '',
             r.exact ? 'A la meta se entra con la cuenta justa.' : 'Si te pasas de la meta, rebotas.',
         ].filter(Boolean).join(' ');
     },
