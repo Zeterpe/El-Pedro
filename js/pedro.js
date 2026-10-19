@@ -39,6 +39,7 @@ class PedroMatch extends Match {
     }
 
     makeGame(rules, seed) { Txt.pedroRules = rules; return new PedroGame({ players: this.seats.map(s => ({ name: s.name })), rules, seed }); }
+    get watchKeys() { return [['q', 'qué carta hay en la mesa']]; }
     makeMirror(rules) { Txt.pedroRules = rules; return new MirrorGame({ names: this.seats.map(s => s.name), rules, me: this.me }); }
     makeBot(p, char, rng) { return new Bot(this.game, p, char, rng); }
     eventFor(e, seat) { return eventFor(e, seat); }
@@ -435,7 +436,7 @@ class PedroMatch extends Match {
                 : 'No quedan cartas: se descubren todas.';
         Board.status(why);
         await this.say(why);
-        const order = [me, ...g.players.map((_, i) => i).filter(i => i !== me)];
+        const order = [this.pov, ...g.players.map((_, i) => i).filter(i => i !== this.pov)];
         for (const p of order) {
             if (this.stopped) return;
             const cards = e.hands[p].map(x => x.card);
@@ -469,7 +470,7 @@ class PedroMatch extends Match {
     resultText() {
         const e = this.lastReveal;
         if (!e) return this.speech.last;
-        const order = [this.me, ...this.game.players.map((_, i) => i).filter(i => i !== this.me)];
+        const order = [this.pov, ...this.game.players.map((_, i) => i).filter(i => i !== this.pov)];
         return order.map(p => `${cap(this.v.name(p))}: ${Txt.points(e.scores[p])}`).join(' · ');
     }
 
@@ -848,7 +849,7 @@ class PedroMatch extends Match {
             const g = this.game;
             if (g.canBurn(this.me)) {
                 Board.focusFirst(this.me);
-                this.speech.say(`En la mesa, ${Txt.card(g.top)}. Para quemar, tu carta con su número, o la de otro con las flechas y Enter.`, { interrupt: true });
+                this.speech.say(`En la mesa, ${Txt.card(g.top)}.${this.watching ? '' : ' Para quemar, tu carta con su número, o la de otro con las flechas y Enter.'}`, { interrupt: true });
             } else { this.audio.error(); this.explainCant('burn'); }
             return true;
         }

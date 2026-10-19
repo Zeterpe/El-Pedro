@@ -485,13 +485,14 @@ const App = {
     },
 
     /** Partida en una sala: mode 'host' (la has creado) o 'client' (te has unido). */
-    startOnline({ game, mode, seats, me, rules, seed, online = Online, gid = 0, rejoin = false, hostSeat = 0 }) {
+    startOnline({ game, mode, seats, me, rules, seed, online = Online, gid = 0, rejoin = false, hostSeat = 0, watch = false, took = null }) {
         if (this.match) this.match.stop();
         Dialog.close(undefined, true);
         const G = GAMES[game] || GAMES.pedro;
-        const m = new G.Match(this, { mode, seats, me, rules, seed, online });
+        const m = new G.Match(this, { mode, seats, me, rules, seed, online, watch, pov: hostSeat });
         m.gid = gid;
         m.rejoin = rejoin;
+        m.took = took;
         m.hostSeat = mode === 'host' ? me : hostSeat;
         this.runMatch(m);
         return m;

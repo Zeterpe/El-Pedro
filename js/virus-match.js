@@ -308,6 +308,7 @@ class VirusMatch extends Match {
     }
 
     makeGame(rules, seed) { return new VirusGame({ players: this.seats.map(s => ({ name: s.name })), rules, seed }); }
+    get watchKeys() { return [['m', 'los cuerpos de todos'], ['t', 'el mazo y los descartes']]; }
     makeMirror(rules) { return new VirusMirror({ names: this.seats.map(s => s.name), rules, me: this.me }); }
     makeBot(p, char, rng) { return new VirusBot(this.game, p, char, rng); }
     eventFor(e, seat) { return virusEventFor(e, seat); }
@@ -984,7 +985,7 @@ class VirusMatch extends Match {
     describeTable() {
         if (this.visual) return;
         const g = this.game;
-        const order = [this.me, ...g.players.map((_, p) => p).filter(p => p !== this.me)];
+        const order = [this.pov, ...g.players.map((_, p) => p).filter(p => p !== this.pov)];
         const parts = order.map(p => `${p === this.me ? 'Tú' : cap(this.names[p])}: ${this.bodyText(p)}.`);
         this.speech.say(parts.join(' '), { interrupt: true });
     }
@@ -1232,7 +1233,7 @@ class VirusMatch extends Match {
         const hand = [...$('my-hand').querySelectorAll('.slot:not(:disabled)')];
         if (hand.length) rows.push(hand);
         for (let k = 0; k < g.n; k++) {
-            const p = (this.me + k) % g.n;
+            const p = (this.pov + k) % g.n;
             const orgs = [...(this.bodyEl(p)?.querySelectorAll('.vorg') || [])];
             if (orgs.length) rows.push(orgs);
         }

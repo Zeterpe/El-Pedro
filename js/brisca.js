@@ -102,7 +102,7 @@ class BriscaGame {
     }
 
     // ── Consultas ─────────────────────────────────────
-    handOf(p) { return this.players[p].hand; }
+    handOf(p) { return this.players[p]?.hand || []; }   // p = -1: quien mira no tiene mano
     slotsOf(p) { return this.handOf(p).map((c, i) => c ? i : -1).filter(i => i >= 0); }
     countOf(p) { return this.slotsOf(p).length; }
     card(p, s) { return this.handOf(p)[s] || null; }

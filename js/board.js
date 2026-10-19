@@ -25,15 +25,15 @@ const Board = {
         const n = match.game.n;
         for (const id of SEAT_IDS) { const el = $('seat-' + id); el.innerHTML = ''; el.hidden = true; el.dataset.p = ''; el.className = `seat seat-${id}`; }
         const me = $('seat-me');
-        me.dataset.p = match.me;
+        me.dataset.p = match.pov;
         me.className = 'seat seat-me';
         $('my-hand').innerHTML = '';
         me.querySelectorAll('.vbody').forEach(el => el.remove());
-        $('my-hand').setAttribute('aria-label', 'Tus cartas');
+        $('my-hand').setAttribute('aria-label', match.watching ? `Cartas de ${match.names[match.pov]}` : 'Tus cartas');
         $('my-extra').innerHTML = '';
-        $('my-name').textContent = match.seats[match.me]?.name || 'Tú';
+        $('my-name').textContent = match.seats[match.pov]?.name || 'Tú';
         for (let p = 0; p < n; p++) {
-            if (p === match.me) continue;
+            if (p === match.pov) continue;
             const el = $('seat-' + match.audio.seatOf(p));
             el.hidden = false;
             el.dataset.p = p;
@@ -84,20 +84,36 @@ const Board = {
         if (l.textContent !== t) l.textContent = t;
     },
 
-    seatEl(p) { return p === this.match.me ? $('seat-me') : $('seat-' + this.match.audio.seatOf(p)); },
-    handEl(p) { return p === this.match.me ? $('my-hand') : this.seatEl(p)?.querySelector('.hand'); },
-    extraEl(p) { return p === this.match.me ? $('my-extra') : this.seatEl(p)?.querySelector('.seat-extra'); },
+    seatEl(p) { return p === this.match.pov ? $('seat-me') : $('seat-' + this.match.audio.seatOf(p)); },
+    handEl(p) { return p === this.match.pov ? $('my-hand') : this.seatEl(p)?.querySelector('.hand'); },
+    extraEl(p) { return p === this.match.pov ? $('my-extra') : this.seatEl(p)?.querySelector('.seat-extra'); },
     slotEl(p, s) { return this.els[p + ':' + s] || this.handEl(p); },
 
     setWins(p, n) {
-        const el = p === this.match.me ? $('my-wins') : this.seatEl(p)?.querySelector('.wins');
+        const el = p === this.match.pov ? $('my-wins') : this.seatEl(p)?.querySelector('.wins');
         if (!el) return;
         el.textContent = '★'.repeat(Math.min(n, 9));
         el.setAttribute('aria-hidden', 'true');
     },
     setScore(p, text) {
-        const el = p === this.match.me ? $('my-score') : this.seatEl(p)?.querySelector('.score');
+        const el = p === this.match.pov ? $('my-score') : this.seatEl(p)?.querySelector('.score');
         if (el) el.textContent = text ? ` · ${text}` : '';
+    },
+
+    /** Un sitio cambia de nombre (alguien que miraba se sienta en el de la máquina). */
+    rename(match, p) {
+        if (this.match !== match) return;
+        if (p === match.pov) {
+            $('my-name').textContent = match.seats[p].name;
+            if (match.watching) $('my-hand').setAttribute('aria-label', `Cartas de ${match.names[p]}`);
+            return;
+        }
+        const el = this.seatEl(p);
+        if (!el) return;
+        const nm = el.querySelector('.nm'), av = el.querySelector('.avatar'), hand = el.querySelector('.hand');
+        if (nm) nm.textContent = cap(match.names[p]);
+        if (av) av.textContent = (match.seats[p].name || '?').replace(/^la abuela /i, '').charAt(0).toUpperCase();
+        if (hand) hand.setAttribute('aria-label', `Cartas de ${match.names[p]}`);
     },
 
     status(text) { const el = $('status'); if (el) el.textContent = text || ''; },
@@ -248,7 +264,7 @@ const Board = {
     rows() {
         const m = this.match, g = m.game, out = [];
         for (let k = 0; k < g.n; k++) {
-            const p = (m.me + k) % g.n;
+            const p = (m.pov + k) % g.n;
             const btns = [...(this.handEl(p)?.querySelectorAll('.slot:not(:disabled)') || [])];
             if (btns.length) out.push(btns);
         }
@@ -268,7 +284,7 @@ const Board = {
         UI.focus(rows[r][c]);
     },
 
-    focusFirst(p = this.match.me, filter = null) {
+    focusFirst(p = this.match.pov, filter = null) {
         const btns = [...(this.handEl(p)?.querySelectorAll('.slot:not(:disabled)') || [])].filter(b => !filter || filter(+b.dataset.p, +b.dataset.s));
         if (btns[0]) UI.focus(btns[0], { silent: true });
     },
