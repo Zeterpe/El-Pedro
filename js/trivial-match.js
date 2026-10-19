@@ -11,7 +11,7 @@
 'use strict';
 
 /** Lo que dura cada momento sin voz (modo visual), en milisegundos. */
-const TRIVIAL_BEAT = { roll: 350, move: 250, again: 700, answer: 1500, wedge: 1300, pick: 600 };
+const TRIVIAL_BEAT = { roll: 350, move: 250, again: 700, answer: 1500, wedge: 1300, pick: 600, rebound: 900 };
 
 const TRIVIAL_PAINT = {
     geografia: { fill: '#2f7dd6', dark: '#174a8a', ink: '#ffffff', ico: '🌍' },
@@ -127,6 +127,11 @@ const TrivialArt = {
     },
 
     pips(v) {
+        // El 7 es la cara del quesito.
+        if (v === TRIVIAL_WILD) {
+            const [x0, y0] = this.pt(0.78, -122), [x1, y1] = this.pt(0.78, -58);
+            return `<path class="die-wedge" transform="translate(0 0.4)" d="M0 0L${x0} ${y0}A0.78 0.78 0 0 1 ${x1} ${y1}Z"/>`;
+        }
         const a = -0.42, b = 0, c = 0.42;
         const faces = { 1: [[b, b]], 2: [[a, a], [c, c]], 3: [[a, a], [b, b], [c, c]], 4: [[a, a], [c, a], [a, c], [c, c]], 5: [[a, a], [c, a], [b, b], [a, c], [c, c]], 6: [[a, a], [c, a], [a, b], [c, b], [a, c], [c, c]] };
         return (faces[v] || []).map(([x, y]) => `<circle cx="${x}" cy="${y}" r="0.16"/>`).join('');
@@ -150,6 +155,7 @@ class TrivialMatch extends Match {
         this.sel = null;               // lo que has elegido, a la espera del segundo toque
         this.promptedKey = null;
         this.cut = new Set();          // respuestas quitadas por la pista (práctica)
+        this.clock = null;             // la cuenta atrás para contestar: { key, left, reading, done }
         this.advisor = new TrivialBot(this.game, this.me, { level: 'dificil' }, makeRng(this.seed + 4242));
         this.syncShown();
     }
@@ -224,14 +230,84 @@ class TrivialMatch extends Match {
     /** Adónde lleva una jugada: «el quesito de Historia», «Ciencia, entre el quesito de Arte y el de Ciencia», «volver a tirar». */
     destText(to, { brief = this.brief } = {}) {
         const n = TRIVIAL_BOARD[to], s = this.side;
-        if (n.kind === 'hub') return this.hasAllShown(s) && this.game.rules.hubFinal ? 'el centro: la pregunta final' : 'el centro: eliges categoría';
-        if (n.kind === 'hq') return `el quesito de ${this.catShort(n.cat)}${this.shown.wedges[s].includes(n.cat) ? ', que ya tienes' : ''}`;
+        if (n.kind === 'hub') return this.hasAllShown(s) && this.game.rules.hubFinal ? 'el centro: la pregunta final' : `el centro: eliges categoría${brief ? '' : this.towardText(to)}`;
+        if (n.kind === 'hq') return `el quesito de ${this.catShort(n.cat)}${this.shown.wedges[s].includes(n.cat) ? `, que ya tienes${brief ? '' : this.towardText(to)}` : ''}`;
         const what = n.kind === 'roll' ? 'volver a tirar' : this.catShort(n.cat);
         if (brief) return what;
-        if (n.zone === 'spoke') return `${what}, en el radio de ${this.catShort(TRIVIAL_CATS[n.k])}`;
+        const toward = this.towardText(to);
+        if (n.zone === 'spoke') return `${what}, en el radio de ${this.catShort(TRIVIAL_CATS[n.k])}${toward}`;
         const a = TRIVIAL_CATS[n.k], b = TRIVIAL_CATS[(n.k + 1) % 6];
-        if (n.kind === 'roll') { const near = n.pos <= 3 ? a : b; return `${what}, a ${Math.min(n.pos, 7 - n.pos)} del quesito de ${this.catShort(near)}, hacia el de ${this.catShort(near === a ? b : a)}`; }
-        return `${what}, entre el quesito de ${this.catShort(a)} y el de ${this.catShort(b)}`;
+        if (n.kind === 'roll') { const near = n.pos <= 3 ? a : b; return `${what}, a ${Math.min(n.pos, 7 - n.pos)} del quesito de ${this.catShort(near)}, hacia el de ${this.catShort(near === a ? b : a)}${toward}`; }
+        return `${what}, entre el quesito de ${this.catShort(a)} y el de ${this.catShort(b)}${toward}`;
+    }
+
+    /** Lo cerca que te deja una casilla de lo que buscas (el quesito que te falta más cerca, o el centro): «, te acerca: a 3 del quesito de Arte». */
+    towardText(to) {
+        const s = this.side, from = this.shown.at[s];
+        if (this.hasAllShown(s)) {
+            if (!this.game.rules.hubFinal) return '';
+            const d = TRIVIAL_DIST[to][TRIVIAL_HUB];
+            return d < TRIVIAL_DIST[from][TRIVIAL_HUB] ? `, te acerca: a ${d} del centro` : `, a ${d} del centro`;
+        }
+        const near = this.nearestMissing(s, to), was = this.nearestMissing(s, from);
+        if (!near || !near.d) return '';
+        return `${was && near.d < was.d ? ', te acerca:' : ','} a ${near.d} del quesito de ${this.catShort(near.cat)}`;
+    }
+
+    /** El camino más corto de una casilla a otra, por tramos: «3 casillas por el anillo hasta el quesito de Arte, y luego 2 por el radio de Arte hacia el centro». */
+    routeText(from, to) {
+        const segs = [];
+        let prev = from;
+        for (const id of trivialPath(from, to)) {
+            const a = TRIVIAL_BOARD[prev], b = TRIVIAL_BOARD[id];
+            let kind, k = null;
+            if (a.zone === 'ring' && b.zone === 'ring') kind = (b.r - a.r + TRIVIAL_RING) % TRIVIAL_RING === 1 ? 'cw' : 'ccw';
+            else if (b.kind === 'hub' || (a.zone === 'ring' && b.zone === 'spoke') || (a.zone === 'spoke' && b.zone === 'spoke' && b.j > a.j)) { kind = 'in'; k = b.kind === 'hub' ? a.k : b.k; }
+            else { kind = 'out'; k = b.zone === 'spoke' ? b.k : a.k; }
+            const last = segs[segs.length - 1];
+            if (last && last.kind === kind && last.k === k) { last.n++; last.end = id; }
+            else segs.push({ kind, k, n: 1, start: prev, end: id });
+            prev = id;
+        }
+        return segs.map((sg, i) => {
+            const n = sg.n === 1 ? (i ? '1' : '1 casilla') : (i ? String(sg.n) : `${sg.n} casillas`);
+            if (sg.kind === 'in') return `${n} por el radio de ${this.catShort(TRIVIAL_CATS[sg.k])} ${sg.end === TRIVIAL_HUB ? 'hasta' : 'hacia'} el centro`;
+            if (sg.kind === 'out') return `${n} por el radio de ${this.catShort(TRIVIAL_CATS[sg.k])} ${TRIVIAL_BOARD[sg.end].kind === 'hq' ? 'hasta su quesito' : 'hacia su quesito'}`;
+            // Por el anillo: hacia el primer quesito que hay en ese sentido.
+            const dir = sg.kind === 'cw' ? 1 : -1;
+            let r = TRIVIAL_BOARD[sg.start].r;
+            do r = (r + dir + TRIVIAL_RING) % TRIVIAL_RING; while (r % 7);
+            const hq = this.catShort(TRIVIAL_CATS[r / 7]);
+            return TRIVIAL_BOARD[sg.end].r === r ? `${n} por el anillo hasta el quesito de ${hq}` : `${n} por el anillo, hacia el quesito de ${hq}`;
+        }).join(', y luego ');
+    }
+
+    /** Por dónde ir: dónde estás y, de los quesitos que te faltan (o del centro), a cuánto y por dónde. */
+    describeRoute() {
+        const g = this.game, s = this.side, at = this.shown.at[s], have = this.shown.wedges[s];
+        const we = g.teamPlay;
+        const parts = [`${we ? 'Estáis' : 'Estás'} ${this.placeText(at)}.`];
+        const shortList = [];
+        if (this.hasAllShown(s)) {
+            const d = TRIVIAL_DIST[at][TRIVIAL_HUB];
+            if (!g.rules.hubFinal) parts.push(`${we ? 'Tenéis' : 'Tienes'} todos los quesitos.`);
+            else if (!d) parts.push(`${we ? 'Tenéis' : 'Tienes'} todos los quesitos y ${we ? 'estáis' : 'estás'} en el centro.`);
+            else { parts.push(`${we ? 'Tenéis' : 'Tienes'} todos los quesitos. Al centro, a ${d}: ${this.routeText(at, TRIVIAL_HUB)}.`); shortList.push(`Centro a ${d}`); }
+        } else {
+            const miss = TRIVIAL_CATS.filter(c => !have.includes(c)).map(c => ({ c, d: TRIVIAL_DIST[at][trivialHq(c)] })).sort((a, b) => a.d - b.d);
+            parts.push(`${we ? 'Os faltan' : 'Te faltan'}, del más cercano al más lejano:`);
+            for (const m of miss) {
+                parts.push(m.d ? `${this.catShort(m.c)}, a ${m.d}: ${this.routeText(at, trivialHq(m.c))}.` : `${this.catShort(m.c)}: ${we ? 'estáis' : 'estás'} en su casilla.`);
+                shortList.push(`${this.catShort(m.c)} a ${m.d}`);
+            }
+        }
+        if (this.visual) {
+            Board.status(shortList.length ? shortList.join(' · ') : parts[parts.length - 1]);
+            for (const c of TRIVIAL_CATS) if (!have.includes(c) && !this.hasAllShown(s)) this.flashAt(trivialHq(c));
+            return;
+        }
+        const wheel = this.hint('wheel', 'En el tablero, el quesito de Geografía está arriba y, siguiendo las agujas del reloj, vienen Espectáculos, Historia, Arte, Ciencia y Deportes. Del centro a cada quesito hay 6 casillas.');
+        this.speech.say(parts.join(' ') + wheel, { interrupt: true });
     }
 
     /** Las jugadas en el orden en que se dicen: la final, los quesitos que te faltan, los demás quesitos, las categorías y volver a tirar. */
@@ -282,6 +358,7 @@ class TrivialMatch extends Match {
             { kind: 'advice', label: 'Consejo', key: 'A' },
             { kind: 'question', label: 'La pregunta', key: 'P', cls: 'small talk' },
             { kind: 'board', label: 'Dónde estáis', key: 'M', cls: 'small talk' },
+            { kind: 'route', label: 'Por dónde ir', key: 'O', cls: 'small talk' },
             { kind: 'info', label: 'Cómo va', key: 'I', cls: 'small talk' },
             { kind: 'cards', label: 'Mis quesitos', key: 'C', cls: 'small talk' },
             { kind: 'repeat', label: 'Repetir', key: 'Espacio', cls: 'small talk' },
@@ -291,6 +368,7 @@ class TrivialMatch extends Match {
 
     button(kind) {
         if (kind === 'board') return this.describeBoard();
+        if (kind === 'route') return this.describeRoute();
         if (kind === 'question') return this.readQuestion();
         if (kind === 'advice' && !this.want?.kinds.has('advice')) return this.advise();
         return super.button(kind);
@@ -307,7 +385,7 @@ class TrivialMatch extends Match {
                 </svg>
                 <div id="tq" class="tq" hidden>
                     <div class="tq-card">
-                        <div class="tq-head"><span class="tq-ico" aria-hidden="true"></span><span class="tq-cat"></span><span class="tq-kind"></span></div>
+                        <div class="tq-head"><span class="tq-ico" aria-hidden="true"></span><span class="tq-cat"></span><span class="tq-kind"></span><span class="tq-time" aria-hidden="true" hidden></span></div>
                         <p class="tq-text"></p>
                         <div class="tq-answers" role="group"></div>
                         <p class="tq-foot"></p>
@@ -473,7 +551,8 @@ class TrivialMatch extends Match {
         const card = box.querySelector('.tq-card'), list = box.querySelector('.tq-answers');
         const iPick = !!pick && pick.by === this.me && g.phase === 'pick';
         const mineQ = !!q && q.p === this.me;
-        const key = q ? `q|${q.qid}|${q.p}` : `p|${pick.by}|${pick.for}|${pick.final}|${iPick}`;
+        const cats = this.pickCats();
+        const key = q ? `q|${q.qid}|${q.p}` : `p|${pick.by}|${pick.for}|${pick.final}|${!!pick.wild}|${iPick}`;
         if (box.dataset.k !== key) {
             box.dataset.k = key;
             const cat = q ? q.cat : null;
@@ -484,7 +563,7 @@ class TrivialMatch extends Match {
             list.innerHTML = '';
             if (q) {
                 box.querySelector('.tq-cat').textContent = this.catName(cat);
-                box.querySelector('.tq-kind').textContent = q.kind === 'final' ? 'Pregunta final' : q.wedge ? 'Por el quesito' : '';
+                box.querySelector('.tq-kind').textContent = q.kind === 'final' ? 'Pregunta final' : q.rebound ? '¡Rebote! Por el quesito' : q.kind === 'wild' ? 'Muy difícil, por el quesito' : q.wedge ? 'Por el quesito' : '';
                 box.querySelector('.tq-text').textContent = q.text;
                 list.setAttribute('aria-label', 'Respuestas');
                 q.options.forEach((o, i) => {
@@ -498,13 +577,15 @@ class TrivialMatch extends Match {
                 });
             } else {
                 const forWho = pick.for === this.me ? 'tu' : `la de ${this.names[pick.for]}`;
-                box.querySelector('.tq-cat').textContent = pick.final ? 'Pregunta final' : 'En el centro';
+                box.querySelector('.tq-cat').textContent = pick.final ? 'Pregunta final' : pick.wild ? 'El quesito del dado' : 'En el centro';
                 box.querySelector('.tq-kind').textContent = '';
-                box.querySelector('.tq-text').textContent = iPick
+                box.querySelector('.tq-text').textContent = pick.wild
+                    ? (iPick ? 'Elige qué quesito intentas. La pregunta será muy difícil' : `${cap(this.names[pick.by])} elige qué quesito intenta…`)
+                    : iPick
                     ? (pick.final ? (pick.for === this.me ? 'Elige la categoría de tu pregunta final' : `Elige la categoría de la pregunta final de ${this.names[pick.for]}`) : 'Elige la categoría de tu pregunta')
                     : `${cap(this.names[pick.by])} elige la categoría de ${pick.final ? `${forWho} pregunta final` : 'su pregunta'}…`;
-                list.setAttribute('aria-label', 'Categorías');
-                if (iPick) TRIVIAL_CATS.forEach((c, i) => {
+                list.setAttribute('aria-label', pick.wild ? 'Quesitos' : 'Categorías');
+                if (iPick) cats.forEach((c, i) => {
                     const b = document.createElement('button');
                     b.className = 'nav tans tcat';
                     b.dataset.i = i;
@@ -519,23 +600,71 @@ class TrivialMatch extends Match {
         // Lo que ha contestado cada uno y la correcta.
         const R = S.result;
         const answering = q && this.choosing('answer');
+        const gone = q?.wrong || [];
         [...list.children].forEach((b, i) => {
-            const isQ = !!q;
+            const isQ = !!q, out = isQ && gone.includes(i);
             b.classList.toggle('chosen', (answering || iPick) && this.sel === i);
-            b.classList.toggle('cut', isQ && this.cut.has(i) && !R);
+            b.classList.toggle('cut', isQ && this.cut.has(i) && !R && !out);
             b.classList.toggle('right', isQ && !!R && R.correct === i);
-            b.classList.toggle('wrong', isQ && !!R && R.choice === i && !R.ok);
-            b.disabled = isQ ? !answering : !iPick;
-            const label = isQ ? `${i + 1}: ${q.options[i]}` : `${i + 1}: ${this.catName(TRIVIAL_CATS[i])}`;
+            b.classList.toggle('wrong', isQ && ((!!R && R.choice === i && !R.ok) || out));
+            b.disabled = isQ ? !answering || out : !iPick;
+            const label = isQ ? `${i + 1}: ${q.options[i]}${out ? ', descartada' : ''}` : `${i + 1}: ${this.catName(cats[i])}`;
             b.setAttribute('aria-label', label + ((answering || iPick) && this.sel === i ? `. Elegida: pulsa otra vez para ${isQ ? 'responder' : 'elegirla'}` : ''));
         });
         const foot = box.querySelector('.tq-foot');
-        foot.textContent = R ? (R.ok ? '¡Correcto!' : `La correcta era: ${q.options[R.correct]}`) : q ? (mineQ ? (this.visual ? 'Toca tu respuesta' : 'Elige con el 1, 2, 3 o 4') : `Contesta ${this.names[q.p]}`) : '';
+        foot.textContent = R
+            ? (R.ok ? '¡Correcto!' : R.correct == null ? `${R.choice < 0 ? 'Se acabó el tiempo' : 'Falla'}: ¡rebota!` : `${R.choice < 0 ? 'Se acabó el tiempo. ' : ''}La correcta era: ${q.options[R.correct]}`)
+            : q ? (mineQ ? (this.visual ? 'Toca tu respuesta' : 'Elige con el 1, 2, 3 o 4') : `Contesta ${this.names[q.p]}`) : '';
+        this.renderClock();
         card.classList.toggle('ok', !!R?.ok);
         card.classList.toggle('ko', !!R && !R.ok);
         // Si te toca contestar y el foco se ha perdido, va a la primera respuesta (sin leerla).
         const f = UI.active();
         if ((answering || iPick) && UI.current === 'game' && !Dialog.active && (!f || f === document.body || !document.contains(f) || f.disabled || f.hidden)) UI.focus(list.querySelector('.tans:not(:disabled)'), { silent: true });
+    }
+
+    /** Las categorías que se eligen ahora: las seis o, con el quesito del dado, las que faltan. */
+    pickCats() {
+        const pk = this.shown.pick || this.game.pick;
+        return pk?.wild && pk.cats ? pk.cats : TRIVIAL_CATS;
+    }
+
+    // ── La cuenta atrás ───────────────────────────────
+    /** Empieza a contar el tiempo para contestar cuando se acaba de leer la pregunta (talk). Se para con la pausa. */
+    startClock(talk) {
+        const secs = this.game.rules.answerTime;
+        this.clock = null;
+        if (!secs || this.practice) return;
+        const key = this.stateKey(), clock = this.clock = { key, left: secs, reading: true, done: false };
+        Promise.resolve(talk).then(() => { clock.reading = false; });
+        this.renderClock();
+        (async () => {
+            while (!this.stopped && this.clock === clock) {
+                await this.sleep(1000);
+                if (this.stopped || this.clock !== clock) return;
+                if (this.stateKey() !== key || this.game.actor !== this.me) { this.clock = null; this.renderClock(); return; }
+                if (clock.reading) continue;
+                clock.left--;
+                this.renderClock();
+                if (clock.left === 10) { this.audio.tick(true); if (!this.visual) this.notice('Quedan 10 segundos.'); }
+                else if (clock.left > 0 && clock.left <= 5) this.audio.tick(clock.left <= 3);
+                if (clock.left <= 0) {
+                    clock.done = true;
+                    this.input('timeout');
+                    return;
+                }
+            }
+        })();
+    }
+
+    renderClock() {
+        const el = document.querySelector('#tq .tq-time');
+        if (!el) return;
+        const c = this.clock;
+        el.hidden = !c || c.done;
+        if (!c) return;
+        el.textContent = `⏱ ${c.left}`;
+        el.classList.toggle('low', c.left <= 10);
     }
 
     // ── Animaciones ───────────────────────────────────
@@ -559,7 +688,7 @@ class TrivialMatch extends Match {
         die.classList.remove('blank');
         if (!Board.still) {
             for (let k = 0; k < 6; k++) {
-                die.querySelector('.pips').innerHTML = TrivialArt.pips(1 + Math.floor(Math.random() * 6));
+                die.querySelector('.pips').innerHTML = TrivialArt.pips(1 + Math.floor(Math.random() * (this.game.rules.wildDie ? TRIVIAL_WILD : 6)));
                 await this.sleep(70);
             }
         }
@@ -582,10 +711,12 @@ class TrivialMatch extends Match {
 
     /** La pregunta para leerla: categoría, texto y las cuatro respuestas. */
     questionSpeech(q, { head = true } = {}) {
-        const kind = q.kind === 'final' ? 'Pregunta final, de ' : q.wedge ? 'Por el quesito de ' : '';
+        const kind = q.kind === 'final' ? 'Pregunta final, de ' : q.rebound ? 'Rebote, por el quesito de ' : q.kind === 'wild' ? 'Pregunta muy difícil, por el quesito de ' : q.wedge ? 'Por el quesito de ' : '';
         const who = q.p === this.me ? '' : `Para ${this.names[q.p]}. `;
-        const opts = q.options.map((o, i) => `${i + 1}, ${o}.`).join(' ');
-        return `${head ? `${who}${kind ? kind + this.catName(q.cat) : this.catName(q.cat)}. ` : ''}${q.text} ${opts}`;
+        const gone = q.wrong || [];
+        const opts = q.options.map((o, i) => gone.includes(i) ? null : `${i + 1}, ${o}.`).filter(Boolean).join(' ');
+        const out = gone.length ? ` La ${Txt.list(gone.map(i => String(i + 1)))} ya está descartada.` : '';
+        return `${head ? `${who}${kind ? kind + this.catName(q.cat) : this.catName(q.cat)}. ` : ''}${q.text} ${opts}${out}`;
     }
 
     // ── Lo que pasa, contado y animado ────────────────
@@ -613,12 +744,13 @@ class TrivialMatch extends Match {
                 B.render(this);
                 if (e.p === me) {
                     A.yourTurn();
-                    const t = e.why === 'square' ? 'Tira otra vez' : e.why === 'right' ? 'Aciertas: vuelves a tirar' : 'Tu turno: tira el dado';
+                    const t = e.why === 'square' ? 'Tira otra vez' : e.why === 'right' ? 'Aciertas: vuelves a tirar' : e.why === 'wild' ? 'Ya tienes todos los quesitos: tira otra vez' : 'Tu turno: tira el dado';
                     const lim = g.rules.streak, last = e.why === 'right' && lim && e.streak === lim - 1;
                     this.prompt(t, `${e.why === 'right' ? 'Vuelves a tirar.' : t + '.'}${last ? ' Si vuelves a acertar, pasa el turno.' : ''}${this.hint('roll', 'Pulsa la T o Enter, o toca el dado.')}`);
                 } else {
                     A.otherTurn(e.p);
                     B.status(e.again ? `${cap(this.names[e.p])} vuelve a tirar` : `Turno de ${this.names[e.p]}`);
+                    if (e.why === 'wild' && !this.brief) await this.say(`${v.Name(e.p)} ya tiene todos los quesitos: vuelve a tirar.`);
                     if (!e.again && (this.seats[e.p].kind === 'remote' || g.teamPlay) && !this.brief) await this.say(`Turno de ${v.name(e.p)}${g.teamPlay && g.team(e.p) === g.team(me) ? ', de tu equipo' : ''}.`);
                 }
                 break;
@@ -626,7 +758,11 @@ class TrivialMatch extends Match {
             case 'roll': {
                 A.dice(0);
                 await this.rollAnim(e.value);
-                if (e.p === me) {
+                if (e.wild) {
+                    A.wedge();
+                    if (e.p === me) { B.banner('¡Quesito!', 'Sacas el quesito del dado'); B.status('Sacas el quesito'); await this.say('¡Sacas el quesito!', { keep: true }); }
+                    else { B.bubble(e.p, '¡Saca el quesito!'); await this.say(`${v.Name(e.p)} saca el quesito.`); }
+                } else if (e.p === me) {
                     B.status(`Sacas un ${e.value}`);
                     await this.say(`Sacas un ${e.value}.`, { keep: true });
                 } else {
@@ -654,8 +790,20 @@ class TrivialMatch extends Match {
                 break;
             }
             case 'pickCat': {
-                S.pick = { by: e.by, for: e.p, final: e.final };
+                S.pick = { by: e.by, for: e.p, final: e.final, wild: !!e.wild, cats: e.cats };
                 B.render(this);
+                if (e.wild) {
+                    const list = e.cats.map((c, i) => `${i + 1}, ${this.catName(c)}`).join('. ');
+                    if (e.by === me) {
+                        this.prompt('Elige qué quesito intentas', `Elige qué quesito intentas, sin moverte. La pregunta será muy difícil y, si aciertas, te lo llevas: ${list}.`);
+                        break;
+                    }
+                    const t = `${v.Name(e.p)} elige qué quesito intenta, con una pregunta muy difícil.`;
+                    B.status(t);
+                    await this.say(t, { keep: true });
+                    await this.beat('pick');
+                    break;
+                }
                 if (e.final) {
                     A.call(0);
                     B.banner('¡Pregunta final!', e.p === me ? 'Si aciertas, ganas' : `Para ${this.names[e.p]}`);
@@ -695,37 +843,68 @@ class TrivialMatch extends Match {
                 const text = this.questionSpeech(e);
                 B.status(e.p === me ? `Pregunta de ${this.catName(e.cat)}` : `Pregunta para ${this.names[e.p]}`);
                 if (e.p === me) {
-                    // Puedes contestar sin esperar a que acabe de leerla.
-                    if (!this.visual) this.say(text + this.hint('answer', 'Contesta con el 1, 2, 3 o 4.'), { keep: true });
+                    // Puedes contestar sin esperar a que acabe de leerla. El tiempo empieza a contar cuando acaba.
+                    const secs = g.rules.answerTime && !this.practice ? g.rules.answerTime : 0;
+                    const time = secs ? this.hint('time', `Tienes ${secs} segundos desde que acabo de leerla.`) : '';
+                    let talk = null;
+                    if (!this.visual) talk = this.say(text + this.hint('answer', 'Contesta con el 1, 2, 3 o 4.') + time, { keep: true });
                     else this.speech.last = text;
+                    this.startClock(talk);
                 } else await this.say(text, { keep: true });
                 break;
             }
             case 'answer': {
                 const q = S.q || { options: [], p: e.p };
-                S.result = { choice: e.choice, correct: e.correct, ok: e.ok };
+                const bounce = e.rebound != null;
+                S.result = { choice: e.choice, correct: bounce ? null : e.correct, ok: e.ok };
                 this.sel = null;
+                this.clock = null;
                 B.render(this);
                 if (e.ok) A.right(); else A.wrong();
                 const pick = q.options[e.choice];
+                const next = bounce ? (e.rebound === me ? ' ¡Rebota para ti!' : ` Rebota para ${v.name(e.rebound)}.`) : '';
                 let text;
                 if (e.p === me) {
                     if (e.ok) { text = '¡Correcto!'; B.banner('¡Correcto!', ''); }
-                    else text = `No. La correcta es: ${e.answerText}.`;
+                    else text = `${e.timeout ? 'Se acabó el tiempo.' : 'No.'}${bounce ? next : ` La correcta es: ${e.answerText}.`}`;
                     this.app.recordAnswer?.(this.kind, e.ok);
                 } else {
-                    const said = this.brief ? '' : `${v.Name(e.p)} responde ${pick}. `;
-                    text = e.ok ? `${said}¡Correcto!` : `${said}${this.brief ? `${v.Name(e.p)} falla. ` : 'Falla. '}Era: ${e.answerText}.`;
-                    B.bubble(e.p, e.ok ? '¡Acierta!' : 'Falla', 2000);
+                    const said = e.timeout ? `A ${v.name(e.p)} se le acaba el tiempo. ` : this.brief ? '' : `${v.Name(e.p)} responde ${pick}. `;
+                    text = e.ok ? `${said}¡Correcto!` : `${said}${e.timeout ? '' : this.brief ? `${v.Name(e.p)} falla. ` : 'Falla. '}${bounce ? next.trim() : `Era: ${e.answerText}.`}`;
+                    B.bubble(e.p, e.ok ? '¡Acierta!' : e.timeout ? 'Sin tiempo' : 'Falla', 2000);
                 }
                 B.status(text.replace(/[¡!]/g, ''));
                 await this.say(text, { keep: true });
                 if (e.p !== me) await this.quip(e.p, e.ok ? 'right' : 'wrong', e.ok ? 0.2 : 0.3);
-                await this.beat('answer');
+                await this.beat(bounce ? 'rebound' : 'answer');
+                if (bounce) break;   // la pregunta sigue: la contesta el siguiente
                 if (this.visual) await this.sleep(400);
                 S.q = null;
                 S.result = null;
                 B.render(this);
+                break;
+            }
+            case 'rebound': {
+                S.q = { ...(S.q || {}), p: e.p, side: e.side, cat: e.cat, kind: e.kind, qid: e.qid, wedge: true, rebound: true, from: e.from, wrong: e.wrong.slice() };
+                S.result = null;
+                this.sel = null;
+                this.cut = new Set();
+                A.question(TRIVIAL_CATS.indexOf(e.cat));
+                B.render(this);
+                B.bubble(e.p, '¡Rebote!', 2000);
+                if (e.p === me) {
+                    B.banner('¡Rebote!', `Por el quesito de ${this.catShort(e.cat)}`);
+                    B.status(`Rebote: si aciertas, te llevas el quesito de ${this.catName(e.cat)}`);
+                    const text = `Si aciertas, te llevas el quesito de ${this.catName(e.cat)}. ${S.q.text ? this.questionSpeech(S.q, { head: false }) : ''}`;
+                    let talk = null;
+                    if (!this.visual) talk = this.say(text, { keep: true });
+                    else this.speech.last = text;
+                    this.startClock(talk);
+                } else {
+                    const t = `${v.Name(e.p)} contesta${g.teamPlay && g.team(e.p) === g.team(me) ? ', de tu equipo,' : ''} por el quesito de ${this.catShort(e.cat)}.`;
+                    B.status(`Rebote para ${this.names[e.p]}`);
+                    await this.say(t, { keep: true });
+                }
                 break;
             }
             case 'streak': {
@@ -744,7 +923,7 @@ class TrivialMatch extends Match {
                 const need = this.needed(), rest = need - e.count;
                 const mine = g.side(me) === e.side;
                 let text;
-                if (e.p === me) text = `¡Te llevas el quesito de ${this.catName(e.cat)}!`;
+                if (e.p === me) text = `¡Te llevas el quesito de ${this.catName(e.cat)}${e.rebound ? ' de rebote' : ''}!`;
                 else if (mine) text = `¡${v.Name(e.p)} se lleva el quesito de ${this.catName(e.cat)} para tu equipo!`;
                 else text = `¡${v.Name(e.p)} se lleva el quesito de ${this.catName(e.cat)}!`;
                 if (e.all && g.rules.hubFinal) text += mine ? ' ¡Ya tenéis todos! Ahora, al centro para la pregunta final.'.replace('tenéis', g.teamPlay ? 'tenéis' : 'tienes') : ' Ya los tiene todos: va a por la pregunta final.';
@@ -808,7 +987,8 @@ class TrivialMatch extends Match {
         const parts = [];
         if (g.phase === 'gameOver') parts.push('La partida ha terminado.');
         else parts.push(S.turn === this.me ? 'Es tu turno.' : `Es el turno de ${v.name(S.turn)}.`);
-        if (S.die) parts.push(`Último dado: ${S.die}.`);
+        if (S.die) parts.push(S.die === TRIVIAL_WILD ? 'Último dado: el quesito.' : `Último dado: ${S.die}.`);
+        if (this.clock && !this.clock.done) parts.push(`Te quedan ${this.clock.left} segundos para contestar.`);
         parts.push(`Para ganar hacen falta ${this.needed()} quesitos${g.rules.hubFinal ? ' y acertar la pregunta final en el centro' : ''}.`);
         parts.push('Quesitos: ' + Txt.list(g.tokens.map((_, s) => `${this.sideName(s)} ${S.wedges[s].length}`)) + '.');
         const t = g.tokens[this.side];
@@ -830,7 +1010,10 @@ class TrivialMatch extends Match {
         if (this.visual) return;
         const q = this.shown.q;
         if (!q) { this.notice('Ahora no hay ninguna pregunta.'); return; }
-        this.speech.say(this.questionSpeech(q), { interrupt: true, keep: true });
+        // Mientras te la vuelvo a leer, el tiempo no corre.
+        const talk = this.speech.say(this.questionSpeech(q) + (this.clock && !this.clock.done ? ` Te quedan ${this.clock.left} segundos.` : ''), { interrupt: true, keep: true });
+        const c = this.clock;
+        if (c) { c.reading = true; Promise.resolve(talk).then(() => { if (this.clock === c) c.reading = false; }); }
     }
 
     keysHelp() {
@@ -838,7 +1021,7 @@ class TrivialMatch extends Match {
             'T o Enter: tirar el dado.',
             `Del 1 al 9: adónde vas, la categoría o la respuesta. ${this.settings.confirmPlay ? 'La primera vez te dice cuál es y la segunda la elige. Enter elige la marcada.' : 'Al pulsarla, la eliges.'}`,
             'Flechas: moverte por las opciones.',
-            'P: repetir la pregunta y sus respuestas. M: dónde está cada ficha y el quesito que te falta más cerca. C: tus quesitos. D: el último dado.',
+            'P: repetir la pregunta y sus respuestas; mientras la leo, el tiempo no corre. M: dónde está cada ficha y el quesito que te falta más cerca. O: por dónde ir a cada quesito que te falta. C: tus quesitos. D: el último dado.',
             this.practice ? 'A: un consejo.' : '',
             'I: cómo va la partida. Espacio: repetir lo último. Escape: pausa.',
         ].filter(Boolean);
@@ -856,13 +1039,13 @@ class TrivialMatch extends Match {
             this.sel = this.orderedOptions().findIndex(m => m.to === to);
             text = `Te aconsejo ir a ${this.destText(to)}.`;
         } else if (g.phase === 'pick') {
-            const cat = this.advisor.favorite || g.pick.for !== me ? this.advisor.chooseCat() : this.advisor.chooseCat();
+            const cat = this.advisor.chooseCat();
             text = `Te aconsejo ${this.catName(cat)}.`;
         } else if (g.answerIdx != null) {
             if (!this.cut.size) {
-                const wrong = [0, 1, 2, 3].filter(i => i !== g.answerIdx);
-                this.advisor.rng.shuffle(wrong);
-                this.cut = new Set(wrong.slice(0, 2));
+                const gone = g.q.wrong || [];
+                const wrong = this.advisor.rng.shuffle([0, 1, 2, 3].filter(i => i !== g.answerIdx && !gone.includes(i)));
+                this.cut = new Set([...gone, ...wrong].slice(0, 2));
             }
             const left = [0, 1, 2, 3].filter(i => !this.cut.has(i));
             text = `Pista: es la ${left[0] + 1} o la ${left[1] + 1}.`;
@@ -879,13 +1062,13 @@ class TrivialMatch extends Match {
         if (this.stopped) return;
         if (this.input('slot', { slot: i })) return;
         const g = this.game;
-        if (g.phase === 'answer' && this.shown.q && g.current !== this.me) { this.notice(`Contesta ${this.names[g.current]}.`); return; }
+        if (g.phase === 'answer' && this.shown.q && g.actor !== this.me) { this.notice(`Contesta ${this.names[g.actor]}.`); return; }
         this.explainCant('slot');
     }
 
     dieClick() {
         if (this.input('roll')) return;
-        if (!this.visual) this.speech.say(this.shown.die ? `El dado: ${this.shown.die}.` : 'Todavía no se ha tirado el dado.', { interrupt: true });
+        if (!this.visual) this.speech.say(this.shown.die ? (this.shown.die === TRIVIAL_WILD ? 'El dado: el quesito.' : `El dado: ${this.shown.die}.`) : 'Todavía no se ha tirado el dado.', { interrupt: true });
     }
 
     /** Espera a que elijas una de count opciones (con el doble toque si está activado). Devuelve el índice o null. */
@@ -894,6 +1077,7 @@ class TrivialMatch extends Match {
         if (this.sel != null && this.sel >= count) this.sel = null;
         const a = await this.wait(kinds);
         if (!a || a.kind === 'interrupt' || this.stopped) return null;
+        if (a.kind === 'timeout') return -1;
         if (a.kind === 'advice') { this.advise(); return null; }
         const i = a.kind === 'play' ? this.sel : a.slot;
         if (i == null) { this.audio.error(); this.prompt('Primero elige una opción', 'Primero elige una opción, con su número o tocándola.', { interrupt: true }); return null; }
@@ -947,15 +1131,20 @@ class TrivialMatch extends Match {
             return;
         }
         if (g.phase === 'pick') {
-            const i = await this.choose(6, j => `${j + 1}: ${this.catName(TRIVIAL_CATS[j])}`);
+            const cats = this.pickCats();
+            const i = await this.choose(cats.length, j => `${j + 1}: ${this.catName(cats[j])}`);
             if (i == null || this.stateKey() !== key) return;
-            await this.act({ type: 'pick', p: me, cat: TRIVIAL_CATS[i] });
+            await this.act({ type: 'pick', p: me, cat: cats[i] });
             return;
         }
         if (g.phase === 'answer') {
             const q = g.q;
-            const i = await this.choose(4, j => `${j + 1}: ${q.options[j]}`);
+            const c = this.clock;
+            if (c?.done && c.key === key) { this.clock = null; await this.act({ type: 'answer', p: me, timeout: true }); return; }
+            const i = await this.choose(4, j => `${j + 1}: ${q.options[j]}${(q.wrong || []).includes(j) ? ', descartada' : ''}`, c && c.key === key ? ['slot', 'play', 'timeout'] : undefined);
             if (i == null || this.stateKey() !== key) return;
+            if (i === -1) { this.clock = null; await this.act({ type: 'answer', p: me, timeout: true }); return; }
+            if ((q.wrong || []).includes(i)) { this.audio.error(); this.notice(`La ${i + 1} ya está descartada.`); return; }
             await this.act({ type: 'answer', p: me, choice: i });
         }
     }
@@ -969,6 +1158,23 @@ class TrivialMatch extends Match {
         if (this.stopped || this.stateKey() !== key || g.actor !== p || this.bots[p] !== b) return;
         const a = b.chooseTurn();
         if (a) await this.act(a);
+    }
+
+    /** Anfitrión: si un invitado no contesta (se le ha cortado la conexión, por ejemplo), al rato se le acaba el tiempo. Su aparato lleva la cuenta de verdad. */
+    async remoteStep(p) {
+        const g = this.game, secs = g.rules.answerTime;
+        if (g.phase !== 'answer' || !secs) return super.remoteStep(p);
+        const key = this.stateKey();
+        let left = (secs + 90) * 1000;
+        const timer = setInterval(() => {
+            if (this.paused || Dialog.active) return;
+            left -= 500 / Math.max(this.timeScale, 0.001);
+            if (left > 0 || this.stopped || this.stateKey() !== key || g.actor !== p || this.seats[p].kind !== 'remote') return;
+            clearInterval(timer);
+            this.inbox.push({ t: 'act', p, a: { type: 'answer', p, timeout: true } });
+            this.wake();
+        }, 500);
+        try { return await super.remoteStep(p); } finally { clearInterval(timer); }
     }
 
     cancelPick() {
@@ -1006,11 +1212,12 @@ class TrivialMatch extends Match {
             return true;
         }
         if (k === 'm') { e.preventDefault(); this.describeBoard(); return true; }
+        if (k === 'o') { e.preventDefault(); this.describeRoute(); return true; }
         if (k === 'p') { e.preventDefault(); this.readQuestion(); return true; }
         if (k === 'd') {
             e.preventDefault();
             const S = this.shown;
-            this.speech.say(S.die ? `El dado: ${S.die}.` : S.turn === this.me ? 'Todavía no has tirado el dado.' : `${cap(this.v.name(S.turn))} todavía no ha tirado el dado.`, { interrupt: true });
+            this.speech.say(S.die ? (S.die === TRIVIAL_WILD ? 'El dado: el quesito.' : `El dado: ${S.die}.`) : S.turn === this.me ? 'Todavía no has tirado el dado.' : `${cap(this.v.name(S.turn))} todavía no ha tirado el dado.`, { interrupt: true });
             return true;
         }
         if (k === 'a') { e.preventDefault(); if (!this.practice) { this.audio.error(); this.notice('Los consejos son para la partida de práctica.'); } else if (!this.input('advice')) this.advise(); return true; }
@@ -1021,7 +1228,7 @@ class TrivialMatch extends Match {
         const g = this.game, me = this.me;
         let t = 'Ahora no.';
         if (g.phase === 'gameOver') t = 'La partida ha terminado.';
-        else if (g.actor !== me) t = g.phase === 'pick' ? `Ahora elige la categoría ${this.v.name(g.actor)}.` : `No es tu turno: juega ${this.v.name(g.current)}.`;
+        else if (g.actor !== me) t = g.phase === 'pick' ? `Ahora elige la categoría ${this.v.name(g.actor)}.` : g.phase === 'answer' ? `Contesta ${this.v.name(g.actor)}.` : `No es tu turno: juega ${this.v.name(g.current)}.`;
         else if (kind === 'roll' && g.phase === 'move') t = 'Ya has tirado: elige adónde vas.';
         else if (kind === 'roll' && g.phase === 'answer') t = 'Primero contesta la pregunta.';
         else if (kind === 'roll' && g.phase === 'pick') t = 'Primero elige la categoría.';

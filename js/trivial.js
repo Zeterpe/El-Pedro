@@ -20,6 +20,9 @@ const TRIVIAL_DEFAULT_RULES = {
     rollAgain: true,        // si aciertas, vuelves a tirar
     streak: 3,              // tras tantos aciertos seguidos, pasa el turno aunque aciertes (0: sin límite)
     level: 'todas',         // las preguntas: todas (mezcla) · faciles · medias · dificiles
+    wildDie: true,          // el dado va del 1 al 7: el 7 es el quesito (eliges uno que te falte y te hacen una pregunta muy difícil)
+    rebound: true,          // si alguien falla una pregunta de quesito, rebota al siguiente, que se lo lleva si acierta
+    answerTime: 60,         // segundos para contestar, desde que se acaba de leer la pregunta (0: sin límite)
 };
 
 /** Las seis categorías, en el orden del tablero (y de los quesitos). */
@@ -33,6 +36,8 @@ const TRIVIAL_CAT = {
     deportes: { name: 'Deportes y Pasatiempos', short: 'Deportes', color: 'naranja' },
 };
 const TRIVIAL_ACTIONS = new Set(['roll', 'move', 'pick', 'answer']);
+/** La cara del dado que es un quesito. */
+const TRIVIAL_WILD = 7;
 
 // ═══════════════════════════════════════════════════════
 // El tablero
@@ -40,8 +45,8 @@ const TRIVIAL_ACTIONS = new Set(['roll', 'move', 'pick', 'answer']);
 //
 // 73 casillas: el centro (0), el anillo (1 a 42) y los seis radios (43 a 72).
 // En el anillo, cada 7 casillas hay un quesito: el quesito k está en la casilla
-// 1 + 7k. Entre dos quesitos hay seis casillas: cuatro de categoría y dos de
-// «vuelve a tirar». Cada radio va de su quesito al centro con cinco casillas,
+// 1 + 7k. Entre dos quesitos hay seis casillas: cinco de categoría y una de
+// «vuelve a tirar», la cuarta. Cada radio va de su quesito al centro con cinco casillas,
 // una de cada categoría menos la del quesito.
 
 const TRIVIAL_HUB = 0;
@@ -57,8 +62,8 @@ const TRIVIAL_BOARD = (() => {
         const k = Math.floor(r / 7), pos = r % 7, id = tvRing(r);
         let kind = 'cat', cat = null;
         if (pos === 0) { kind = 'hq'; cat = C[k]; }
-        else if (pos === 2 || pos === 5) kind = 'roll';
-        else cat = C[(k + { 1: 3, 3: 5, 4: 2, 6: 4 }[pos]) % 6];
+        else if (pos === 4) kind = 'roll';
+        else cat = C[(k + { 1: 3, 2: 5, 3: 1, 5: 2, 6: 4 }[pos]) % 6];
         nodes[id] = { id, kind, cat, zone: 'ring', r, k, pos, nb: [tvRing(r - 1), tvRing(r + 1)] };
         if (pos === 0) nodes[id].nb.push(tvSpoke(k, 1));
     }
@@ -84,6 +89,17 @@ const TRIVIAL_DIST = TRIVIAL_BOARD.map(src => {
     }
     return d;
 });
+
+/** El camino más corto de from a to (sin la casilla de salida). */
+function trivialPath(from, to) {
+    const D = TRIVIAL_DIST, path = [];
+    let at = from;
+    while (at !== to && Number.isFinite(D[at][to])) {
+        at = TRIVIAL_BOARD[at].nb.find(nb => D[nb][to] === D[at][to] - 1);
+        path.push(at);
+    }
+    return path;
+}
 
 /**
  * Adónde se puede llegar desde from con steps casillas exactas, sin volver atrás.
@@ -139,8 +155,9 @@ class TrivialGame {
         this.nextChoice = [];        // pruebas: el orden de las respuestas (la correcta va donde diga)
         this._out = null;
         this.decks = {};
-        const seenSet = new Set(seen);
-        for (const cat of TRIVIAL_CATS) this.decks[cat] = this._deck(cat, seenSet);
+        this.hardDecks = {};         // las preguntas muy difíciles, para el quesito del dado
+        this.seenSet = new Set(seen);
+        for (const cat of TRIVIAL_CATS) this.decks[cat] = this._deck(cat, this.seenSet);
     }
 
     get n() { return this.players.length; }
@@ -156,7 +173,12 @@ class TrivialGame {
     /** Las categorías de quesito que le faltan a p. */
     missing(p) { const w = this.tokenOf(p).wedges; return TRIVIAL_CATS.filter(c => !w.includes(c)); }
     /** Quien tiene que hacer algo ahora (en la elección de la final, puede ser un rival). */
-    get actor() { return this.phase === 'pick' && this.pick ? this.pick.by : this.current; }
+    /** Con el rebote, contesta otro. */
+    get actor() {
+        if (this.phase === 'pick' && this.pick) return this.pick.by;
+        if (this.phase === 'answer' && this.q) return this.q.p;
+        return this.current;
+    }
 
     /** Lo que un jugador puede hacer ahora mismo. */
     legal(p) {
@@ -165,25 +187,28 @@ class TrivialGame {
     }
 
     // ── Las preguntas ─────────────────────────────────
-    _pool(cat) {
+    _pool(cat, hard = false) {
         const list = this.bank[cat] || [];
-        const lv = this.rules.level;
-        const want = { faciles: 1, medias: 2, dificiles: 3 }[lv];
+        const want = hard ? 3 : { faciles: 1, medias: 2, dificiles: 3 }[this.rules.level];
         const ok = q => !want || (q[5] || 1) === want;
         const idx = list.map((q, i) => ok(q) ? i : -1).filter(i => i >= 0);
         return idx.length ? idx : list.map((_, i) => i);
     }
 
     /** Las preguntas de una categoría, barajadas; las que ya han salido en otras partidas, al final. */
-    _deck(cat, seen = new Set()) {
-        const all = this.rng.shuffle(this._pool(cat));
+    _deck(cat, seen = new Set(), hard = false) {
+        const all = this.rng.shuffle(this._pool(cat, hard));
         const fresh = all.filter(i => !seen.has(`${cat}:${i}`)), old = all.filter(i => seen.has(`${cat}:${i}`));
         return fresh.concat(old);
     }
 
-    _draw(cat) {
-        if (!this.decks[cat].length) this.decks[cat] = this._deck(cat);
-        const i = this.decks[cat].shift();
+    _draw(cat, hard = false) {
+        const decks = hard ? this.hardDecks : this.decks;
+        if (!decks[cat]?.length) decks[cat] = this._deck(cat, hard ? this.seenSet : new Set(), hard);
+        // Que no salga la misma pregunta en los dos montones en la misma partida.
+        const other = hard ? this.decks[cat] : this.hardDecks[cat];
+        const i = decks[cat].shift();
+        if (other) { const at = other.indexOf(i); if (at >= 0) other.splice(at, 1); }
         return { i, q: (this.bank[cat] || [])[i] };
     }
 
@@ -192,7 +217,7 @@ class TrivialGame {
         return {
             phase: this.phase, round: this.round, current: this.current, streak: this.streak, turns: this.turns, dice: this.dice,
             options: this.options.map(m => ({ to: m.to, path: m.path.slice() })),
-            pick: this.pick && { ...this.pick }, q: this.q && { ...this.q, options: this.q.options.slice() },
+            pick: this.pick && { ...this.pick }, q: this.q && { ...this.q, options: this.q.options.slice(), wrong: this.q.wrong.slice() },
             last: this.last && { ...this.last }, winners: this.winners,
             tokens: this.tokens.map(t => ({ at: t.at, wedges: t.wedges.slice(), members: t.members.slice(), right: t.right, wrong: t.wrong, missed: { ...t.missed } })),
             players: this.players.map(pl => ({ name: pl.name, wins: pl.wins })),
@@ -242,10 +267,24 @@ class TrivialGame {
     _roll({ p }) {
         if (p !== this.current) return 'No es tu turno.';
         if (this.phase !== 'roll') return 'Ahora no toca tirar el dado.';
+        const faces = this.rules.wildDie ? TRIVIAL_WILD : 6;
         const forced = this.nextDice.length ? this.nextDice.shift() : null;
-        const value = forced >= 1 && forced <= 6 ? forced : this.rng.int(6) + 1;
+        const value = forced >= 1 && forced <= faces ? forced : this.rng.int(faces) + 1;
         this.turns++;
         this.dice = value;
+        if (value === TRIVIAL_WILD) {
+            // El quesito: eliges uno que te falte y te hacen una pregunta muy difícil, sin moverte.
+            this._emit({ t: 'roll', p, value, wild: true });
+            if (this.hasAll(p)) {
+                this.phase = 'roll';
+                this._emit({ t: 'turn', p, again: true, why: 'wild' });
+                return null;
+            }
+            this.phase = 'pick';
+            this.pick = { by: p, for: p, final: false, wild: true, cats: this.missing(p) };
+            this._emit({ t: 'pickCat', p, by: p, final: false, wild: true, cats: this.pick.cats.slice() });
+            return null;
+        }
         this.options = trivialMoves(this.tokenOf(p).at, value);
         this._emit({ t: 'roll', p, value });
         this.phase = 'move';
@@ -300,40 +339,75 @@ class TrivialGame {
         if (this.phase !== 'pick' || !this.pick) return 'Ahora no se elige categoría.';
         if (p !== this.pick.by) return 'No te toca elegir la categoría.';
         if (!TRIVIAL_CATS.includes(cat)) return 'Esa categoría no existe.';
+        const { for: who, final, wild } = this.pick;
+        if (wild && !this.pick.cats.includes(cat)) return 'Ese quesito ya lo tienes.';
         this.turns++;
-        const { for: who, final } = this.pick;
         this.pick = null;
-        this._emit({ t: 'catPicked', p, for: who, cat, final });
-        return this._ask(who, cat, final ? 'final' : 'hub');
+        this._emit({ t: 'catPicked', p, for: who, cat, final, wild: !!wild });
+        return this._ask(who, cat, final ? 'final' : wild ? 'wild' : 'hub');
     }
 
-    /** Hace una pregunta de cat a p. kind: normal · hq (casilla de quesito) · hub (en el centro) · final. */
+    /** Hace una pregunta de cat a p. kind: normal · hq (casilla de quesito) · hub (en el centro) · final · wild (el quesito del dado). */
     _ask(p, cat, kind) {
-        const { i, q } = this._draw(cat);
+        const { i, q } = this._draw(cat, kind === 'wild');
         if (!q) return 'No hay preguntas de esa categoría.';
         const order = this.rng.shuffle([1, 2, 3, 4]);
         const forced = this.nextChoice.length ? this.nextChoice.shift() : null;
         if (forced != null) { const at = order.indexOf(1); [order[at], order[forced]] = [order[forced], order[at]]; }
         const tok = this.tokenOf(p);
         this.answerIdx = order.indexOf(1);
-        this.q = { p, side: this.side(p), cat, kind, qid: `${cat}:${i}`, text: q[0], options: order.map(k => q[k]), level: q[5] || 1, wedge: kind === 'hq' && !tok.wedges.includes(cat) };
+        const wedge = (kind === 'hq' || kind === 'wild') && !tok.wedges.includes(cat);
+        this.q = { p, side: this.side(p), cat, kind, qid: `${cat}:${i}`, text: q[0], options: order.map(k => q[k]), level: q[5] || 1, wedge, rebound: false, wrong: [] };
         this.phase = 'answer';
-        this._emit({ t: 'question', ...this.q, options: this.q.options.slice() });
+        this._emit({ t: 'question', ...this.q, options: this.q.options.slice(), wrong: [] });
         return null;
     }
 
-    _answer({ p, choice }) {
+    /** A quién rebota una pregunta de quesito que p ha fallado: al siguiente, si es de otro equipo y le falta ese quesito. */
+    reboundTo(p, q) {
+        if (!this.rules.rebound || q.rebound || (q.kind !== 'hq' && q.kind !== 'wild') || this.n < 2) return null;
+        const to = (p + 1) % this.n;
+        if (this.team(to) === this.team(p) || this.hasAll(to) || this.tokenOf(to).wedges.includes(q.cat)) return null;
+        return to;
+    }
+
+    /** choice: de 0 a 3; timeout: se ha acabado el tiempo (cuenta como fallo). */
+    _answer({ p, choice, timeout = false }) {
         if (this.phase !== 'answer' || !this.q) return 'Ahora no hay ninguna pregunta.';
-        if (p !== this.current) return 'Esta pregunta no es para ti.';
-        if (!Number.isInteger(choice) || choice < 0 || choice > 3) return 'Elige una de las cuatro respuestas.';
+        if (p !== this.q.p) return 'Esta pregunta no es para ti.';
+        if (timeout) choice = -1;
+        else if (!Number.isInteger(choice) || choice < 0 || choice > 3) return 'Elige una de las cuatro respuestas.';
+        else if (this.q.wrong.includes(choice)) return 'Esa respuesta ya está descartada.';
         this.turns++;
         const q = this.q, tok = this.tokenOf(p);
         const ok = choice === this.answerIdx;
-        this.last = { choice, correct: this.answerIdx, ok, qid: q.qid };
-        this._emit({ t: 'answer', p, side: q.side, cat: q.cat, kind: q.kind, qid: q.qid, choice, correct: this.answerIdx, ok, answerText: q.options[this.answerIdx] });
+        const to = ok ? null : this.reboundTo(p, q);
+        const ev = { t: 'answer', p, side: q.side, cat: q.cat, kind: q.kind, qid: q.qid, choice, ok, timeout: !!timeout };
+        // Si rebota, la correcta sigue sin saberse.
+        if (to == null) Object.assign(ev, { correct: this.answerIdx, answerText: q.options[this.answerIdx] });
+        else ev.rebound = to;
+        this.last = { choice, correct: to == null ? this.answerIdx : null, ok, qid: q.qid };
+        this._emit(ev);
+        if (ok) tok.right++; else { tok.wrong++; tok.missed[q.cat] = (tok.missed[q.cat] || 0) + 1; }
+        if (to != null) {
+            const wrong = choice >= 0 ? [...q.wrong, choice] : q.wrong.slice();
+            this.q = { ...q, p: to, side: this.side(to), wedge: true, rebound: true, from: p, wrong };
+            this._emit({ t: 'rebound', from: p, p: to, side: this.q.side, cat: q.cat, kind: q.kind, qid: q.qid, wrong: wrong.slice() });
+            return null;
+        }
         this.q = null;
         this.answerIdx = null;
-        if (ok) tok.right++; else { tok.wrong++; tok.missed[q.cat] = (tok.missed[q.cat] || 0) + 1; }
+        if (q.rebound) {
+            // El rebote: si acierta, se lleva el quesito; después juega quien venía detrás.
+            if (ok) {
+                tok.wedges.push(q.cat);
+                const all = tok.wedges.length >= this.rules.wedges;
+                this._emit({ t: 'wedge', p, side: q.side, cat: q.cat, count: tok.wedges.length, all, rebound: true });
+                if (all && !this.rules.hubFinal) return this._gameOver(tok.members.slice());
+            }
+            this._pass();
+            return null;
+        }
         if (!ok) { this._pass(); return null; }
         if (q.kind === 'final') return this._gameOver(tok.members.slice());
         if (q.wedge) {
@@ -385,7 +459,7 @@ class TrivialMirror {
         this.phase = v.phase; this.round = v.round; this.current = v.current; this.streak = v.streak || 0; this.turns = v.turns; this.dice = v.dice;
         this.options = v.options.map(m => ({ to: m.to, path: m.path.slice() }));
         this.pick = v.pick && { ...v.pick };
-        this.q = v.q && { ...v.q, options: v.q.options.slice() };
+        this.q = v.q && { ...v.q, options: v.q.options.slice(), wrong: (v.q.wrong || []).slice() };
         this.last = v.last && { ...v.last };
         this.winners = v.winners;
         this.tokens = v.tokens.map(t => ({ ...t, wedges: t.wedges.slice(), members: t.members.slice(), missed: { ...t.missed } }));
@@ -395,7 +469,7 @@ class TrivialMirror {
     observe() { }
 }
 
-for (const m of ['team', 'side', 'partners', 'sides', 'tokenOf', 'hasAll', 'missing', 'legal', 'finalChooser']) {
+for (const m of ['team', 'side', 'partners', 'sides', 'tokenOf', 'hasAll', 'missing', 'legal', 'finalChooser', 'reboundTo']) {
     TrivialMirror.prototype[m] = TrivialGame.prototype[m];
 }
 for (const g of ['n', 'teamPlay', 'actor']) {
@@ -407,7 +481,7 @@ if (typeof module !== 'undefined') {
     const R = require('./rules.js');
     Object.assign(globalThis, { makeRng: R.makeRng });
     module.exports = {
-        TRIVIAL_DEFAULT_RULES, TRIVIAL_CATS, TRIVIAL_CAT, TRIVIAL_BOARD, TRIVIAL_DIST, TRIVIAL_HUB, TRIVIAL_RING,
-        tvRing, tvSpoke, trivialHq, trivialMoves, TrivialGame, TrivialMirror,
+        TRIVIAL_DEFAULT_RULES, TRIVIAL_CATS, TRIVIAL_CAT, TRIVIAL_BOARD, TRIVIAL_DIST, TRIVIAL_HUB, TRIVIAL_RING, TRIVIAL_WILD,
+        tvRing, tvSpoke, trivialHq, trivialMoves, trivialPath, TrivialGame, TrivialMirror,
     };
 }

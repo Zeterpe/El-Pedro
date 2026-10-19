@@ -67,6 +67,9 @@ const Txt = {
             r.hubFinal ? `La categoría de la final la elige${({ rivales: 'n los rivales', azar: ' el azar', tu: 's tú' })[r.finalPick]}.` : '',
             !r.rollAgain ? 'Aciertes o no, pasa el turno.' : r.streak ? `Si aciertas, vuelves a tirar, hasta ${r.streak} aciertos seguidos.` : 'Si aciertas, vuelves a tirar.',
             ({ todas: 'Preguntas de todas las dificultades.', faciles: 'Preguntas fáciles.', medias: 'Preguntas medias.', dificiles: 'Preguntas difíciles.' })[r.level] || '',
+            r.answerTime ? `${r.answerTime} segundos para contestar.` : 'Sin límite de tiempo para contestar.',
+            r.wildDie ? 'El dado va del 1 al 7, y el 7 es un quesito.' : '',
+            r.rebound ? 'Si alguien falla una pregunta de quesito, rebota al siguiente.' : '',
         ].filter(Boolean).join(' ');
     },
 

@@ -239,6 +239,7 @@ const GAMES = {
                 { label: 'Dificultad de las preguntas', values: ['todas', 'faciles', 'medias', 'dificiles'], get: () => r.level, set: v => { r.level = v; }, text: v => ({ todas: 'de todo un poco', faciles: 'fáciles', medias: 'medias', dificiles: 'difíciles' })[v] },
                 { label: 'Con 3 o 5 rivales, por equipos', values: [false, true], get: () => r.teams, set: v => { r.teams = v; }, text: v => v ? 'sí: tu equipo son los de los sitios alternos' : 'no, cada uno por su cuenta' },
                 { label: 'Quesitos para ganar', values: [6, 4, 3], get: () => r.wedges, set: v => { r.wedges = v; }, text: v => v === 6 ? '6, los de siempre' : `${v}, para una partida más corta` },
+                { label: 'Tiempo para contestar', values: [60, 90, 45, 30, 0], get: () => r.answerTime, set: v => { r.answerTime = v; }, text: v => v ? `${v} segundos, desde que se acaba de leer la pregunta` : 'sin límite' },
                 { label: 'Tocar dos veces para elegir', values: [true, false], get: () => s.confirmPlay, set: v => { s.confirmPlay = v; }, text: v => v ? 'sí: el primer toque te dice la respuesta' : 'no: se elige al tocarla' },
             ];
         },
@@ -251,6 +252,9 @@ const GAMES = {
                 { label: 'La categoría de la final la elige', values: ['rivales', 'azar', 'tu'], get: () => r.finalPick, set: v => { r.finalPick = v; }, text: v => ({ rivales: 'el rival que juega después', azar: 'el azar', tu: 'quien la contesta' })[v] },
                 { label: 'Si aciertas, vuelves a tirar', values: [true, false], get: () => r.rollAgain, set: v => { r.rollAgain = v; }, text: yesNo },
                 { label: 'Aciertos seguidos antes de pasar el turno', values: [3, 2, 4, 5, 0], get: () => r.streak, set: v => { r.streak = v; }, text: v => v ? `${v}: después pasa el turno aunque aciertes` : 'sin límite: sigues mientras aciertes' },
+                { label: 'Tiempo para contestar', values: [60, 90, 45, 30, 0], get: () => r.answerTime, set: v => { r.answerTime = v; }, text: v => v ? `${v} segundos, desde que se acaba de leer la pregunta` : 'sin límite' },
+                { label: 'El dado del 1 al 7, con el 7 de quesito', values: [true, false], get: () => r.wildDie, set: v => { r.wildDie = v; }, text: v => v ? 'sí: con el 7 eliges un quesito que te falta y te hacen una pregunta muy difícil' : 'no: del 1 al 6' },
+                { label: 'Si alguien falla una pregunta de quesito, rebota', values: [true, false], get: () => r.rebound, set: v => { r.rebound = v; }, text: v => v ? 'sí: la contesta el siguiente y, si acierta, se lleva el quesito' : 'no' },
             ];
         },
         rulesHtml: `
@@ -259,23 +263,27 @@ const GAMES = {
             <h2>Las categorías</h2>
             <p>Hay seis, cada una con su color: Geografía, en azul. Espectáculos, en rosa. Historia, en amarillo. Arte y Literatura, en marrón. Ciencias y Naturaleza, en verde. Y Deportes y Pasatiempos, en naranja. Cada pregunta tiene cuatro respuestas y solo una es la buena.</p>
             <h2>El tablero</h2>
-            <p>Es una rueda. Por fuera, un anillo de 42 casillas con los seis quesitos, uno cada siete casillas. Entre dos quesitos hay cuatro casillas de categoría y dos de volver a tirar. De cada quesito sale un radio de cinco casillas que llega al centro. Todas las fichas empiezan en el centro.</p>
+            <p>Es una rueda. Por fuera, un anillo de 42 casillas con los seis quesitos, uno cada siete casillas: arriba, Geografía y, siguiendo las agujas del reloj, Espectáculos, Historia, Arte, Ciencia y Deportes. Entre dos quesitos hay cinco casillas de categoría y una de volver a tirar. De cada quesito sale un radio de cinco casillas que llega al centro, así que del centro a cada quesito hay seis. Todas las fichas empiezan en el centro.</p>
+            <p>Con la O te digo dónde estás y, de cada quesito que te falta, a cuántas casillas está y por dónde se va. Al elegir adónde vas, cada casilla te dice a cuánto te deja del quesito que te falta más cerca.</p>
             <h2>Tu turno</h2>
             <p>Tiras el dado y avanzas justo lo que sale, hacia donde quieras, pero sin volver atrás en la misma tirada. Puedes pasar por el centro y por los quesitos. El juego te dice adónde puedes llegar y tú eliges.</p>
+            <p>El dado va del 1 al 7, y el 7 es un quesito: no te mueves, eliges uno de los quesitos que te faltan y te hacen una pregunta muy difícil. Si aciertas, te lo llevas. Si ya los tienes todos, vuelves a tirar.</p>
             <p>Donde caes, te hacen una pregunta de su categoría. Si aciertas, vuelves a tirar, pero con tres aciertos seguidos pasa el turno, para que nadie se quede con la partida. Si fallas, pasa el turno. En las casillas de volver a tirar no hay pregunta: tiras otra vez.</p>
+            <p>Tienes 60 segundos para contestar, y empiezan a contar cuando se acaba de leer la pregunta. Si se acaba el tiempo, cuenta como un fallo. Cuando quedan 10 segundos te aviso, y en los últimos suena un reloj.</p>
             <h2>Los quesitos</h2>
             <p>Si caes en la casilla de un quesito que no tienes y aciertas su pregunta, te lo llevas. Si ya lo tienes, la pregunta vale como cualquier otra.</p>
+            <p>Si alguien falla una pregunta de quesito, rebota: la contesta el siguiente, sin la respuesta que ya se ha dicho, y si acierta se lleva ese quesito. Solo rebota una vez, y solo si al siguiente le falta ese quesito. Por equipos, rebota al otro equipo.</p>
             <h2>El centro</h2>
             <p>Si llegas al centro sin todos los quesitos, eliges tú la categoría de la pregunta. Con todos, tienes que llegar al centro con la cuenta justa: el rival que juega después de ti elige la categoría de la pregunta final. Si aciertas, ganas. Si fallas, pasa el turno, sales del centro y tienes que volver.</p>
             <h2>Por equipos</h2>
             <p>Con 4 o 6 jugadores se puede jugar por equipos: los que se sientan en sitios alternos van juntos y llevan una sola ficha. Cada uno tira y contesta en su turno, y los quesitos son del equipo.</p>
             <h2>Reglas de la casa</h2>
-            <p>Puedes jugar a 4 o 3 quesitos para que la partida sea más corta, ganar sin pregunta final, elegir quién pone la categoría de la final, pasar el turno aunque aciertes, cuántos aciertos seguidos se pueden hacer antes de pasar el turno, o la dificultad de las preguntas: fáciles, medias, difíciles o de todo un poco. Las preguntas que ya te han salido tardan en volver a salir.</p>
+            <p>Puedes jugar a 4 o 3 quesitos para que la partida sea más corta, ganar sin pregunta final, elegir quién pone la categoría de la final, pasar el turno aunque aciertes, cuántos aciertos seguidos se pueden hacer antes de pasar el turno, o la dificultad de las preguntas: fáciles, medias, difíciles o de todo un poco. También el tiempo para contestar, o jugar sin límite, y quitar el 7 del dado o el rebote. Las preguntas que ya te han salido tardan en volver a salir.</p>
             <h2>Las teclas</h2>
             <ul>
                 <li>T o Enter: tirar el dado.</li>
                 <li>Del 1 al 9: adónde vas, la categoría o la respuesta. La primera vez te dice cuál es y la segunda la elige. Enter elige la marcada. Las flechas recorren las opciones.</li>
-                <li>P: repetir la pregunta y sus respuestas. M: dónde está cada ficha y el quesito que te falta más cerca. C: tus quesitos. D: el último dado.</li>
+                <li>P: repetir la pregunta y sus respuestas; mientras la leo, el tiempo no corre. M: dónde está cada ficha y el quesito que te falta más cerca. O: por dónde ir a cada quesito que te falta. C: tus quesitos. D: el último dado.</li>
                 <li>I: cómo va la partida. Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
                 <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, apaga la navegación de una tecla pulsando a la vez Control, Opción y Q. También puedes moverte con el tabulador y elegir con Enter.</li>
             </ul>
