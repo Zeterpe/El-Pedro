@@ -10,6 +10,9 @@
      suena delante y lo de abajo, detrás y más apagado.
    · Lo que está al otro lado de una pared suena
      amortiguado.
+   · Cada persona a la que ves suena con su nota
+     (PRESENCE_NOTES), y la guía pita más agudo si hay
+     que ir hacia delante y más grave hacia detrás.
    · Un cuerpo suena como un monitor plano, y una muerte,
      como un golpe sordo desde donde pasa.
    · Los sabotajes: la sirena del reactor suena desde el
@@ -17,6 +20,9 @@
      arreglan pitan desde su sitio. Las puertas que se
      cierran dan un portazo; los conductos, un golpe de
      chapa.
+   · Cada sonido va en su grupo (SOUND_GROUPS: el
+     ambiente, los demás, lo tuyo, la guía y los avisos),
+     con su volumen en los ajustes (setMix).
    Todo se sintetiza aquí, como en audio.js: no hay
    archivos de sonido.
    ============================================= */
@@ -25,8 +31,16 @@
 /** Lo que tarda en apagarse cada sonido suelto, para soltar sus nodos después. */
 const SPACE_TAIL = 1.6;
 
+/**
+ * Los grupos de sonidos, cada uno con su volumen (ajuste impostorSound): el ambiente de las salas, los demás
+ * (sus pasos y su sonido), lo tuyo (tus pasos, los golpes y el roce de las paredes), la guía y los avisos.
+ */
+const SOUND_GROUPS = ['amb', 'people', 'mine', 'guide', 'cues'];
+const SOUND_DEFAULTS = { amb: 1, people: 1, mine: 1, guide: 1, cues: 1 };
+
 class SpaceAudio {
-    constructor(engine) {
+    /** x, y: dónde está tu oído al empezar. */
+    constructor(engine, { x = 0, y = 0 } = {}) {
         this.engine = engine;
         this.ctx = engine.ctx;
         this.loops = new Map();     // id → sonido continuo (ambiente de cada sala, roce de las paredes)
@@ -34,8 +48,17 @@ class SpaceAudio {
         if (!this.ctx) return;
         this.root = this.ctx.createGain();
         this.root.connect(engine.bus);
-        this.setListener(0, 0);
+        this.groups = {};
+        for (const id of SOUND_GROUPS) { const g = this.groups[id] = this.ctx.createGain(); g.connect(this.root); }
+        this.setListener(x, y);
     }
+
+    /** El volumen de cada grupo: mix = { amb, people, mine, guide, cues }, con 1 el normal. */
+    setMix(mix = {}) {
+        if (!this.ctx) return;
+        for (const id of SOUND_GROUPS) this.groups[id].gain.setTargetAtTime(clamp(+(mix[id] ?? 1), 0, 2), this.now, 0.05);
+    }
+    out(group) { return this.groups[group] || this.groups.cues; }
 
     get ok() { return !!this.ctx; }
     get k() { return this.engine.synth; }
@@ -66,7 +89,7 @@ class SpaceAudio {
      * Un punto que suena: filtro de pared → filtro de detrás → volumen → panorama 3D.
      * Devuelve la entrada (donde se conecta el sonido) y cómo moverlo.
      */
-    #point(x, y, { ref = 1.5, roll = 1, max = 40 } = {}) {
+    #point(x, y, { ref = 1.5, roll = 1, max = 40, group = 'cues' } = {}) {
         const c = this.ctx;
         const wall = c.createBiquadFilter(); wall.type = 'lowpass'; wall.frequency.value = 20000; wall.Q.value = 0.5;
         const back = c.createBiquadFilter(); back.type = 'lowpass'; back.frequency.value = 20000; back.Q.value = 0.5;
@@ -75,7 +98,7 @@ class SpaceAudio {
         pan.panningModel = 'HRTF';
         pan.distanceModel = 'inverse';
         pan.refDistance = ref; pan.rolloffFactor = roll; pan.maxDistance = max;
-        wall.connect(back); back.connect(gain); gain.connect(pan); pan.connect(this.root);
+        wall.connect(back); back.connect(gain); gain.connect(pan); pan.connect(this.out(group));
         const pt = {
             input: wall, gain, pan,
             place: (px, py, smooth = false) => {
@@ -100,12 +123,12 @@ class SpaceAudio {
         return pt;
     }
 
-    /** Un sonido suelto en (x, y). play(k, out, t) lo crea con el sintetizador de audio.js. */
-    at(x, y, play, { wall = false, ref, roll } = {}) {
+    /** Un sonido suelto en (x, y), de un grupo (los avisos, si no se dice). play(k, out, t) lo crea con el sintetizador de audio.js. */
+    at(x, y, play, { wall = false, ref, roll, group } = {}) {
         if (!this.ctx) return;
         this.engine.resume();
         try {
-            const pt = this.#point(x, y, { ref, roll });
+            const pt = this.#point(x, y, { ref, roll, group });
             pt.muffle(wall, false);
             play(this.k, pt.input, this.now + 0.01);
             setTimeout(() => pt.dispose(), SPACE_TAIL * 1000);
@@ -113,10 +136,10 @@ class SpaceAudio {
     }
 
     /** Un sonido en tu propio sitio (tus pasos, tus avisos): sin panorama. */
-    here(play) {
+    here(play, group = 'cues') {
         if (!this.ctx) return;
         this.engine.resume();
-        try { play(this.k, this.root, this.now + 0.01); } catch (_) { /* sin sonido */ }
+        try { play(this.k, this.out(group), this.now + 0.01); } catch (_) { /* sin sonido */ }
     }
 
     /** Un sonido continuo en (x, y). build(ctx, input, synth) crea sus nodos y devuelve con qué pararlos. */
@@ -144,6 +167,15 @@ class SpaceAudio {
         }
     }
 
+    /** Para un sonido continuo y lo quita. */
+    unloop(id) {
+        const lp = this.loops.get(id);
+        if (!lp) return;
+        this.loops.delete(id);
+        try { lp.stop?.(); } catch (_) { /* parado */ }
+        lp.dispose();
+    }
+
     dispose() {
         for (const lp of this.loops.values()) { try { lp.stop?.(); } catch (_) { /* parado */ } lp.dispose(); }
         this.loops.clear();
@@ -169,6 +201,8 @@ const STEP_TIMBRES = [
 ];
 /** A oscuras, los pasos de quien no ves suenan todos igual: no se sabe de quién son. */
 const DARK_TIMBRE = { f: 1300, low: 120, q: 1.4 };
+/** La nota de cada uno (como STEP_TIMBRES; la primera, la tuya, no suena): una escala pentatónica, para que no desafinen juntas. */
+const PRESENCE_NOTES = [0, 392, 466, 523, 587, 698, 784, 932, 1047, 1175];
 
 const ShipSounds = {
     /** Un paso. floor: metal, rejilla o moqueta. vol: 1 normal. */
@@ -207,11 +241,22 @@ const ShipSounds = {
             k.bell(out, { t: t + 0.13, f: 1319, partials: [[1, 1, 0.3], [2, 0.3, 0.15]], peak: 0.09 });
         };
     },
-    /** La baliza de la guía: un pitido de sonar. */
-    ping() {
+    /**
+     * La baliza de la guía: un pitido de sonar. semis sube o baja el tono en semitonos: más agudo si hay que ir
+     * hacia delante, más grave hacia detrás, y el de siempre a los lados.
+     */
+    ping(semis = 0) {
+        const f = 1320 * Math.pow(2, semis / 12);
         return (k, out, t) => {
-            k.tone(out, { t, f: 1320, dur: 0.14, peak: 0.26 });
-            k.tone(out, { t, f: 2640, dur: 0.06, peak: 0.04 });
+            k.tone(out, { t, f, dur: 0.14, peak: 0.26 });
+            k.tone(out, { t, f: f * 2, dur: 0.06, peak: 0.04 });
+        };
+    },
+    /** El sonido de alguien a quien ves: un toque suave con su nota (PRESENCE_NOTES), que se repite más deprisa cuanto más cerca está. */
+    presence(f) {
+        return (k, out, t) => {
+            k.tone(out, { t, f, dur: 0.09, peak: 0.12, type: 'triangle' });
+            k.tone(out, { t, f: f * 3, dur: 0.04, peak: 0.02 });
         };
     },
     /** La guía pasa al siguiente tramo. */
@@ -429,10 +474,10 @@ const ShipSounds = {
 /** Un cuerpo: un zumbido grave que tiembla y el pitido largo de un monitor plano. Suena cuando lo tienes a la vista. */
 function bodyDrone(c, out) {
     const nodes = [];
-    const g = c.createGain(); g.gain.value = 0.1; g.connect(out);
+    const g = c.createGain(); g.gain.value = 0.07; g.connect(out);
     for (const f of [98, 101.5]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); nodes.push(o); }
     const lfo = c.createOscillator(); lfo.frequency.value = 1.1;
-    const lg = c.createGain(); lg.gain.value = 0.05; lfo.connect(lg); lg.connect(g.gain); nodes.push(lfo);
+    const lg = c.createGain(); lg.gain.value = 0.035; lfo.connect(lg); lg.connect(g.gain); nodes.push(lfo);
     const beep = c.createOscillator(); beep.frequency.value = 1320;
     const bg = c.createGain(); bg.gain.value = 0.018; beep.connect(bg); bg.connect(out); nodes.push(beep);
     nodes.forEach(o => o.start());
@@ -444,11 +489,11 @@ const ROOM_AMBIENCE = {
     motores(c, out, k) {
         const nodes = [];
         const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 260; lp.connect(out);
-        for (const [f, g] of [[46, 0.22], [92, 0.07], [69, 0.05]]) {
+        for (const [f, g] of [[46, 0.07], [92, 0.025], [69, 0.018]]) {
             const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
             const gg = c.createGain(); gg.gain.value = g; o.connect(gg); gg.connect(lp); o.start(); nodes.push(o);
         }
-        nodes.push(noiseBed(c, k, out, { type: 'lowpass', f: 380 }, 0.2, 0.35, 0.08));
+        nodes.push(noiseBed(c, k, out, { type: 'lowpass', f: 380 }, 0.07, 0.35, 0.03));
         return () => nodes.forEach(n => n.stop());
     },
     comedor(c, out) {
@@ -457,7 +502,7 @@ const ROOM_AMBIENCE = {
         return () => o.stop();
     },
     puente(c, out, k) {
-        const n = noiseBed(c, k, out, { type: 'highpass', f: 3500 }, 0.025, 0.2, 0.01);
+        const n = noiseBed(c, k, out, { type: 'highpass', f: 3500 }, 0.016, 0.2, 0.006);
         return () => n.stop();
     },
     electricidad(c, out, k) {
@@ -468,7 +513,7 @@ const ROOM_AMBIENCE = {
         return () => { o.stop(); n.stop(); };
     },
     almacen(c, out, k) {
-        const n = noiseBed(c, k, out, { type: 'bandpass', f: 520, q: 0.7 }, 0.16, 0.12, 0.07);
+        const n = noiseBed(c, k, out, { type: 'bandpass', f: 520, q: 0.7 }, 0.055, 0.12, 0.025);
         return () => n.stop();
     },
     enfermeria(c, out, k) {
@@ -482,15 +527,15 @@ const ROOM_AMBIENCE = {
     },
     // Oxígeno: el aire que entra y sale, como una respiración lenta.
     oxigeno(c, out, k) {
-        const n = noiseBed(c, k, out, { type: 'lowpass', f: 1300 }, 0.08, 0.22, 0.06);
+        const n = noiseBed(c, k, out, { type: 'lowpass', f: 1300 }, 0.035, 0.22, 0.026);
         return () => n.stop();
     },
     // El Reactor: un zumbido muy grave que late.
     reactor(c, out, k) {
         const nodes = [];
-        const g = c.createGain(); g.gain.value = 0.16; g.connect(out);
+        const g = c.createGain(); g.gain.value = 0.065; g.connect(out);
         for (const f of [55, 57.5]) { const o = c.createOscillator(); o.frequency.value = f; o.connect(g); o.start(); nodes.push(o); }
-        nodes.push(noiseBed(c, k, out, { type: 'lowpass', f: 200 }, 0.12, 0.5, 0.05));
+        nodes.push(noiseBed(c, k, out, { type: 'lowpass', f: 200 }, 0.05, 0.5, 0.02));
         return () => nodes.forEach(n => n.stop());
     },
     // Seguridad: los ventiladores de las pantallas.
