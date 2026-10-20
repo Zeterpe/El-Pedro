@@ -249,6 +249,7 @@ const App = {
         $('gm-kind').textContent = G.kind;
         $('gm-tagline').textContent = G.tagline;
         $('gm-fan').innerHTML = gameArt(G, 14);
+        $('gm-news').textContent = this.newsUnseen(id) ? 'Novedades: hay cosas nuevas' : 'Novedades';
         document.body.dataset.menuGame = id;
         UI.show('gamemenu', { intro: `${G.name}. ${G.tagline}`, focus });
     },
@@ -296,6 +297,7 @@ const App = {
             options: () => this.showMenu(),
             house: () => (this.houseBack || (() => this.openSetup(true)))(),
             rules: () => this.openGame(this.gameId, 'gm-rules'),
+            news: () => this.openGame(this.gameId, 'gm-news'),
             stats: () => this.showMenu(),
             name: () => this.nameFromStart ? this.showMenu() : this.openOptions(),
             friends: () => this.showMenu(),
@@ -306,6 +308,8 @@ const App = {
         $('gm-play').addEventListener('click', () => { this.audio.select(); this.houseBack = null; this.openSetup(); });
         $('gm-practice').addEventListener('click', () => this.startPractice(this.gameId));
         $('gm-rules').addEventListener('click', () => { this.audio.select(); this.openRules(this.gameId); });
+        $('gm-news').addEventListener('click', () => { this.audio.select(); this.openNews(this.gameId); });
+        $('btn-news-listen').addEventListener('click', () => this.readNews());
         $('gm-house').addEventListener('click', () => { this.audio.select(); this.houseBack = () => this.openGame(this.gameId, 'gm-house'); this.openHouse(this.gameId); });
         $('btn-create').addEventListener('click', () => { this.audio.select(); Online.create(); });
         $('btn-join').addEventListener('click', () => { this.audio.select(); this.openJoin(); });
@@ -393,6 +397,39 @@ const App = {
         $('rules-text').innerHTML = G.rulesHtml;
         $('btn-suits').hidden = !!G.art;   // los palos, solo en los juegos de cartas
         UI.show('rules', { intro: `Cómo se juega ${G.name}. Puedes escuchar las reglas${G.art ? '' : ', oír cómo suena cada palo'} o jugar una partida de práctica. Las reglas están debajo de los botones.` });
+    },
+
+    /** Lo que ya has visto de las novedades de cada juego: la fecha de la última. */
+    newsSeen() {
+        try { return JSON.parse(localStorage.getItem('elpedro.news') || '{}') || {}; } catch (_) { return {}; }
+    },
+
+    newsUnseen(id) {
+        const latest = newsFor(id)[0];
+        return !!latest && latest.date > (this.newsSeen()[id] || '');
+    },
+
+    openNews(id) {
+        const G = GAMES[id], days = newsFor(id);
+        const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        const list = items => `<ul>${items.map(i => `<li>${esc(i.text)}</li>`).join('')}</ul>`;
+        $('news-title').textContent = `Novedades: ${G.name}`;
+        $('news-text').innerHTML = days.map(d => {
+            const own = d.items.filter(i => !i.shared), shared = d.items.filter(i => i.shared);
+            return `<h2>${newsDate(d.date)}</h2>${own.length ? list(own) : ''}`
+                + (shared.length ? `<h3>En todo el salón</h3>${list(shared)}` : '');
+        }).join('');
+        if (days[0]) {
+            const seen = this.newsSeen();
+            seen[id] = days[0].date;
+            try { localStorage.setItem('elpedro.news', JSON.stringify(seen)); } catch (_) { /* sin almacenamiento */ }
+        }
+        UI.show('news', { intro: `Novedades de ${G.name}, de la más nueva a la más antigua. Puedes escucharlas o leerlas debajo de los botones.` });
+    },
+
+    readNews() {
+        const parts = [...document.querySelectorAll('#news-text h2, #news-text h3, #news-text li')].map(el => el.textContent.trim() + (el.tagName === 'LI' ? '' : '.'));
+        this.speech.say(parts.join(' '), { interrupt: true });
     },
 
     openOptions() {
