@@ -454,7 +454,7 @@ const GAMES = {
             <h2>Los sabotajes</h2>
             <p>Los impostores, vivos o fantasmas, sabotean con la X. Contra la máquina, la partida se para mientras eligen; en una sala, no. Después de cada sabotaje hay que esperar treinta segundos para el siguiente.</p>
             <ul>
-                <li>Apagar las luces: la tripulación viva casi no ve, solo lo que tiene muy cerca, y los pasos de quien no ve suenan todos igual, así que no sabe de quién son. Los impostores ven como siempre. Se arreglan en el cuadro de las luces, en Electricidad: hay que encender todos los interruptores, cada uno con su número.</li>
+                <li>Apagar las luces: la tripulación viva casi no ve, solo lo que tiene muy cerca, y tampoco oye a nadie que esté más lejos. Los impostores ven y oyen como siempre. Se arreglan en el cuadro de las luces, en Electricidad: hay que encender todos los interruptores, cada uno con su número.</li>
                 <li>Que estalle el reactor: suena una sirena desde el Reactor en toda la nave y se cuentan los segundos; con las reglas de siempre, cuarenta y cinco. Para arreglarlo hacen falta dos personas a la vez, cada una con la mano en un panel del Reactor: uno a la izquierda y otro a la derecha. Si nadie lo arregla, ganan los impostores. Mientras, no se puede pedir una reunión de emergencia.</li>
                 <li>Cortar las comunicaciones: la tripulación no ve su lista de tareas ni la barra, y el mapa y las cámaras se quedan sin señal; la guía y la F siguen funcionando. Se arreglan en la radio de Comunicaciones: gira el dial con el 1 y el 2 hasta que se oiga clara, sin ruido.</li>
                 <li>Dejar la nave sin oxígeno: suena una alarma en toda la nave y se cuentan los segundos, como en el reactor. Hay que teclear un código en dos teclados, uno en Oxígeno y otro en Administración, y podéis repartiros. Si no da tiempo, ganan los impostores. Mientras, no se puede pedir una reunión de emergencia.</li>
@@ -462,7 +462,7 @@ const GAMES = {
             </ul>
             <p>Mientras hay un sabotaje, sus paneles pitan desde su sitio, y la guía te lleva hasta ellos. Una reunión acaba con los sabotajes y abre las puertas.</p>
             <h2>Los conductos</h2>
-            <p>Solo los impostores vivos van por los conductos. Junto a uno, la V te mete dentro: nadie te ve ni te oye, pero no puedes matar ni hacer nada más. Cada conducto lleva a otros dos o tres; con las flechas vas al que está hacia ese lado, o con su número. La V otra vez te saca. Al entrar y al salir suena la tapa del conducto, y quien te vea sabrá que eres impostor.</p>
+            <p>Solo los impostores vivos van por los conductos. Junto a uno, la V te mete dentro: nadie te ve ni te oye, pero no puedes matar ni hacer nada más. Cada conducto lleva a otros dos o tres; con las flechas vas al que está hacia ese lado, o con su número. La V otra vez te saca. Al entrar y al salir suena la tapa del conducto, pero solo la oye quien te ve, y sabrá que eres impostor.</p>
             <h2>Las consolas</h2>
             <p>Junto a una consola, la E te deja mirarla. Mientras la miras no te mueves; para irte, anda.</p>
             <ul>
@@ -484,7 +484,7 @@ const GAMES = {
                 <li>Las puertas de donde estás hacen tic, cada una desde su sitio. Al entrar en una sala o en un pasillo, se dice dónde estás.</li>
                 <li>Al acercarte a una pared, se oye un siseo por ese lado; si chocas, suena un golpe.</li>
                 <li>Tus tareas te llaman con dos notas, cada una desde su consola. Al llegar junto a una, suena una campanita y se dice cuál es.</li>
-                <li>Cuando ves a alguien, se dice su nombre y hacia dónde está. Los pasos de quien está al otro lado de una pared se oyen amortiguados, y en la pantalla se ven como ondas.</li>
+                <li>Cuando ves a alguien, se dice su nombre y hacia dónde está. A los demás solo los oyes si los ves: sus pasos, su nota y sus tareas se oyen hasta donde llega la vista, ni a través de una pared ni más lejos, igual que en la pantalla. Así quien oye no sabe más que quien ve, ni al revés.</li>
             </ul>
             <h2>La guía y lo que hay cerca</h2>
             <p>Con la G eliges adónde ir: una de tus tareas, una sala, una consola o, si hay un sabotaje, el panel que lo arregla. Desde ese momento suena un pitido hacia donde tienes que andar, unos metros por delante de ti, siguiendo los pasillos; cuanto más cerca estás, más deprisa pita. El pitido es más agudo cuando hay que ir hacia delante, más grave hacia detrás y el de siempre a los lados. Al doblar una esquina se dice hacia dónde sigue el camino, y al llegar suena una campanita.</p>

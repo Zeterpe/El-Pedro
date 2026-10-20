@@ -9,7 +9,8 @@
      en la pantalla suena a tu derecha, lo de arriba
      suena delante y lo de abajo, detrás y más apagado.
    · Lo que está al otro lado de una pared suena
-     amortiguado.
+     amortiguado. A los demás jugadores solo se les
+     oye si se les ve (lo decide la mesa).
    · Cada persona a la que ves suena con su nota
      (PRESENCE_NOTES), y la guía pita más agudo si hay
      que ir hacia delante y más grave hacia detrás.
@@ -199,8 +200,6 @@ const STEP_TIMBRES = [
     { f: 1700, low: 70, q: 8 },
     { f: 3000, low: 240, q: 1.6 },
 ];
-/** A oscuras, los pasos de quien no ves suenan todos igual: no se sabe de quién son. */
-const DARK_TIMBRE = { f: 1300, low: 120, q: 1.4 };
 /** La nota de cada uno (como STEP_TIMBRES; la primera, la tuya, no suena): una escala pentatónica, para que no desafinen juntas. */
 const PRESENCE_NOTES = [0, 392, 466, 523, 587, 698, 784, 932, 1047, 1175];
 
