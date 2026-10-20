@@ -64,8 +64,7 @@ function impostorsFor(n, r = 'auto') {
 
 const IMPOSTOR_SPEED = 3.2;           // metros por segundo
 const IMPOSTOR_RADIUS = 0.3;          // lo que ocupa cada jugador
-const IMPOSTOR_VISION = 6;            // hasta dónde se ve (y se oye con nombre)
-const IMPOSTOR_HEARING = 10;          // hasta dónde se oyen pasos, aunque sea a través de una pared
+const IMPOSTOR_VISION = 6;            // hasta dónde se ve; a los demás solo se les oye si se les ve, como en la pantalla
 const IMPOSTOR_USE = 1.4;             // a qué distancia se puede usar una tarea
 const IMPOSTOR_REPORT = 3;            // a qué distancia de un cuerpo se puede avisar (viéndolo)
 const IMPOSTOR_BUTTON = 1.6;          // a qué distancia de la mesa del Comedor se pide una reunión
@@ -416,7 +415,6 @@ class ImpostorGame {
     get n() { return this.players.length; }
     get speed() { return IMPOSTOR_SPEED * this.rules.speed; }
     get vision() { return IMPOSTOR_VISION * this.rules.vision; }
-    get hearing() { return IMPOSTOR_HEARING * this.rules.vision; }
     get killRange() { return IMPOSTOR_KILL_RANGE[this.rules.killRange] || IMPOSTOR_KILL_RANGE.medio; }
     areaOf(p) { return SHIP.byId[this.players[p].area] || null; }
     isImpostor(p) { return this.players[p]?.role === 'impostor'; }
@@ -640,11 +638,13 @@ class ImpostorGame {
 
     // ── Ver y oír ─────────────────────────────────────
     /**
-     * A quién ve un jugador (cerca y sin paredes en medio), a quién solo oye andar y qué cuerpos ve.
-     * Los vivos no ven ni oyen a los fantasmas; los fantasmas ven a todos.
+     * A quién ve un jugador (cerca y sin paredes en medio) y qué cuerpos ve. Lo que se oye de los demás (sus
+     * pasos, su nota, sus tareas) llega hasta donde se ve, ni más ni menos: así quien no ve sabe lo mismo que
+     * quien mira la pantalla, también con las luces apagadas. Los vivos no ven ni oyen a los fantasmas; los
+     * fantasmas ven a todos los que tienen cerca.
      */
     perceive(p) {
-        const me = this.players[p], seen = [], heard = [], bodies = [], vis = this.visionOf(p);
+        const me = this.players[p], seen = [], bodies = [], vis = this.visionOf(p);
         // Los fantasmas ven a través de las paredes lo que tienen cerca.
         const sees = (x, y) => !me.alive || shipSight(me.x, me.y, x, y, this.closed);
         for (const pl of this.players) {
@@ -652,10 +652,9 @@ class ImpostorGame {
             if (pl === me || (!pl.alive && me.alive) || pl.vent != null || pl.known === false) continue;
             const d = Math.hypot(pl.x - me.x, pl.y - me.y);
             if (d <= vis && sees(pl.x, pl.y)) seen.push(pl.index);
-            else if (d <= this.hearing && this.walking(pl)) heard.push(pl.index);
         }
         for (const b of this.bodies) if (Math.hypot(b.x - me.x, b.y - me.y) <= vis && sees(b.x, b.y)) bodies.push(b.p);
-        return { seen, heard, bodies };
+        return { seen, bodies };
     }
 
     /** Quién ve un punto: los vivos que lo tienen a la vista, menos los de except. */
@@ -1142,18 +1141,18 @@ class ImpostorGame {
 
     // ── Lo que sabe cada uno (en una sala) ───────────
     /**
-     * De quién sabe dónde está un jugador: de sí mismo, de quien ve y de quien oye andar (con un metro de margen,
-     * para que en su mesa aparezca al momento). Los fantasmas, de todos los que tienen cerca, a través de las paredes.
-     * Fuera de la nave (en la reunión), de todos.
+     * De quién sabe dónde está un jugador: de sí mismo y de quien ve (con un metro de margen, para que en su mesa
+     * aparezca al momento). Los fantasmas, de todos los que tienen cerca, a través de las paredes. Fuera de la nave
+     * (en la reunión), de todos.
      */
     knownBy(seat) {
         const me = this.players[seat], out = new Set([seat]);
         if (!me || this.phase !== 'ship') { for (const pl of this.players) out.add(pl.index); return out; }
-        const vis = this.visionOf(seat) + 1, hear = this.hearing + 1;
+        const vis = this.visionOf(seat) + 1;
         for (const pl of this.players) {
             if (pl === me || pl.vent != null || (!pl.alive && me.alive)) continue;
             const d = Math.hypot(pl.x - me.x, pl.y - me.y);
-            if (!me.alive ? d <= hear : (d <= vis && shipSight(me.x, me.y, pl.x, pl.y, this.closed)) || (d <= hear && this.walking(pl))) out.add(pl.index);
+            if (d <= vis && (!me.alive || shipSight(me.x, me.y, pl.x, pl.y, this.closed))) out.add(pl.index);
         }
         return out;
     }
@@ -1166,7 +1165,7 @@ class ImpostorGame {
     view(seat, light = false) {
         const me = this.players[seat], imp = this.isImpostor(seat), ghost = !!me && !me.alive;
         const known = this.knownBy(seat), M = this.meeting;
-        const range = ghost ? this.hearing + 1 : Math.max(me ? this.visionOf(seat) : 0, IMPOSTOR_REPORT) + 1;
+        const range = Math.max(me ? this.visionOf(seat) : 0, IMPOSTOR_REPORT) + 1;
         const v = {
             phase: this.phase, round: this.round, time: this.time, winners: this.winners, result: this.result,
             meetings: this.meetings, buttonAt: this.buttonAt,
@@ -1201,32 +1200,28 @@ class ImpostorGame {
 
 /**
  * Lo que sabe de un suceso cada jugador de una sala (seat), o null si no se entera.
- * Una muerte o un conducto los ven del todo quien lo hace, quien muere, quien lo ve, los otros impostores y los
- * fantasmas; los demás, si están cerca, solo oyen el golpe o la tapa. De las tareas de los demás se sabe poco:
- * que alguien está con una, y si es el escáner (que se ve). Quién sabotea solo lo saben los impostores.
+ * Una muerte o un conducto los saben quien lo hace, quien muere, quien lo ve, los otros impostores y los
+ * fantasmas; los demás no se enteran: lo que no se ve tampoco se oye. De las tareas de los demás se sabe poco,
+ * y solo de quien se ve: que está con una, y si es el escáner (que se ve). Quién sabotea solo lo saben los impostores.
  */
 function impostorEventFor(g, e, seat) {
     if (e.secret) return e.p === seat ? e : null;
     const me = g.players[seat];
     if (!me) return e;
     const ghost = !me.alive, imp = g.isImpostor(seat);
-    const near = (x, y) => Math.hypot(x - me.x, y - me.y) <= g.hearing + 1;
-    const nearP = p => !!g.players[p] && near(g.players[p].x, g.players[p].y);
+    const sees = p => !!g.players[p] && g.knownBy(seat).has(p);
     switch (e.type) {
         case 'kill':
-            if (e.p === seat || e.target === seat || imp || ghost || e.witnesses.includes(seat)) return e;
-            return near(e.x, e.y) ? { type: 'kill', heard: true, x: e.x, y: e.y } : null;
+            return e.p === seat || e.target === seat || imp || ghost || e.witnesses.includes(seat) ? e : null;
         case 'vent':
-            if (e.p === seat || imp || ghost || e.witnesses?.includes(seat)) return e;
-            if (e.kind === 'move') return null;
-            return near(e.x, e.y) ? { type: 'vent', heard: true, kind: e.kind, x: e.x, y: e.y } : null;
-        // Con su sitio, por si quien lo oye no sabe dónde está (está quieto al otro lado de una pared).
+            return e.p === seat || imp || ghost || e.witnesses?.includes(seat) ? e : null;
+        // Con su sitio, para que suene desde donde está.
         case 'taskStart':
             if (e.p === seat) return e;
-            return ghost || nearP(e.p) ? { type: 'taskStart', p: e.p, task: e.task === 'escaner' ? 'escaner' : null, visible: e.visible, x: g.players[e.p].x, y: g.players[e.p].y } : null;
+            return sees(e.p) ? { type: 'taskStart', p: e.p, task: e.task === 'escaner' ? 'escaner' : null, visible: e.visible, x: g.players[e.p].x, y: g.players[e.p].y } : null;
         case 'taskStop': case 'taskStep': case 'taskDone':
             if (e.p === seat) return e;
-            return ghost || nearP(e.p) ? { type: e.type, p: e.p, x: g.players[e.p].x, y: g.players[e.p].y } : null;
+            return sees(e.p) ? { type: e.type, p: e.p, x: g.players[e.p].x, y: g.players[e.p].y } : null;
         case 'sabotage': case 'doors':
             return imp ? e : { ...e, by: null };
         default:
@@ -1346,7 +1341,7 @@ class ImpostorMirror {
 
     /** Lo que aprende de un suceso que le manda el anfitrión. */
     observe(e) {
-        if (e.type === 'kill' && !e.heard) {
+        if (e.type === 'kill') {
             this.deadSeen.add(e.target);
             const v = this.players[e.target];
             if (v) v.alive = false;
@@ -1391,7 +1386,7 @@ for (const k of ['visionOf', 'perceive', 'taskHere', 'killTargets', 'bodyHere', 
     'consoleHere', 'sabWait', 'slideCorner', 'moveOne', 'input', 'walking', 'isImpostor', 'areaOf', 'pending', 'living', 'impostorCount']) {
     ImpostorMirror.prototype[k] = ImpostorGame.prototype[k];
 }
-for (const k of ['n', 'speed', 'vision', 'hearing', 'killRange', 'lightsOff', 'commsDown', 'critical', 'voteSecs']) {
+for (const k of ['n', 'speed', 'vision', 'killRange', 'lightsOff', 'commsDown', 'critical', 'voteSecs']) {
     Object.defineProperty(ImpostorMirror.prototype, k, Object.getOwnPropertyDescriptor(ImpostorGame.prototype, k));
 }
 
@@ -1400,7 +1395,7 @@ if (typeof module !== 'undefined') {
     const R = require('./rules.js');
     Object.assign(globalThis, { makeRng: R.makeRng });
     module.exports = {
-        IMPOSTOR_DEFAULT_RULES, IMPOSTOR_SPEED, IMPOSTOR_RADIUS, IMPOSTOR_VISION, IMPOSTOR_HEARING, IMPOSTOR_USE, IMPOSTOR_TASKS,
+        IMPOSTOR_DEFAULT_RULES, IMPOSTOR_SPEED, IMPOSTOR_RADIUS, IMPOSTOR_VISION, IMPOSTOR_USE, IMPOSTOR_TASKS,
         IMPOSTOR_REPORT, IMPOSTOR_KILL_RANGE, IMPOSTOR_IMP_VISION, IMPOSTOR_SAY_MAX, impostorsFor,
         IMPOSTOR_VENT_USE, IMPOSTOR_CONSOLE, IMPOSTOR_LIGHTS, IMPOSTOR_SAB_COOLDOWN, IMPOSTOR_DOORS_TIME, IMPOSTOR_DOORS_COOLDOWN, IMPOSTOR_CAMERA,
         IMPOSTOR_SABOTAGES, IMPOSTOR_CRITICAL,
