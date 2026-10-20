@@ -383,7 +383,7 @@ const Online = {
     broadcast(match, events) {
         this.seq++;
         match.seats.forEach((s, i) => {
-            if (s.kind === 'remote' && s.conn) this.net.send(s.conn, { t: 'batch', seq: this.seq, events: events.map(e => match.eventFor(e, i)), view: match.game.view(i) });
+            if (s.kind === 'remote' && s.conn) this.net.send(s.conn, { t: 'batch', seq: this.seq, events: events.map(e => match.eventFor(e, i)).filter(Boolean), view: match.game.view(i) });
         });
         // Quien mira ve lo que ven todos: ninguna carta oculta.
         const watching = this.watchers().filter(s => s.conn && s.viewing);

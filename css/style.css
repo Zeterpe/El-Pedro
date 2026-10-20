@@ -396,6 +396,8 @@ body[data-players="3"] #table[data-game="parchis"] .seat-left { align-self: star
 .die.ready rect { stroke: #e8a900; stroke-width: .2; }
 .die.ready .die-in { animation: dieready 1.2s ease-in-out infinite; }
 .die.rolling .die-in { animation: dieroll .14s linear infinite; }
+.die.used .die-in { opacity: .35; }
+.die.chosen rect { stroke: #11a34e; stroke-width: .24; }
 @keyframes dieready { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.14); } }
 @keyframes dieroll { 0% { transform: rotate(-16deg) scale(1.08); } 50% { transform: rotate(16deg) scale(1.08); } 100% { transform: rotate(-16deg) scale(1.08); } }
 
@@ -564,6 +566,11 @@ body[data-output="visual"] .log, body[data-output="visual"] .talk { display: non
 .dialog-box h2 { margin-top: 0; font-family: var(--serif); font-size: 1.5rem; }
 .dialog-items { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .dialog-item { text-align: left; }
+/* Abajo y sin tapar la mesa: en la reunión de El Impostor se ve el panel mientras eliges */
+.dialog.dock { align-items: flex-end; background: transparent; backdrop-filter: none; pointer-events: none; }
+.dialog.dock .dialog-box { pointer-events: auto; max-height: 46vh; max-height: 46dvh; padding: 14px 16px; }
+.dialog.dock .dialog-box h2 { font-size: 1.2rem; margin-bottom: 4px; }
+.dialog.dock .dialog-items { gap: 8px; margin-top: 8px; }
 
 /* ── Cartas grandes ──────────────────────── */
 body[data-cards="grande"] { --card-w: 112px; --card-small: 70px; }
@@ -870,6 +877,7 @@ body[data-cards="grande"] #table[data-game="virus"] { --vorg-w: 60px; --vorg-me:
 .imp-tbtn { flex: 1 1 90px; border-left: 8px solid var(--c, transparent); }
 .imp-tbtn.imp-key { flex: 0 0 56px; font-size: 1.2rem; font-weight: 800; border-left: 0; }
 .imp-tbtn.imp-wide, .imp-tbtn.imp-leave { flex: 1 1 100%; border-left: 0; }
+.imp-tbtn.imp-half { flex: 1 1 40%; }
 .imp-tbtn.imp-leave { background: rgba(0, 0, 0, .3); }
 .imp-dl { height: 26px; border-radius: 13px; background: #1b2233; overflow: hidden; box-shadow: inset 0 0 0 2px #3a4560; }
 .imp-dl span { display: block; height: 100%; background: linear-gradient(90deg, #2f7fb0, #45c9c9); }
@@ -894,6 +902,17 @@ body[data-cards="grande"] #table[data-game="virus"] { --vorg-w: 60px; --vorg-me:
 .imp-sabtag[hidden] { display: none; }
 .imp-sabtag[data-kind="reactor"] { background: #a01d1d; animation: breathe 1s ease-in-out infinite; }
 .imp-sabtag[data-kind="lights"] { background: #2a2f1b; box-shadow: inset 0 0 0 2px #ffd34d; color: #ffd34d; }
+.imp-sabtag[data-kind="oxygen"] { background: #1d4fa0; animation: breathe 1s ease-in-out infinite; }
+.imp-sabtag[data-kind="comms"] { background: #1b2a2f; box-shadow: inset 0 0 0 2px #45c9c9; color: #8fe9e9; }
+.imp-bar.off { opacity: .55; }
+.imp-bar[hidden] { display: none; }
+.imp-pads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.imp-pads span { height: 54px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 1.3rem; background: #1b2233; background: color-mix(in srgb, var(--c) 35%, #1b2233); box-shadow: inset 0 0 0 2px var(--c); transition: background .12s; }
+.imp-pads span.on { background: var(--c); color: #0b1020; }
+.imp-big { font-size: 2.4rem; font-weight: 800; margin: 4px 0; }
+.imp-big small { font-size: 1rem; font-weight: 600; color: #b8c4dc; }
+.imp-meet-clock { margin: -4px 0 8px; text-align: center; font-weight: 700; color: #ffd34d; }
+.imp-meet-clock:empty { display: none; }
 .imp-list { list-style: none; margin: 0; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 4px; font-size: .95rem; }
 .imp-list li { padding: 4px 8px; border-radius: 8px; background: #1b2233; }
 .imp-list li.dead { color: #ff8a8a; }
@@ -921,6 +940,9 @@ body[data-cards="grande"] #table[data-game="virus"] { --vorg-w: 60px; --vorg-me:
 @media (pointer: coarse) {
     .imp-pad { display: grid; }
     .imp-canvas { height: min(48vh, 480px); height: min(48dvh, 480px); }
+    /* Que la tarea quepa en la nave, con sus botones a la vista. */
+    .imp-task { padding: 10px 12px; }
+    .imp-task-art svg { max-height: 110px; }
 }
 @media (max-width: 640px) {
     .imp-hud { flex-wrap: wrap; }

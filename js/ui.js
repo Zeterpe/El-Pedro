@@ -172,9 +172,11 @@ const Dialog = {
     _prevFocus: null,
     _items: [],
 
-    open({ title, text = '', items, cancel = undefined, speak = true, focusIndex = 0 }) {
+    /** dock: abajo y sin tapar la mesa (en la reunión de El Impostor, para ver el panel mientras eliges). */
+    open({ title, text = '', items, cancel = undefined, speak = true, focusIndex = 0, dock = false }) {
         if (this.active) this.close(this._cancel, true);
         const box = $('dialog'), list = $('dialog-items');
+        box.classList.toggle('dock', !!dock);
         $('dialog-title').textContent = title;
         $('dialog-text').textContent = text;
         $('dialog-text').hidden = !text;

@@ -45,6 +45,8 @@ const DEFAULT_SETTINGS = {
     impostorVoice: 'juego',   // El Impostor, con lector de pantalla: habla la voz del juego (va al momento) o el lector
     impostorBlind: false,     // El Impostor: modo a ciegas (la nave no se ve)
     impostorRole: 'azar',     // El Impostor: el papel que quieres (azar, tripulante o impostor)
+    impostorSound: { ...SOUND_DEFAULTS },  // El Impostor: el volumen de cada grupo de sonidos (SOUND_GROUPS)
+    impostorPresence: true,   // El Impostor: cada persona que ves suena con su nota
     cardSize: 'normal',       // normal · grande
     contrast: 'normal',       // normal · alto
 };
@@ -61,6 +63,7 @@ function loadSaved() {
     settings.trivialRules = { ...TRIVIAL_DEFAULT_RULES, ...(raw?.settings?.trivialRules || {}) };
     settings.virusRules = { ...VIRUS_DEFAULT_RULES, ...(raw?.settings?.virusRules || {}) };
     settings.impostorRules = { ...IMPOSTOR_DEFAULT_RULES, ...(raw?.settings?.impostorRules || {}) };
+    settings.impostorSound = { ...SOUND_DEFAULTS, ...(raw?.settings?.impostorSound || {}) };
     if (!GAMES[settings.game]) settings.game = 'pedro';
     settings.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
     // Las estadísticas eran solo de El Pedro: pasan a su juego.
