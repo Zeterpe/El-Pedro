@@ -132,6 +132,7 @@ const NEWS = {
     impostor: [
         {
             date: '2026-10-20', items: [
+                'La Z (o el botón Quién hay) dice solo lo fundamental: la sala, a quién ves, hacia dónde y a qué distancia, y si hay cuerpos a la vista. Con las luces apagadas, solo quien está muy cerca.',
                 'A los demás solo se les oye si se les ve, como en la pantalla: ni a través de una pared ni más lejos de lo que se ve. Con las luces apagadas, la tripulación ve y oye a menos distancia.',
                 'Los rivales de la máquina ya no siguen pasos que oyen: van adonde han visto a alguien hace poco.',
                 'Sonidos de la nave: el volumen del ambiente, de los demás, de lo tuyo, de la guía y de los avisos, al preparar la partida y en la pausa.',

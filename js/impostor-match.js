@@ -633,6 +633,7 @@ class ImpostorMatch extends Match {
             { kind: 'sabotage', label: 'Sabotear', key: 'X', cls: 'main imp-sabbtn' },
             { kind: 'report', label: 'Avisar', key: 'R', cls: 'main imp-report' },
             { kind: 'near', label: 'Qué hay cerca', key: 'F', cls: 'small talk' },
+            { kind: 'who', label: 'Quién hay', key: 'Z', cls: 'small talk' },
             { kind: 'guide', label: 'Guía', key: 'G', cls: 'small' },
             { kind: 'tasks', label: 'Mis tareas', key: 'T', cls: 'small' },
             { kind: 'map', label: 'La nave', key: 'M', cls: 'small talk' },
@@ -650,6 +651,7 @@ class ImpostorMatch extends Match {
         if (kind === 'sabotage') return this.sabotageMenu();
         if (kind === 'report') return this.report();
         if (kind === 'near') return this.radar();
+        if (kind === 'who') return this.whoHere();
         if (kind === 'guide') return this.openGuide();
         if (kind === 'tasks') return this.sayTasks();
         if (kind === 'map') return this.describeShip();
@@ -2204,6 +2206,21 @@ class ImpostorMatch extends Match {
         this.tell(parts.join(' '), { keep: true });
     }
 
+    /** Z: solo lo fundamental: a quién ves y si hay cuerpos a la vista, lo mismo que se ve en la pantalla. */
+    whoHere() {
+        const g = this.game, me = this.mePl, a = SHIP.byId[me.area];
+        const { seen, bodies } = g.perceive(this.me);
+        const parts = [];
+        if (me.vent != null) parts.push('Estás dentro de un conducto.');
+        else if (a) parts.push(`${cap(inPlace(a.name))}.`);
+        if (seen.length) parts.push(`Ves ${impList(seen.map(p => `${toWhom(this.names[p])}${g.players[p].alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}, ${this.rel(g.players[p].x, g.players[p].y)}`))}.`);
+        else parts.push(g.lightsOff && me.alive && !this.amImpostor ? 'No ves a nadie: a oscuras, solo ves muy cerca.' : 'No ves a nadie.');
+        const body = p => { const b = g.bodies.find(x => x.p === p); return `${p === this.me ? 'el tuyo' : `el ${ofWhom(this.seats[p].name)}`}, ${this.rel(b.x, b.y)}`; };
+        if (!bodies.length) parts.push('No hay cuerpos.');
+        else parts.push(`${bodies.length === 1 ? 'Hay un cuerpo' : `Hay ${bodies.length} cuerpos`}: ${impList(bodies.map(body))}.`);
+        this.tell(parts.join(' '), { keep: true });
+    }
+
     /** M: cómo es la nave. */
     describeShip() {
         const a = SHIP.byId[this.mePl.area];
@@ -2276,7 +2293,7 @@ class ImpostorMatch extends Match {
             'W, A, S y D, o las flechas: andar. W va hacia delante, que es arriba en la pantalla; S, hacia detrás; A, a la izquierda, y D, a la derecha. Lo que suena a tu derecha está a tu derecha.',
             'E o Enter: usar lo que tienes al lado: una tarea, el panel de un sabotaje o una consola. Junto a la mesa del Comedor, pedir una reunión de emergencia.',
             'R: avisar de un cuerpo que tienes cerca. Si eres impostor: Q, matar a quien tienes a tu alcance; X, sabotear, y V, entrar en un conducto o salir. Dentro de un conducto, las flechas o los números te llevan a otro.',
-            'F: qué hay cerca: dónde estás, las salidas, tus tareas y quién está contigo. G: la guía, que te lleva con un pitido a una tarea o a una sala.',
+            'F: qué hay cerca: dónde estás, las salidas, tus tareas y quién está contigo. Z: solo lo fundamental: a quién ves y si hay cuerpos. G: la guía, que te lleva con un pitido a una tarea o a una sala.',
             'T o C: tus tareas. M: cómo es la nave. P: cómo suenan los pasos y la nota de cada uno. I: cómo va la partida.',
             'Espacio: repetir lo último. H: las teclas. Escape: pausa, o dejar la tarea que estás haciendo.',
         ];
@@ -3298,6 +3315,7 @@ class ImpostorMatch extends Match {
         if (k === 'x') { e.preventDefault(); this.sabotageMenu(); return true; }
         if (k === 'r') { e.preventDefault(); this.report(); return true; }
         if (k === 'f') { e.preventDefault(); this.radar(); return true; }
+        if (k === 'z') { e.preventDefault(); this.whoHere(); return true; }
         if (k === 'g') { e.preventDefault(); this.openGuide(); return true; }
         if (k === 't') { e.preventDefault(); this.sayTasks(); return true; }
         if (k === 'm') { e.preventDefault(); this.describeShip(); return true; }
