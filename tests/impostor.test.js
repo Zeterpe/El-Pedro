@@ -70,6 +70,8 @@ function doAll(g, p) {
     for (let tk; (tk = g.pending(p)[0]) && g.phase === 'ship';) {
         const q = g.players[p];
         q.x = tk.spot.x; q.y = tk.spot.y; q.busy = null;
+        // Las muestras: hay que esperar a que se analicen.
+        if (tk.readyAt != null && g.time < tk.readyAt) g.tick(tk.readyAt - g.time + 0.01);
         assert(g.act({ type: 'startTask', p, i: tk.i }).ok);
         last = g.act({ type: 'task', p, i: tk.i });
         assert(last.ok, last.error);
@@ -232,7 +234,7 @@ function doAll(g, p) {
     const { g } = newGame(3);
     const v = g.view(1);
     assert(v.players[1].tasks, 'ves tus tareas');
-    assert.strictEqual(v.players[0].tasks, null, 'pero no las de los demás');
+    assert(!v.players[0].tasks, 'pero no las de los demás');
 }
 
 // ── Partidas enteras entre rivales de la máquina ──
@@ -404,7 +406,7 @@ function shipWith(n, at, rules = {}, seed = 9) {
 
 // ── La reunión y los votos ────────────────────────
 function meetingWith(n, rules = {}, seed = 9) {
-    const { g } = newGame(n, { impostors: 1, ...rules }, seed, ['impostor']);
+    const { g } = newGame(n, { impostors: 1, discussTime: 0, ...rules }, seed, ['impostor']);
     g.tick(16);
     const res = g.act({ type: 'button', p: 1 });
     assert(res.ok, res.error);
@@ -437,6 +439,9 @@ function meetingWith(n, rules = {}, seed = 9) {
     const g = meetingWith(6);
     g.players[0].killCd = 0;
     for (const [p, t] of [[0, 1], [1, 0], [2, 1], [3, 0], [4, -1], [5, -1]]) g.act({ type: 'vote', p, target: t });
+    assert.strictEqual(g.meeting.stage, 'result', 'contados los votos, se espera a que todos lo oigan');
+    assert(!g.act({ type: 'vote', p: 1, target: 2 }).ok && !g.act({ type: 'say', p: 1, line: { kind: 'nothing' } }).ok, 'ya no se vota ni se habla');
+    assert.deepStrictEqual(g.resumeShip(), [{ type: 'resume' }]);
     assert.strictEqual(g.phase, 'ship', 'con empate, a la nave');
     assert(g.players.every(pl => pl.alive), 'sin echar a nadie');
     assert.strictEqual(g.players[0].killCd, g.rules.killCooldown, 'tras la reunión, el impostor espera para matar');
@@ -447,7 +452,8 @@ function meetingWith(n, rules = {}, seed = 9) {
     for (const p of [0, 1, 2, 3, 4, 5]) res = h.act({ type: 'vote', p, target: p === 2 ? 3 : 2 });
     const ej = res.events.find(e => e.type === 'eject');
     assert(ej.p === 2 && ej.impostor === false && ej.left === 1);
-    assert.strictEqual(res.events[res.events.length - 1].type, 'resume');
+    assert.strictEqual(res.events[res.events.length - 1].type, 'eject');
+    h.resumeShip();
     assert(!h.act({ type: 'say', p: 2, line: { kind: 'nothing' } }).ok, 'los echados ya no hablan');
     // Votos anónimos y sin confirmar: no se dice quién votó a quién ni qué era.
     const a = meetingWith(5, { anonymousVotes: true, confirmEjects: false });
@@ -662,6 +668,266 @@ function meetingWith(n, rules = {}, seed = 9) {
     assert.strictEqual(g.view(i1).players[i2].role, 'impostor', 'los impostores se conocen');
 }
 
+// ── El tiempo de la reunión ───────────────────────
+{
+    const { g } = newGame(5, { impostors: 1, discussTime: 30, voteTime: 20 }, 9, ['impostor']);
+    g.tick(16);
+    let res = g.act({ type: 'button', p: 1 });
+    const m = res.events[0];
+    assert.strictEqual(m.stage, 'talk', 'primero se habla');
+    assert(Math.abs(m.talkUntil - (g.time + 30)) < 1e-9 && Math.abs(m.voteUntil - (g.time + 50)) < 1e-9, 'y luego se vota');
+    assert(/hablando/.test(g.act({ type: 'vote', p: 1, target: 0 }).error), 'mientras se habla, no se vota');
+    assert(g.act({ type: 'say', p: 1, line: { kind: 'nothing' } }).ok, 'pero se habla');
+    res = g.act({ type: 'ready', p: 1 });
+    assert.deepStrictEqual(res.events, [{ type: 'ready', p: 1 }], 'quien quiere votar ya, lo dice');
+    assert(!g.act({ type: 'ready', p: 1 }).ok, 'una vez');
+    assert.deepStrictEqual(g.view(2).meeting.ready, [1]);
+    assert(g.view(2).meeting.said.length === 1 && !g.view(2, true).meeting.said, 'lo dicho va en la mesa entera, no en la ligera');
+    let ev = [];
+    for (let i = 0; i < 31 * 10 && !ev.length; i++) ev = g.tick(0.1);
+    assert.strictEqual(ev[0].type, 'voteStart', 'se acaba el tiempo de hablar: a votar');
+    assert(Math.abs(ev[0].until - (g.time + 20)) < 1e-6);
+    assert(!g.act({ type: 'ready', p: 2 }).ok, 'ya se está votando');
+    g.act({ type: 'vote', p: 1, target: 0 });
+    g.act({ type: 'vote', p: 2, target: 0 });
+    ev = [];
+    for (let i = 0; i < 21 * 10 && !ev.length; i++) ev = g.tick(0.1);
+    const r = ev.find(e => e.type === 'voteResult');
+    assert(r, 'se acaba el tiempo de votar y se cuentan los votos');
+    assert.deepStrictEqual(r.timeout.slice().sort(), [0, 3, 4], 'quien no ha votado a tiempo');
+    assert.strictEqual(r.skip, 3, 'salta el voto');
+    assert.strictEqual(r.ejected, null, 'con más saltos que votos, no sale nadie');
+    assert.deepStrictEqual(g.tick(5), [], 'contados los votos, el reloj ya no hace nada');
+    assert.strictEqual(g.resumeShip()[0].type, 'resume');
+    // Si todos quieren votar ya, se vota antes.
+    const h = meetingWith(4, { discussTime: 60 });
+    let last;
+    for (const p of h.living()) last = h.act({ type: 'ready', p });
+    assert.deepStrictEqual(last.events.map(e => e.type), ['ready', 'voteStart'], 'todos listos: a votar');
+    assert.strictEqual(h.meeting.stage, 'vote');
+    // Con los votos anónimos no se dice quién no ha votado.
+    const a = meetingWith(4, { anonymousVotes: true, voteTime: 10 });
+    a.act({ type: 'vote', p: 1, target: -1 });
+    ev = [];
+    for (let i = 0; i < 11 * 10 && !ev.length; i++) ev = a.tick(0.1);
+    assert.strictEqual(ev[0].timeout, null);
+}
+
+// ── El oxígeno y las comunicaciones ───────────────
+{
+    // El oxígeno: un código en cada uno de sus dos teclados, en Oxígeno y en Administración.
+    const at = [[18, 6.5], [55.5, 17.5], [40.5, 30.5], [22, 3.5]];
+    const g = shipWith(4, at, { reactorTime: 30 });
+    g.tick(15.1);
+    let res = g.act({ type: 'sabotage', p: 0, kind: 'oxygen' });
+    assert(res.ok, res.error);
+    assert(Math.abs(res.events[0].until - (g.time + 30)) < 1e-9 && g.critical, 'el oxígeno se cuenta, como el reactor');
+    assert(/oxígeno/.test(g.act({ type: 'button', p: 3 }).error), 'sin oxígeno no hay reuniones');
+    assert.strictEqual(g.panelHere(1)?.id, 'oxigeno0');
+    res = g.act({ type: 'fix', p: 1, panel: 'oxigeno0' });
+    assert.deepStrictEqual(res.events, [{ type: 'fixPart', p: 1, kind: 'oxygen', panel: 'oxigeno0', left: ['oxigeno1'] }], 'un teclado arreglado; queda el otro');
+    assert(g.sab && !g.players[1].busy, 'con uno no basta, y no hay que quedarse');
+    assert(!g.act({ type: 'fix', p: 1, panel: 'oxigeno0' }).ok && g.panelHere(1) === null, 'cada teclado, una vez');
+    assert.deepStrictEqual(g.view(3).sab.done, ['oxigeno0'], 'todos saben cuál falta');
+    res = g.act({ type: 'fix', p: 2, panel: 'oxigeno1' });
+    assert.deepStrictEqual(res.events.map(e => e.type), ['fixPart', 'fixed'], 'con los dos, arreglado');
+    assert(!g.sab);
+    // Si no se arreglan los dos a tiempo, ganan los impostores.
+    const h = shipWith(4, at, { reactorTime: 30 });
+    h.tick(15.1);
+    h.act({ type: 'sabotage', p: 0, kind: 'oxygen' });
+    h.act({ type: 'fix', p: 1, panel: 'oxigeno0' });
+    let over = [];
+    for (let i = 0; i < 31 * 30 && !over.length; i++) over = h.tick(1 / 30).filter(e => e.type === 'gameOver');
+    assert(over.length && over[0].side === 'impostors' && over[0].reason === 'oxygen', 'se acaba el oxígeno');
+}
+/** Hace una tarea de un sitio de un jugador, en su sitio (la primera de su lista, convertida en los cables). */
+function oneTask(g, p) {
+    const t = g.players[p].tasks.find(x => !x.done), spot = SHIP.spots.find(s => s.type === 'cables');
+    t.type = 'cables'; t.spot = spot.id; delete t.next; delete t.step; delete t.readyAt;
+    const q = g.players[p], i = q.tasks.indexOf(t);
+    q.x = spot.x; q.y = spot.y; q.busy = null;
+    assert(g.act({ type: 'startTask', p, i }).ok);
+    const res = g.act({ type: 'task', p, i });
+    assert(res.ok, res.error);
+    return res;
+}
+{
+    // Las comunicaciones: ni mapa ni cámaras, y la barra no se mueve hasta que se arreglan en la radio.
+    const g = shipWith(4, [[18, 6.5], [47.5, 3.5], [35, 33.5], [5, 20]]);
+    g.tick(15.1);
+    let res = g.act({ type: 'sabotage', p: 0, kind: 'comms' });
+    assert(res.ok && res.events[0].until === null && !g.critical, 'las comunicaciones no se cuentan');
+    assert(g.commsDown);
+    assert.deepStrictEqual(g.act({ type: 'console', p: 2, id: 'admin' }).events[0].data, { down: true }, 'el mapa no tiene señal');
+    const before = { ...g.barShown };
+    res = oneTask(g, 3);
+    assert.deepStrictEqual(res.events.map(e => e.type), ['taskDone'], 'la barra no se mueve');
+    assert.deepStrictEqual(g.view(2).bar, before);
+    assert.strictEqual(g.panelHere(1)?.id, 'radio');
+    res = g.act({ type: 'fix', p: 1, panel: 'radio' });
+    assert.deepStrictEqual(res.events.map(e => e.type), ['fixed', 'taskBar'], 'arregladas, la barra se pone al día');
+    assert.strictEqual(res.events[1].done, before.done + 1);
+    assert(g.act({ type: 'console', p: 2, id: 'admin' }).events[0].data.counts, 'y el mapa vuelve');
+}
+{
+    // La barra solo en las reuniones, o nunca.
+    const g = shipWith(4, [[18, 6.5], [47.5, 3.5], [22, 3.5], [5, 20]], { barUpdates: 'reuniones', buttonWait: 0 });
+    let res = oneTask(g, 1);
+    assert.deepStrictEqual(res.events.map(e => e.type), ['taskDone'], 'con «reuniones», la barra espera');
+    res = g.act({ type: 'button', p: 2 });
+    assert.deepStrictEqual(res.events.map(e => e.type), ['meeting', 'taskBar'], 'y se pone al día en la reunión');
+    const h = shipWith(4, [[18, 6.5], [47.5, 3.5], [22, 3.5], [5, 20]], { barUpdates: 'nunca', buttonWait: 0 });
+    assert.strictEqual(h.view(1).bar, null, 'con «nunca», no se ve');
+    res = oneTask(h, 1);
+    assert.deepStrictEqual(res.events.map(e => e.type), ['taskDone']);
+    assert.deepStrictEqual(h.act({ type: 'button', p: 2 }).events.map(e => e.type), ['meeting'], 'ni en la reunión');
+}
+
+// ── Las tareas nuevas ─────────────────────────────
+{
+    for (const type of ['secuencia', 'rumbo', 'basura', 'filtro', 'temperatura', 'muestras']) {
+        assert(I.IMPOSTOR_TASKS[type], `la tarea ${type} existe`);
+        assert(SHIP.spots.some(s => s.type === type), `y tiene sitio en la nave`);
+    }
+    // Las muestras: se empieza el análisis y, al rato, se recogen los resultados en el mismo sitio.
+    const g = shipWith(4, [[18, 6.5], [22, 3.5], [23, 3.5], [5, 20]]);
+    const spot = SHIP.spots.find(s => s.type === 'muestras'), q = g.players[1];
+    q.tasks[0] = { type: 'muestras', spot: spot.id, next: [spot.id], step: 0, done: false };
+    q.x = spot.x; q.y = spot.y;
+    g.act({ type: 'startTask', p: 1, i: 0 });
+    let res = g.act({ type: 'task', p: 1, i: 0 });
+    const st = res.events[0];
+    assert(st.type === 'taskStep' && st.wait === 60 && st.spot === spot.id && Math.abs(st.readyAt - (g.time + 60)) < 1e-9, 'hay que esperar un minuto');
+    assert(/analizando/.test(g.act({ type: 'startTask', p: 1, i: 0 }).error), 'antes, no se recogen');
+    assert(g.pending(1)[0].readyAt === st.readyAt, 'la tarea sabe cuándo está lista');
+    g.tick(60.1);
+    assert(g.act({ type: 'startTask', p: 1, i: 0 }).ok, 'pasado el minuto, sí');
+    assert.strictEqual(g.act({ type: 'task', p: 1, i: 0 }).events[0].type, 'taskDone');
+    // Con tareas fáciles, la mitad.
+    const h = shipWith(4, [[18, 6.5], [22, 3.5], [23, 3.5], [5, 20]], { easyTasks: true });
+    h.players[1].tasks[0] = { type: 'muestras', spot: spot.id, next: [spot.id], step: 0, done: false };
+    Object.assign(h.players[1], { x: spot.x, y: spot.y });
+    h.act({ type: 'startTask', p: 1, i: 0 });
+    assert.strictEqual(h.act({ type: 'task', p: 1, i: 0 }).events[0].wait, 30);
+    // Al repartir, las muestras se hacen dos veces en el mismo sitio.
+    for (let seed = 1; seed < 30; seed++) {
+        const { g: k } = newGame(4, { tasks: 5 }, seed);
+        for (const pl of k.players) for (const t of pl.tasks) if (t.type === 'muestras') assert.deepStrictEqual(t.next, [t.spot]);
+    }
+}
+
+// ── En una sala ───────────────────────────────────
+{
+    // Quien juega en otro navegador dice dónde está; el anfitrión solo lo cree si se puede.
+    const g = new ImpostorGame({ players: ['A', 'B', 'C', 'D'].map((name, i) => ({ name, remote: i === 1 })), rules: { impostors: 0 }, seed: 4 });
+    g.startRound();
+    const b = g.players[1], w = b.warp;
+    b.x = 17; b.y = 3;
+    assert(g.remoteMove(1, { x: 17.5, y: 3.4, fx: 1, fy: 0, w }, 0.2), 'medio metro en un momento, sí');
+    assert(b.x === 17.5 && b.y === 3.4 && b.fx === 1 && b.area === 'comedor');
+    g.input(1, 1, 0);
+    g.tick(1 / 30);
+    assert.strictEqual(b.x, 17.5, 'el anfitrión no le mueve: se mueve él');
+    assert(g.walking(b), 'pero se le oye andar');
+    assert(!g.remoteMove(1, { x: 23, y: 3.4, w }, 0.1), 'cinco metros de golpe, no');
+    assert.strictEqual(b.warp, w + 1, 'y se le devuelve a donde estaba');
+    assert(!g.remoteMove(1, { x: 17.6, y: 3.4, w }, 0.1), 'lo que mande antes de enterarse no vale');
+    assert(!g.remoteMove(1, { x: 16.1, y: 3, w: w + 1 }, 0.5), 'dentro de una pared, tampoco');
+    assert(g.remoteMove(1, { x: 17.6, y: 3.4, w: w + 2 }, 0.1));
+    b.busy = { i: 0, since: 0 };
+    assert(!g.remoteMove(1, { x: 17.7, y: 3.4, w: w + 2 }, 0.1), 'con una tarea entre manos no se anda');
+}
+{
+    // Lo que ve cada uno: de los demás, solo a quien tiene a la vista o oye andar.
+    const g = shipWith(5, [[18, 4], [17, 3], [9, 3], [40, 20], [22, 4]]);
+    let v = g.view(1);
+    assert(v.players[0].known && v.players[0].x === 18, 'a quien tienes delante, lo ves');
+    assert(!v.players[2].known && v.players[2].x === undefined, 'a quien está tras la pared y quieto, no');
+    assert(!v.players[3].known, 'ni a quien está lejos');
+    assert.strictEqual(v.players[0].role, null, 'y no sabes quién es impostor');
+    assert(Array.isArray(v.players[1].tasks) && v.players[1].warp != null, 'de ti, todo');
+    assert.strictEqual(v.players[0].tasks, undefined, 'de los demás, sus tareas no');
+    assert(v.rules && !g.view(1, true).rules, 'la mesa ligera no lleva las reglas');
+    g.input(2, 0, 1);
+    g.tick(0.1);
+    assert(g.view(1).players[2].known && g.view(1).players[2].mv, 'a quien anda cerca, se le oye');
+    assert(g.view(0).players[4].role === null && g.view(0).players[0].role === 'impostor');
+    // Una muerte: la ven del todo quien mata, quien muere y los testigos; quien está cerca oye el golpe.
+    const h = shipWith(5, [[18, 4], [19, 4], [21.5, 4], [9, 4], [40, 20]]);
+    h.players[0].killCd = 0;
+    const kr = h.act({ type: 'kill', p: 0, target: 1 });
+    const k = kr.events.find(e => e.type === 'kill');
+    assert.deepStrictEqual(k.witnesses, [2]);
+    assert.strictEqual(I.impostorEventFor(h, k, 2), k, 'el testigo lo ve todo');
+    assert.strictEqual(I.impostorEventFor(h, k, 1), k, 'y quien muere');
+    assert.deepStrictEqual(I.impostorEventFor(h, k, 3), { type: 'kill', heard: true, x: k.x, y: k.y }, 'quien está cerca oye el golpe');
+    assert.strictEqual(I.impostorEventFor(h, k, 4), null, 'quien está lejos no se entera');
+    assert(h.view(3).players[1].alive, 'para quien no lo ha visto, sigue vivo');
+    assert.strictEqual(h.view(2).bodies.length, 1, 'el cuerpo lo ve quien lo tiene delante');
+    assert.strictEqual(h.view(4).bodies.length, 0, 'y no quien está lejos');
+    // Lo secreto, solo para su dueño; quién sabotea, solo para los impostores.
+    const { g: s, res } = newGame(4, { impostors: 1 }, 2, ['impostor']);
+    const role = res.events.find(e => e.type === 'role' && e.p === 1);
+    assert.strictEqual(I.impostorEventFor(s, role, 1), role);
+    assert.strictEqual(I.impostorEventFor(s, role, 2), null, 'el papel de otro no se sabe');
+    const sab = { type: 'sabotage', kind: 'lights', by: 0, until: null };
+    assert.strictEqual(I.impostorEventFor(s, sab, 1).by, null);
+    assert.strictEqual(I.impostorEventFor(s, sab, 0).by, 0);
+    // Las tareas de los demás: solo que alguien está con una, si está cerca; y si es el escáner.
+    s.players[1].x = 18; s.players[1].y = 4; s.players[2].x = 19; s.players[2].y = 4; s.players[3].x = 40; s.players[3].y = 20;
+    const ts = { type: 'taskStart', p: 1, i: 0, task: 'cables', step: 0, fake: false, visible: false };
+    assert.deepStrictEqual(I.impostorEventFor(s, ts, 2), { type: 'taskStart', p: 1, task: null, visible: false, x: 18, y: 4 });
+    assert.strictEqual(I.impostorEventFor(s, ts, 3), null);
+}
+{
+    // La mesa del invitado: anda él mismo, y los demás se acercan a donde dice el anfitrión.
+    const g = new ImpostorGame({ players: ['A', 'B', 'C', 'D'].map((name, i) => ({ name, remote: i === 1 })), rules: { impostors: 1 }, seed: 6 });
+    const start = g.startRound();
+    const m = new I.ImpostorMirror({ names: g.players.map(p => p.name), rules: g.rules, me: 1 });
+    m.setView(g.view(1));
+    for (const e of start.events) { const f = I.impostorEventFor(g, e, 1); if (f) m.observe(f); }
+    const me = m.players[1], host = g.players[1];
+    assert.strictEqual(m.phase, 'ship');
+    assert.strictEqual(me.role, host.role, 'sabe su papel');
+    assert.deepStrictEqual(me.tasks.map(t => t.type), host.tasks.map(t => t.type), 'y sus tareas');
+    assert(me.x === host.x && me.y === host.y && m.warped, 'al empezar, en su sitio');
+    m.warped = false;
+    assert.deepStrictEqual(m.taskBar(), g.barShown, 've la barra');
+    m.input(1, 0, 1);
+    const y0 = me.y;
+    for (let i = 0; i < 6; i++) m.tickSelf(1 / 30);
+    assert(me.y > y0 + 0.5, 'anda en su mesa sin esperar al anfitrión');
+    assert(g.remoteMove(1, { x: me.x, y: me.y, fx: me.fx, fy: me.fy, w: me.warp }, 0.2), 'y el anfitrión se lo cree');
+    m.setView(g.view(1, true));
+    assert(me.y > y0 + 0.5 && !m.warped, 'la mesa que llega no le cambia de sitio');
+    // Otro anda: en la mesa del invitado se acerca poco a poco a donde está.
+    const other = g.players.findIndex((pl, i) => i !== 1 && g.knownBy(1).has(i));
+    const ox = m.players[other].x;
+    g.input(other, 1, 0);
+    g.tick(0.3);
+    g.input(other, 0, 0);
+    m.setView(g.view(1, true));
+    assert.strictEqual(m.players[other].x, ox, 'no salta');
+    for (let i = 0; i < 30; i++) m.tickSelf(1 / 30);
+    assert(Math.abs(m.players[other].x - g.players[other].x) < 0.05, 'sino que se acerca');
+    // Si el anfitrión le lleva a otro sitio (un salto), se pone allí.
+    host.x = 18; host.y = 3.5; host.warp++;
+    m.setView(g.view(1, true));
+    assert(me.x === 18 && me.y === 3.5 && m.warped, 'el salto, sí');
+    // En la reunión se sabe de todos; al acabar la partida, quiénes eran los impostores.
+    host.x = 22; host.y = 3.5;
+    g.tick(16);
+    g.act({ type: 'button', p: 1 });
+    m.setView(g.view(1));
+    assert(m.phase === 'meeting' && m.meeting.stage === 'talk' && m.players.every(pl => pl.known || pl === me), 'en la reunión, de todos');
+    const imp = g.impostors()[0];
+    const over = g.finish('crew', 'ejected')[0];
+    m.observe(over);
+    m.setView(g.view(1));
+    assert.deepStrictEqual(m.impostors(), [imp], 'al acabar, se sabe quién era');
+}
+
 // ── Los rivales de la máquina ─────────────────────
 const { IMPOSTOR_LEVELS } = require('../js/impostor-ai.js');
 {
@@ -720,6 +986,13 @@ function botMeeting(g, bots) {
     };
     const order = [M.by, ...alive.filter(p => p !== M.by)].filter(p => g.players[p].alive);
     for (const p of order) for (const l of bots[p].meetingLines(M)) say(p, l);
+    // Cuando han hablado todos, quieren votar ya: se acaba el tiempo de hablar.
+    for (const p of alive) {
+        const r = g.act({ type: 'ready', p });
+        assert(r.ok, r.error);
+        for (const e of r.events) for (const b of bots) b.observe(e);
+    }
+    assert.strictEqual(M.stage, 'vote', 'si todos quieren votar, se vota');
     // Nadie se contradice: no defiende a quien acusa de matar o de mentir.
     for (const p of alive) {
         const mine = M.said.filter(x => x.p === p).map(x => x.line);
@@ -730,6 +1003,7 @@ function botMeeting(g, bots) {
         assert(r.ok, r.error);
         for (const e of r.events) for (const b of bots) b.observe(e);
     }
+    for (const e of g.resumeShip()) for (const b of bots) b.observe(e);
 }
 const ends = {}, sides = {}, used = {};
 let impGames = 0, impTime = 0, impMeetings = 0, crewEjects = 0, impEjects = 0;
@@ -782,8 +1056,8 @@ for (let seed = 1; seed <= 120; seed++) {
 assert(ends.tasks && ends.ejected && ends.kills, `se gana de las tres maneras: ${JSON.stringify(ends)}`);
 assert(sides.crew > impGames * 0.25 && sides.impostors > impGames * 0.25, `las dos partes ganan a menudo: ${JSON.stringify(sides)}`);
 assert(impEjects > crewEjects * 0.5, `las reuniones echan a impostores a menudo: ${impEjects} impostores y ${crewEjects} tripulantes`);
-assert(used.lights && used.reactor && used.doors && used['vent-in'] && used['vent-out'], `los impostores sabotean y usan los conductos: ${JSON.stringify(used)}`);
-assert(used.fixed >= (used.lights + used.reactor) * 0.5, `la tripulación arregla los sabotajes: ${JSON.stringify(used)}`);
-assert((ends.reactor || 0) < impGames * 0.15, `el reactor estalla pocas veces: ${JSON.stringify(ends)}`);
+assert(used.lights && used.reactor && used.oxygen && used.comms && used.doors && used['vent-in'] && used['vent-out'], `los impostores sabotean y usan los conductos: ${JSON.stringify(used)}`);
+assert(used.fixed >= (used.lights + used.reactor + used.oxygen + used.comms) * 0.5, `la tripulación arregla los sabotajes: ${JSON.stringify(used)}`);
+assert((ends.reactor || 0) + (ends.oxygen || 0) < impGames * 0.15, `el reactor estalla y el oxígeno se acaba pocas veces: ${JSON.stringify(ends)}`);
 
 console.log(`El Impostor: todo bien. ${games} partidas sin impostores (${Math.round(totalTime / games)} segundos de media, ${Math.round(maxTime)} como mucho) y ${impGames} con impostores (${Math.round(impTime / impGames)} segundos de media, ${impMeetings} reuniones). Ganan: ${JSON.stringify(sides)}; cómo: ${JSON.stringify(ends)}; echados: ${impEjects} impostores y ${crewEjects} tripulantes; sabotajes y conductos: ${JSON.stringify(used)}.`);

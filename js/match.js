@@ -546,10 +546,11 @@ class Match {
         this.speech.cancel();
         const host = this.mode === 'host';
         const r = await Dialog.open({
-            title: 'Pausa', speak: true,
+            title: 'Pausa', text: this.pauseNote(), speak: true,
             items: [
                 { label: 'Seguir jugando', value: 'go' },
                 ...(this.visual ? [] : [{ label: 'Teclas', value: 'keys' }, { label: 'Cómo va la partida', value: 'info' }]),
+                ...this.pauseItems(),
                 ...(host ? [{ label: 'Volver a la sala para elegir otro juego', value: 'lobby' }] : []),
                 { label: host ? 'Cerrar la sala y salir' : this.mode === 'client' ? 'Salir de la sala' : 'Salir al salón', value: 'menu' },
             ],
@@ -560,8 +561,15 @@ class Match {
         else if (r === 'info') this.info();
         else if (r === 'lobby') this.online.backToLobby();
         else if (r === 'menu') this.app.leaveMatch();
+        else if (this.pauseItems().some(it => it.value === r)) await this.pauseItem(r);
         else if (!this.visual) this.speech.say('Seguimos.', { interrupt: true });
     }
+
+    /** Lo que se dice al abrir la pausa (en El Impostor, en una sala, que la partida sigue). */
+    pauseNote() { return ''; }
+    /** Lo que añade cada juego a la pausa (en El Impostor, los sonidos), y qué hace al elegirlo. */
+    pauseItems() { return []; }
+    async pauseItem() { }
 
     cancelPick() { return false; }
 

@@ -1,9 +1,10 @@
 /* =============================================
    EL PEDRO — parchis.js
    Las reglas del Parchís, sin pantalla ni sonido.
-   Un dado, cuatro colores y 68 casillas: sales
-   con un 5, comes y cuentas 20, metes una ficha
-   en la meta y cuentas 10. Individual o por parejas.
+   Un dado (o dos), cuatro colores y 68 casillas:
+   sales con un 5, comes y cuentas 20, metes una
+   ficha en la meta y cuentas 10. Individual o por
+   parejas.
    Usa el azar con semilla de rules.js.
    ============================================= */
 'use strict';
@@ -17,6 +18,7 @@ const PARCHIS_DEFAULT_RULES = {
     threeSixes: true,     // al tercer 6 seguido, la última ficha que has movido vuelve a casa
     openBarrier: true,    // con un 6, si tienes una barrera, hay que abrirla
     exact: true,          // a la meta se entra con la cuenta justa (false: si te pasas, rebotas)
+    twoDice: false,       // con dos dados: cada dado se mueve por separado, se sale con un 5 o si suman 5, y los dobles hacen de 6
 };
 
 /** Los colores en el orden del juego (y del tablero, en sentido contrario a las agujas del reloj). */
@@ -65,7 +67,9 @@ class ParchisGame {
         this.turns = 0;              // cambia con cada jugada
         this.dice = null;            // lo que ha sacado quien tiene el turno
         this.steps = null;           // lo que avanza con ese dado (un 6 puede contar 7)
-        this.sixes = 0;              // seises seguidos en este turno
+        this.pair = null;            // con dos dados: lo que ha salido en cada uno
+        this.left = [];              // con dos dados: los que quedan por mover
+        this.sixes = 0;              // seises seguidos en este turno (con dos dados, dobles)
         this.bonus = null;           // lo que se está contando ahora (20 o 10)
         this.queue = [];             // cuentas pendientes
         this.options = [];           // las jugadas que valen ahora
@@ -162,7 +166,35 @@ class ParchisGame {
 
     /** Lo que avanza p con el dado value. */
     stepsFor(p, value) {
-        return value === 6 && this.rules.sixSeven && this.homeCount(this.controlled(p)) === 0 ? 7 : value;
+        return value === 6 && this.rules.sixSeven && !this.rules.twoDice && this.homeCount(this.controlled(p)) === 0 ? 7 : value;
+    }
+
+    /** Lo más lejos que llega de una tirada una ficha de q: 6, 7 si el 6 cuenta 7, y 12 con dos dados. */
+    reachOf(q) { return this.rules.twoDice ? 12 : this.rules.sixSeven && this.homeCount(q) === 0 ? 7 : 6; }
+
+    /** ¿La tirada da otra? Con un dado, el 6; con dos, los dobles. */
+    get again() { return this.rules.twoDice ? !!this.pair && this.pair[0] === this.pair[1] : this.dice === 6; }
+
+    /** Con dos dados: las jugadas que tiene p con los dados que le quedan. Cada una lleva su dado (die). */
+    pairOptions(p) {
+        const o = this.controlled(p), left = this.left;
+        if (this.homeCount(o) > 0) {
+            const ex = this.exitMove(o);
+            // Se sale con un 5 o si los dos dados suman 5: si puedes sacar, hay que sacar.
+            if (ex && left.includes(5)) return [{ ...ex, die: 5 }];
+            if (ex && left.length === 2 && left[0] + left[1] === 5) return [{ ...ex, die: 5, sum: true }];
+        }
+        let opts = [];
+        for (const d of new Set(left)) {
+            this.piecesOf(o).forEach((_, i) => { const m = this.tryMove(o, i, d); if (m) opts.push({ ...m, die: d }); });
+        }
+        // Con dobles, si tienes una barrera, hay que abrirla.
+        if (this.rules.openBarrier && left.length === 2 && left[0] === left[1]) {
+            const bar = this.barrierPieces(o);
+            const open = opts.filter(m => bar.has(m.i));
+            if (open.length) opts = open;
+        }
+        return opts;
     }
 
     /** Las jugadas que tiene p con el dado value. */
@@ -196,7 +228,7 @@ class ParchisGame {
             if (sq == null || PARCHIS_SAFE.has(sq) || this.occupants(sq).length > 1) return;
             this.players.forEach((pl, q) => {
                 if (this.team(q) === this.team(o)) return;
-                const reach = this.rules.sixSeven && this.homeCount(q) === 0 ? 7 : 6;
+                const reach = this.reachOf(q);
                 const need = parchisProgress(pl.color, sq);
                 if (need > PARCHIS_LAST) return;
                 pl.pieces.forEach((qc, j) => {
@@ -213,7 +245,7 @@ class ParchisGame {
     chances(o) {
         const out = [];
         const color = this.colorOf(o);
-        const reach = this.rules.sixSeven && this.homeCount(o) === 0 ? 7 : 6;
+        const reach = this.reachOf(o);
         this.players.forEach((pl, q) => {
             if (this.team(q) === this.team(o)) return;
             pl.pieces.forEach((qc, j) => {
@@ -243,7 +275,7 @@ class ParchisGame {
     view() {
         return {
             phase: this.phase, round: this.round, current: this.current, turns: this.turns,
-            dice: this.dice, steps: this.steps, sixes: this.sixes, bonus: this.bonus, queue: this.queue.slice(),
+            dice: this.dice, steps: this.steps, pair: this.pair, left: this.left.slice(), sixes: this.sixes, bonus: this.bonus, queue: this.queue.slice(),
             options: this.options.map(m => ({ ...m, capture: m.capture && { ...m.capture } })),
             lastMoved: this.lastMoved, winners: this.winners,
             players: this.players.map(pl => ({ name: pl.name, color: pl.color, done: pl.done, wins: pl.wins, pieces: pl.pieces.map(pc => ({ pos: pc.pos, at: pc.at })) })),
@@ -273,7 +305,7 @@ class ParchisGame {
             this.round = 1;
             for (const pl of this.players) { pl.pieces = Array.from({ length: this.rules.pieces }, () => ({ pos: -1, at: 0 })); pl.done = false; }
             this.current = this.rng.int(this.n);
-            this.sixes = 0; this.dice = null; this.steps = null; this.queue = []; this.options = []; this.lastMoved = null; this.winners = null;
+            this.sixes = 0; this.dice = null; this.steps = null; this.pair = null; this.left = []; this.queue = []; this.options = []; this.lastMoved = null; this.winners = null;
             this._emit({ t: 'round', round: 1, first: this.current, colors: this.players.map(pl => pl.color), pieces: this.rules.pieces, teams: this.teamPlay });
             this.phase = 'roll';
             this._emit({ t: 'turn', p: this.current, again: false });
@@ -293,8 +325,9 @@ class ParchisGame {
         if (this.phase === 'gameOver') return 'La partida ha terminado.';
         if (p !== this.current) return 'No es tu turno.';
         if (this.phase !== 'roll') return 'Ya has tirado: elige qué ficha mueves.';
-        const forced = this.nextDice.length ? this.nextDice.shift() : null;
-        const value = forced >= 1 && forced <= 6 ? forced : this.rng.int(6) + 1;
+        const die = () => { const f = this.nextDice.length ? this.nextDice.shift() : null; return f >= 1 && f <= 6 ? f : this.rng.int(6) + 1; };
+        if (this.rules.twoDice) return this._roll2(p, die(), die());
+        const value = die();
         this.turns++;
         this.dice = value;
         this.sixes = value === 6 ? this.sixes + 1 : 0;
@@ -311,15 +344,40 @@ class ParchisGame {
         return null;
     }
 
-    _move({ p, o, i }) {
+    /** Con dos dados: se mueve lo de cada dado por separado, con la misma ficha o con otra. */
+    _roll2(p, a, b) {
+        this.turns++;
+        this.dice = null; this.steps = null;
+        this.pair = [a, b];
+        this.left = [a, b];
+        const double = a === b;
+        this.sixes = double ? this.sixes + 1 : 0;
+        this._emit({ t: 'roll', p, value: a, value2: b, double, sixes: this.sixes });
+        if (double && this.sixes >= 3 && this.rules.threeSixes) { this._threeSixes(p); return null; }
+        this.options = this.pairOptions(p);
+        if (!this.options.length) {
+            this._emit({ t: 'noMove', p, value: a, value2: b });
+            this.left = [];
+            this._next(p);
+            return null;
+        }
+        this.phase = 'move';
+        return null;
+    }
+
+    _move({ p, o, i, d }) {
         if (this.phase === 'gameOver') return 'La partida ha terminado.';
         if (p !== this.current) return 'No es tu turno.';
         if (this.phase === 'roll') return 'Primero tira el dado.';
         if (this.phase !== 'move' && this.phase !== 'bonus') return 'Ahora no puedes mover.';
         if (o == null) o = this.controlled(p);
-        const m = this.options.find(x => x.o === o && x.i === i);
+        const m = this.options.find(x => x.o === o && x.i === i && (d == null || x.die == null || x.die === d));
         if (!m) return 'Esa ficha no se puede mover.';
         this.turns++;
+        if (this.phase === 'move' && m.die != null) {
+            if (m.sum) this.left = [];
+            else this.left.splice(this.left.indexOf(m.die), 1);
+        }
         this._apply(p, m, this.phase === 'bonus' ? 'bonus' : m.out ? 'out' : 'roll');
         if (this.phase !== 'gameOver') this._continue(p);
         return null;
@@ -331,7 +389,8 @@ class ParchisGame {
         pc.at = ++this.stamp;
         this.lastMoved = { o: m.o, i: m.i };
         this.options = [];
-        this._emit({ t: 'move', p, o: m.o, i: m.i, from: m.from, to: m.to, sq: m.sq, kind, amount: m.amount });
+        const dice = kind !== 'bonus' && m.die != null ? { die: m.die, sum: !!m.sum, left: this.left.slice() } : {};
+        this._emit({ t: 'move', p, o: m.o, i: m.i, from: m.from, to: m.to, sq: m.sq, kind, amount: m.amount, ...dice });
         if (m.capture) {
             const v = this.piecesOf(m.capture.o)[m.capture.i];
             v.pos = -1;
@@ -368,14 +427,22 @@ class ParchisGame {
             return;
         }
         this.bonus = null;
+        // Con dos dados: el que queda.
+        if (this.rules.twoDice && this.left.length) {
+            this.options = this.pairOptions(p);
+            if (this.options.length) { this.phase = 'move'; return; }
+            this._emit({ t: 'noMove', p, value: this.left[0], value2: this.left[1] ?? null, partial: true });
+            this.left = [];
+        }
         this._next(p);
     }
 
-    /** Con un 6 se vuelve a tirar; si no, le toca al siguiente. */
+    /** Con un 6 (con dos dados, con dobles) se vuelve a tirar; si no, le toca al siguiente. */
     _next(p) {
         this.options = [];
         this.bonus = null;
-        if (this.dice === 6) {
+        this.left = [];
+        if (this.again) {
             this.phase = 'roll';
             this._emit({ t: 'turn', p, again: true });
             return;
@@ -385,12 +452,12 @@ class ParchisGame {
 
     _pass() {
         this.current = (this.current + 1) % this.n;
-        this.sixes = 0; this.dice = null; this.steps = null; this.lastMoved = null; this.queue = []; this.options = []; this.bonus = null;
+        this.sixes = 0; this.dice = null; this.steps = null; this.pair = null; this.left = []; this.lastMoved = null; this.queue = []; this.options = []; this.bonus = null;
         this.phase = 'roll';
         this._emit({ t: 'turn', p: this.current, again: false });
     }
 
-    /** Tercer 6 seguido: la última ficha que has movido vuelve a casa (si no está ya en el pasillo) y pasa el turno. */
+    /** Tercer 6 seguido (o terceros dobles): la última ficha que has movido vuelve a casa (si no está ya en el pasillo) y pasa el turno. */
     _threeSixes(p) {
         const lm = this.lastMoved;
         const pc = lm && this.piecesOf(lm.o)[lm.i];
@@ -420,13 +487,13 @@ class ParchisMirror {
         const n = names.length;
         this.players = names.map((name, index) => ({ name, index, color: parchisColorOf(index, n), pieces: Array.from({ length: this.rules.pieces }, () => ({ pos: -1, at: 0 })), done: false, wins: 0 }));
         this.phase = 'idle'; this.round = 0; this.current = 0; this.turns = 0;
-        this.dice = null; this.steps = null; this.sixes = 0; this.bonus = null; this.queue = []; this.options = [];
+        this.dice = null; this.steps = null; this.pair = null; this.left = []; this.sixes = 0; this.bonus = null; this.queue = []; this.options = [];
         this.lastMoved = null; this.winners = null;
     }
 
     setView(v) {
         this.phase = v.phase; this.round = v.round; this.current = v.current; this.turns = v.turns;
-        this.dice = v.dice; this.steps = v.steps; this.sixes = v.sixes; this.bonus = v.bonus; this.queue = v.queue.slice();
+        this.dice = v.dice; this.steps = v.steps; this.pair = v.pair || null; this.left = (v.left || []).slice(); this.sixes = v.sixes; this.bonus = v.bonus; this.queue = v.queue.slice();
         this.options = v.options.map(m => ({ ...m }));
         this.lastMoved = v.lastMoved; this.winners = v.winners;
         v.players.forEach((p, i) => {
@@ -439,10 +506,10 @@ class ParchisMirror {
     observe() { }
 }
 
-for (const m of ['team', 'partner', 'partners', 'sides', 'controlled', 'colorOf', 'piecesOf', 'homeCount', 'metaCount', 'squareOf', 'occupants', 'isBarrier', 'barrierPieces', 'tryMove', 'exitMove', 'stepsFor', 'rollOptions', 'bonusOptions', 'threats', 'chances', 'legal']) {
+for (const m of ['team', 'partner', 'partners', 'sides', 'controlled', 'colorOf', 'piecesOf', 'homeCount', 'metaCount', 'squareOf', 'occupants', 'isBarrier', 'barrierPieces', 'tryMove', 'exitMove', 'stepsFor', 'reachOf', 'pairOptions', 'rollOptions', 'bonusOptions', 'threats', 'chances', 'legal']) {
     ParchisMirror.prototype[m] = ParchisGame.prototype[m];
 }
-for (const g of ['n', 'teamPlay']) {
+for (const g of ['n', 'teamPlay', 'again']) {
     Object.defineProperty(ParchisMirror.prototype, g, Object.getOwnPropertyDescriptor(ParchisGame.prototype, g));
 }
 
