@@ -64,7 +64,7 @@ class ImpostorBot {
         this.stuck = 0;
         this.lastX = null; this.lastY = null;
         this.senseT = 0;
-        this.per = { seen: [], heard: [], bodies: [] };
+        this.per = { seen: [], bodies: [] };
         this.log = [];             // a quién ha visto: { t, q, area }
         this.mine = [];            // dónde ha estado: { t, area }
         this.witness = null;       // lo que ha visto: { killer, victim, area }
@@ -293,11 +293,10 @@ class ImpostorBot {
         const target = this.pickTarget();
         if (target == null) {
             if (this.chase != null) { this.chase = null; this.goal = null; this.path = null; }
-            // Sin nadie a la vista: va hacia los pasos que oye.
-            const q = this.per.heard.find(x => !g.isImpostor(x));
-            if (q != null && this.goal?.kind !== 'stalk' && this.rng.chance(dt * 2)) {
-                const o = g.players[q];
-                this.goal = { x: o.x, y: o.y, kind: 'stalk', reach: 1.5 }; this.path = null;
+            // Sin nadie a la vista: va adonde ha visto a un tripulante hace poco.
+            const last = this.log.findLast(x => x.t > g.time - 6 && g.players[x.q].alive && !g.isImpostor(x.q));
+            if (last && this.goal?.kind !== 'stalk' && this.rng.chance(dt * 2)) {
+                this.goal = { x: last.x, y: last.y, kind: 'stalk', reach: 1.5 }; this.path = null;
             }
             return null;
         }
@@ -320,7 +319,7 @@ class ImpostorBot {
         const crew = this.per.seen.filter(q => g.players[q].alive && !g.isImpostor(q));
         if (!crew.length) return null;
         const careless = this.rng.chance(this.level.careless);
-        const known = new Set([...this.per.seen, ...this.per.heard]);
+        const known = new Set(this.per.seen);
         const others = (t, q) => q !== t && !g.isImpostor(q) && known.has(q);
         const options = crew.filter(t => {
             if (careless) return true;

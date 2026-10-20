@@ -176,13 +176,23 @@ function doAll(g, p) {
     a.x = 18; a.y = 4; b.x = 21; b.y = 8.5; c.x = 6; c.y = 6;
     let per = g.perceive(0);
     assert(per.seen.includes(1), 'en la misma sala se ven');
-    assert(!per.seen.includes(2) && !per.heard.includes(2), 'a quien está quieto en otra sala ni se le ve ni se le oye');
+    assert(!per.seen.includes(2) && per.heard === undefined, 'a quien está en otra sala no se le ve, y lo que no se ve no se oye');
     c.x = 9; c.y = 4;   // en Motores, al otro lado de la pared
     g.input(2, 0, 1); g.tick(1 / 30);
-    per = g.perceive(0);
-    assert(per.heard.includes(2) && !per.seen.includes(2), 'a través de la pared se oyen sus pasos');
+    assert(!g.perceive(0).seen.includes(2), 'aunque ande, tras la pared ni se le ve ni se le oye');
+    assert(!g.knownBy(0).has(2), 'y la sala no manda dónde está');
     b.x = 40; b.y = 8;
     assert(!g.perceive(0).seen.includes(1), 'lejos, en otra sala, no se ve');
+}
+{
+    // Con las luces apagadas, la tripulación ve y oye mucho más cerca; el impostor, igual que siempre.
+    const g = shipWith(4, [[18, 4], [22, 4], [19, 4.5], [40, 20]]);
+    g.sab = { kind: 'lights', t0: 0 };
+    assert(!g.perceive(1).seen.includes(0) && !g.knownBy(1).has(0), 'a cuatro metros, a oscuras, ni se ve ni se oye');
+    assert(g.perceive(2).seen.includes(0), 'a un metro, sí');
+    assert(g.perceive(0).seen.includes(1), 'el impostor ve como siempre');
+    g.sab = null;
+    assert(g.perceive(1).seen.includes(0), 'con luz, se vuelve a ver');
 }
 
 // ── Tareas ────────────────────────────────────────
@@ -839,7 +849,7 @@ function oneTask(g, p) {
     assert(!g.remoteMove(1, { x: 17.7, y: 3.4, w: w + 2 }, 0.1), 'con una tarea entre manos no se anda');
 }
 {
-    // Lo que ve cada uno: de los demás, solo a quien tiene a la vista o oye andar.
+    // Lo que ve cada uno: de los demás, solo a quien tiene a la vista.
     const g = shipWith(5, [[18, 4], [17, 3], [9, 3], [40, 20], [22, 4]]);
     let v = g.view(1);
     assert(v.players[0].known && v.players[0].x === 18, 'a quien tienes delante, lo ves');
@@ -851,9 +861,9 @@ function oneTask(g, p) {
     assert(v.rules && !g.view(1, true).rules, 'la mesa ligera no lleva las reglas');
     g.input(2, 0, 1);
     g.tick(0.1);
-    assert(g.view(1).players[2].known && g.view(1).players[2].mv, 'a quien anda cerca, se le oye');
+    assert(!g.view(1).players[2].known, 'aunque ande tras la pared: lo que no se ve tampoco se oye');
     assert(g.view(0).players[4].role === null && g.view(0).players[0].role === 'impostor');
-    // Una muerte: la ven del todo quien mata, quien muere y los testigos; quien está cerca oye el golpe.
+    // Una muerte: la ven del todo quien mata, quien muere y los testigos; los demás no se enteran.
     const h = shipWith(5, [[18, 4], [19, 4], [21.5, 4], [9, 4], [40, 20]]);
     h.players[0].killCd = 0;
     const kr = h.act({ type: 'kill', p: 0, target: 1 });
@@ -861,7 +871,7 @@ function oneTask(g, p) {
     assert.deepStrictEqual(k.witnesses, [2]);
     assert.strictEqual(I.impostorEventFor(h, k, 2), k, 'el testigo lo ve todo');
     assert.strictEqual(I.impostorEventFor(h, k, 1), k, 'y quien muere');
-    assert.deepStrictEqual(I.impostorEventFor(h, k, 3), { type: 'kill', heard: true, x: k.x, y: k.y }, 'quien está cerca oye el golpe');
+    assert.strictEqual(I.impostorEventFor(h, k, 3), null, 'quien está cerca, tras la pared, no oye nada');
     assert.strictEqual(I.impostorEventFor(h, k, 4), null, 'quien está lejos no se entera');
     assert(h.view(3).players[1].alive, 'para quien no lo ha visto, sigue vivo');
     assert.strictEqual(h.view(2).bodies.length, 1, 'el cuerpo lo ve quien lo tiene delante');
