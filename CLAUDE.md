@@ -9,7 +9,7 @@ Hay seis juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís** 
 ## Tecnología
 
 - HTML + CSS + JavaScript **sin compilación ni dependencias**.
-- Los archivos de `js/` son *scripts clásicos* que comparten el ámbito global, así que **el orden de los `<script>` en `index.html` importa**: rules → brisca → ai → brisca-ai → parchis → parchis-ai → trivial/(geografia, espectaculos, historia, arte, ciencia, deportes) → trivial → trivial-ai → virus → virus-ai → impostor → impostor-ai → speech → audio → space-audio → texts → ui → vendor/peerjs → net → mirror → cards → board → match → pedro → brisca-match → parchis-match → trivial-match → virus-match → impostor-match → games → online → app.
+- Los archivos de `js/` son *scripts clásicos* que comparten el ámbito global, así que **el orden de los `<script>` en `index.html` importa**: rules → brisca → ai → brisca-ai → parchis → parchis-ai → trivial/(geografia, espectaculos, historia, arte, ciencia, deportes) → trivial → trivial-ai → virus → virus-ai → impostor → impostor-ai → speech → audio → space-audio → texts → ui → vendor/peerjs → net → mirror → cards → board → match → pedro → brisca-match → parchis-match → trivial-match → virus-match → impostor-match → news → games → online → app.
 - Única dependencia: PeerJS (MIT), copiada en `js/vendor/peerjs.min.js`. No se carga de ningún CDN.
 - `rules.js`, `ai.js`, `brisca.js`, `brisca-ai.js`, `parchis.js`, `parchis-ai.js`, `trivial.js`, `trivial-ai.js`, `virus.js`, `virus-ai.js`, `impostor.js`, `impostor-ai.js` y las preguntas de `js/trivial/` no tocan la pantalla y también se cargan con Node (`require`), para probarlos sin navegador. `node tests/brisca.test.js` juega cientos de partidas de Brisca y comprueba puntos, bazas y lo que ve cada jugador; `node tests/parchis.test.js` prueba cada regla del Parchís con tableros preparados y juega más de cien partidas; `node tests/trivial.test.js` revisa el banco de preguntas, el tablero y cada regla del Trivial, y juega más de cien partidas; `node tests/virus.test.js` prueba el mazo, cada carta y cada tratamiento con mesas preparadas, y juega más de cien partidas; `node tests/impostor.test.js` prueba la nave, los caminos, andar y chocar, ver y oír, las tareas (también las de dos sitios y el escáner), matar, avisar, el botón, los sabotajes, las puertas, los conductos, las consolas, los fantasmas, la reunión y la votación, el tiempo de la reunión, el oxígeno y las comunicaciones, la barra, las tareas nuevas y la partida en una sala (`remoteMove`, `ImpostorMirror` y lo que sabe cada uno), y juega sesenta partidas sin impostores y ciento veinte con ellos.
 - Sonido: todo se sintetiza con Web Audio en `js/audio.js` (y el sonido 3D de El Impostor, en `js/space-audio.js`). No hay archivos de audio.
@@ -44,6 +44,7 @@ Hay seis juegos: **El Pedro** (memoria), **la Brisca** (bazas), **el Parchís** 
 | `js/trivial-match.js` | `TrivialMatch` y `TrivialArt`: la rueda en SVG, la tarjeta de la pregunta con sus cuatro respuestas, elegir casilla y los quesitos de cada uno |
 | `js/virus-match.js` | `VirusMatch` y `VirusArt`: las cartas en SVG (órganos con cara, virus, medicinas y tratamientos), los cuerpos de cada uno, elegir carta y después dónde va, paso a paso, y descartar |
 | `js/impostor-match.js` | `ImpostorMatch` e `ImpostorArt`: la nave en un canvas que sigue a tu personaje, el bucle en tiempo real, las teclas que se mantienen pulsadas, el joystick y la cruceta, la guía, lo que hay cerca (F), los trece minijuegos de las tareas, los paneles de los sabotajes y las consolas, matar (Q), avisar (R), sabotear (X), los conductos (V), los cuerpos, la reunión con su reloj y sus diálogos, y la partida en una sala (`runClient`) |
+| `js/news.js` | `NEWS`: las novedades de cada juego, de la más nueva a la más antigua, y las de todo el salón (`salon`). `newsFor(id)` las junta por fechas. Se ven en la pestaña Novedades del menú de cada juego |
 | `js/games.js` | `GAMES`: cada juego con su nombre, reglas de la casa, opciones de la partida y el texto de «Cómo se juega» |
 | `js/net.js` | Conexión con PeerJS: `HostNet` (abre la sala `elpedro-NNNNN`) y `ClientNet` |
 | `js/mirror.js` | `MirrorGame`: la mesa tal como la ve un invitado, sin cartas ocultas. `eventFor()` quita a cada jugador las cartas que no puede ver |
@@ -204,13 +205,14 @@ d.online              // la sala (Online): code, table, role
 4. **Azar.** En la lógica de juego usa el `rng` con semilla de `rules.js` (`makeRng`). `Math.random` solo para efectos de sonido.
 5. **No romper partidas guardadas.** Los ajustes nuevos van en `DEFAULT_SETTINGS` (`js/app.js`) y las reglas nuevas en `DEFAULT_RULES` (`js/rules.js`), `BRISCA_DEFAULT_RULES` (`js/brisca.js`), `PARCHIS_DEFAULT_RULES` (`js/parchis.js`) o `TRIVIAL_DEFAULT_RULES` (`js/trivial.js`), `VIRUS_DEFAULT_RULES` (`js/virus.js`) o `IMPOSTOR_DEFAULT_RULES` (`js/impostor.js`); `loadSaved()` rellena lo que falte.
 6. **Textos en español**, tuteando al jugador y escritos para el oído: frases claras, sin símbolos ni abreviaturas.
+7. **Novedades.** Todo cambio que note quien juega añade su entrada en `js/news.js`, arriba de la lista de su juego, con la fecha (`AAAA-MM-DD`) y una frase por cosa nueva, escrita para quien juega. Lo que cambia en todos los juegos va en `salon`. Si ya hay un bloque con esa fecha, la frase va en ese bloque. El menú del juego avisa de que hay cosas nuevas hasta que se abren.
 
 ## Cómo se añade un juego
 
 1. Las reglas, en su archivo (como `brisca.js`): una clase con `act()`, `view(seat)`, sucesos y `secret` para las cartas ocultas, más su mesa de invitado y su `eventFor`. Pruébalas con Node.
 2. Los rivales, en otro archivo (como `brisca-ai.js`), usando los personajes de `CHARACTERS`.
 3. La mesa, una clase que extiende `Match` (como `brisca-match.js`): `buildCenter`, `render`, `present` para cada suceso, `humanStep`, `botStep`, `actionsDef` y las teclas.
-4. Su entrada en `GAMES` (`games.js`), con su dibujo para el salón (`fan`, unas cartas, o `art`, un SVG propio como el del Parchís), sus reglas en `DEFAULT_SETTINGS` y sus estadísticas, y los `<script>` en `index.html`, en su sitio del orden.
+4. Su primera novedad en `NEWS` (`news.js`). Su entrada en `GAMES` (`games.js`), con su dibujo para el salón (`fan`, unas cartas, o `art`, un SVG propio como el del Parchís), sus reglas en `DEFAULT_SETTINGS` y sus estadísticas, y los `<script>` en `index.html`, en su sitio del orden.
 
 ## Forma de trabajar con Git
 
