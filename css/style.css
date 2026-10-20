@@ -471,6 +471,7 @@ body[data-players="4"] #table[data-game="trivial"] { grid-template-areas: "left 
 @keyframes tmark { 50% { stroke-width: .3; } }
 #t-die rect { fill: #fffef8; stroke: #3a2c1a; stroke-width: .08; }
 #t-die .pips circle { fill: #1c1408; }
+#t-die .die-wedge { fill: #f2c12e; stroke: #8a6a00; stroke-width: .07; }
 
 /* La leyenda de colores, debajo de la rueda */
 .tlegend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 10px; font-size: .8rem; font-weight: 700; color: var(--muted); }
@@ -487,6 +488,11 @@ body[data-players="4"] #table[data-game="trivial"] { grid-template-areas: "left 
 .tq-ico { font-size: 1.2rem; }
 .tq-kind { margin-left: auto; font-size: .8rem; background: rgba(255, 255, 255, .85); color: #2a1d00; border-radius: 999px; padding: 1px 9px; }
 .tq-kind:empty { display: none; }
+.tq-time { margin-left: auto; font-size: .9rem; font-variant-numeric: tabular-nums; background: rgba(0, 0, 0, .25); color: #fff; border-radius: 999px; padding: 1px 9px; }
+.tq-kind:not(:empty) + .tq-time { margin-left: 0; }
+.tq-time[hidden] { display: none; }
+.tq-time.low { background: #c8323c; animation: tqlow 1s ease-in-out infinite; }
+@keyframes tqlow { 50% { transform: scale(1.12); } }
 .tq-text { font-family: var(--serif); font-size: 1.22rem; line-height: 1.3; margin: 0 0 12px; font-weight: 700; }
 .tq-answers { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .tans { display: flex; align-items: center; gap: 8px; text-align: left; min-height: 52px; padding: 8px 10px; border-radius: 12px; background: #f3ecdb; color: #1c1408; border: 2px solid #d9cba8; font-size: 1rem; font-weight: 700; box-shadow: 0 2px 0 #cdbd96; }

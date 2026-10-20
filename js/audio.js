@@ -487,6 +487,8 @@ class AudioEngine {
 
     // ── Interfaz ──────────────────────────────────────
     move() { this.#go((k, out, t) => k.tone(out, { t, f: 880, dur: 0.03, peak: 0.04 })); }
+    /** El reloj que se acaba (Trivial): más agudo cuando queda poco. */
+    tick(urgent = false) { this.#go((k, out, t) => k.tone(out, { t, f: urgent ? 1560 : 1180, type: 'square', dur: 0.025, peak: urgent ? 0.07 : 0.05, filter: { type: 'lowpass', f: 3000 } })); }
     select() { this.#go((k, out, t) => { k.tone(out, { t, f: 660, dur: 0.05, peak: 0.06 }); k.tone(out, { t: t + 0.05, f: 990, dur: 0.06, peak: 0.05 }); }); }
     back() { this.#go((k, out, t) => k.tone(out, { t, f: [[0, 600], [0.08, 400]], dur: 0.09, peak: 0.05 })); }
     error() { this.#go((k, out, t) => k.tone(out, { t, f: 180, type: 'square', dur: 0.12, peak: 0.05, filter: { type: 'lowpass', f: 800 } })); }

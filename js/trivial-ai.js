@@ -54,12 +54,18 @@ class TrivialBot {
     chooseAnswer() {
         const g = this.game, q = g.q;
         if (g.answerIdx != null && this.rng.chance(this.knows(q.cat, q.level))) return g.answerIdx;
-        return this.rng.int(4);
+        const left = [0, 1, 2, 3].filter(i => !(q.wrong || []).includes(i));
+        return this.rng.pick(left);
     }
 
-    /** La categoría: para sí misma, la que mejor sabe; para la final de un rival, la que más ha fallado ese rival. */
+    /** La categoría: para sí misma, la que mejor sabe; para la final de un rival, la que más ha fallado ese rival. Con el quesito del dado, el que le falta que mejor sabe. */
     chooseCat() {
         const g = this.game, pk = g.pick;
+        if (pk?.wild) {
+            let best = pk.cats[0], top = -Infinity;
+            for (const c of pk.cats) { const v = this.knows(c, 3) + this.rng.range(0, 0.05); if (v > top) { top = v; best = c; } }
+            return best;
+        }
         if (!pk || pk.for === this.me) {
             if (this.favorite) return this.favorite;
             return this.rng.pick(TRIVIAL_CATS);
