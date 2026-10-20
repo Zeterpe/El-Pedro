@@ -496,7 +496,7 @@ const GAMES = {
             </ul>
             <h2>La guía y lo que hay cerca</h2>
             <p>Con la G eliges adónde ir: una de tus tareas, una sala, una consola o, si hay un sabotaje, el panel que lo arregla. Desde ese momento suena un pitido hacia donde tienes que andar, unos metros por delante de ti, siguiendo los pasillos; cuanto más cerca estás, más deprisa pita. El pitido es más agudo cuando hay que ir hacia delante, más grave hacia detrás y el de siempre a los lados. Al doblar una esquina se dice hacia dónde sigue el camino, y al llegar suena una campanita.</p>
-            <p>Con la F se dice qué hay cerca: dónde estás, las salidas con su dirección y su distancia (y si alguna está cerrada), el sabotaje que haya, tus tareas, los muebles, las consolas, los conductos y quién está contigo.</p>
+            <p>Con la F se dice qué hay cerca: dónde estás, las salidas con su dirección y su distancia (y si alguna está cerrada), el sabotaje que haya, tus tareas, los muebles, las consolas, los conductos y quién está contigo. Si solo quieres lo fundamental, la Z dice a quién ves, hacia dónde y a qué distancia, y si hay algún cuerpo a la vista. Dice lo mismo que se ve en la pantalla: con las luces apagadas, solo quien está muy cerca.</p>
             <h2>Las tareas</h2>
             <p>Cuando estés junto a una tarea tuya, pulsa E para empezarla. Mientras la haces no te mueves; con Escape la dejas y puedes volver luego.</p>
             <ul>
@@ -527,7 +527,7 @@ const GAMES = {
                 <li>W, A, S y D, o las flechas: andar. W va hacia delante, S hacia detrás, A a la izquierda y D a la derecha. Con dos a la vez vas en diagonal.</li>
                 <li>E o Enter: usar lo que tienes al lado: una tarea, el panel de un sabotaje, una consola o el botón de emergencia junto a la mesa del Comedor.</li>
                 <li>R: avisar de un cuerpo. Si eres impostor: Q, matar; X, sabotear; V, entrar en un conducto o salir. Dentro de un conducto, las flechas o los números te llevan a otro.</li>
-                <li>F: qué hay cerca. G: la guía. T o C: tus tareas. M: cómo es la nave. P: los pasos y la nota de cada uno. I: cómo va la partida.</li>
+                <li>F: qué hay cerca. Z: a quién ves y si hay cuerpos. G: la guía. T o C: tus tareas. M: cómo es la nave. P: los pasos y la nota de cada uno. I: cómo va la partida.</li>
                 <li>Con una tarea abierta, juegan los números, Espacio y Enter, y en el filtro, las flechas; Escape la deja. Con la mano en el panel del reactor, Escape la quita.</li>
                 <li>Espacio: repetir lo último. H: las teclas. Escape: pausa.</li>
                 <li>Con lector de pantalla, la mesa recibe las teclas directamente. Si alguna no responde, pasa al modo foco (en NVDA y JAWS, la tecla del lector y Espacio) o, en VoiceOver, apaga la navegación de una tecla pulsando a la vez Control, Opción y Q. También puedes moverte con el tabulador y elegir con Enter.</li>
