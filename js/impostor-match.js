@@ -6,7 +6,8 @@
    cruceta) y todo suena desde su sitio: tus pasos y
    los de los demás, las puertas, el ambiente de cada
    sala, las paredes al rozarlas y tus tareas, que te
-   llaman bajito.
+   llaman bajito. A los demás solo se les oye si se
+   les ve, para que nadie sepa más que nadie.
    · Siempre miras al norte: lo que está a tu derecha
      en la pantalla suena a tu derecha, y lo de arriba,
      delante.
@@ -44,6 +45,7 @@ const IMP_DIRS = ['delante', 'delante a la derecha', 'a la derecha', 'detrás a 
 const IMP_MOVE = { w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
 const IMP_STEP = 1 / 30;      // el paso del tiempo de la partida, en segundos
 const IMP_STRIDE = 1.1;       // metros entre paso y paso
+const IMP_DOOR_HEAR = 10;     // hasta dónde se oyen las puertas, que no dicen dónde está nadie
 const IMP_SIDES = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 /** Los cables: su color y su nota. */
 const IMP_CABLES = [
@@ -254,7 +256,7 @@ class ImpostorMatch extends Match {
         this.saidArea = null;
         this.nearKey = null;
         this.timers = { door: 0.6, beacon: 1.4, slow: 0, sparks: {}, panel: 0, alarm: 0, scan: 0, console: 0, presence: {} };
-        this.ripples = [];              // ondas que se ven donde suena algo que no se ve
+        this.ripples = [];              // ondas donde suena algo: tus choques, las puertas, la guía, un cuerpo
         this.clock = 0;
         this.scene = null;
         this.raf = null;
@@ -995,7 +997,7 @@ class ImpostorMatch extends Match {
         } else if (e.type === 'area') this.areaWait = { id: e.area, from: e.from, t: 0.3 };
     }
 
-    /** Los pasos de cada uno: los tuyos, cerca; los de los demás, desde su sitio, y amortiguados tras una pared. */
+    /** Los pasos de cada uno: los tuyos, cerca; los de los demás, desde su sitio y solo si los ves. */
     footsteps() {
         const g = this.game, me = this.mePl, sc = this.scene;
         for (const pl of g.players) {
@@ -1010,14 +1012,10 @@ class ImpostorMatch extends Match {
             const floor = shipArea(pl.x, pl.y)?.floor || 'metal';
             // Los fantasmas no pisan el suelo: suenan como un soplo.
             if (p === this.me) { sc.here(pl.alive ? ShipSounds.step(STEP_TIMBRES[0], floor, 0.5) : ShipSounds.ghostStep(0.7), 'mine'); continue; }
-            const d = Math.hypot(pl.x - me.x, pl.y - me.y);
-            if (d > g.hearing) continue;
-            const sight = shipSight(me.x, me.y, pl.x, pl.y, g.closed), seen = this.seenNow.has(p);
-            // A oscuras, los pasos de quien no ves suenan todos igual.
-            const tb = g.lightsOff && me.alive && !this.amImpostor && !seen ? DARK_TIMBRE : STEP_TIMBRES[this.timbreOf(p)];
-            // Los de los demás, más fuertes que los tuyos y desde más lejos: tienen que oírse por encima del ambiente.
-            sc.at(pl.x, pl.y, pl.alive ? ShipSounds.step(tb, floor, seen ? 1.6 : 1.45) : ShipSounds.ghostStep(1.6), { wall: !seen && !sight, ref: 2.5, group: 'people' });
-            if (!seen) this.ripple(pl.x, pl.y, 'step');
+            // Solo se oye a quien se ve, como en la pantalla: ni tras una pared ni más lejos (a oscuras, más cerca).
+            if (!this.seenNow.has(p)) continue;
+            // Los de los demás, más fuertes que los tuyos: tienen que oírse por encima del ambiente.
+            sc.at(pl.x, pl.y, pl.alive ? ShipSounds.step(STEP_TIMBRES[this.timbreOf(p)], floor, 1.6) : ShipSounds.ghostStep(1.6), { ref: 2.5, group: 'people' });
         }
     }
 
@@ -1501,16 +1499,9 @@ class ImpostorMatch extends Match {
         for (const id of sc.loops.keys()) if (id.startsWith('body:')) sc.setLoop(id, { level: 0 });
     }
 
-    /** Una muerte: si te matan, si matas tú, si lo ves o si solo lo oyes. */
+    /** Una muerte: si te matan, si matas tú o si lo ves. Si no lo ves, tampoco lo oyes. */
     presentKill(e) {
         const g = this.game, me = this.me, sc = this.scene;
-        if (e.heard) {
-            // En una sala, de lejos solo te llega el golpe, desde donde ha pasado.
-            const pl = this.mePl;
-            sc?.at(e.x, e.y, ShipSounds.kill(), { wall: !shipSight(pl.x, pl.y, e.x, e.y, g.closed) });
-            this.ripple(e.x, e.y, 'bump');
-            return;
-        }
         this.scanning.delete(e.target);
         const victim = this.seats[e.target].name, killer = this.seats[e.p].name;
         if (e.target === me) {
@@ -1535,16 +1526,13 @@ class ImpostorMatch extends Match {
             return;
         }
         const pl = this.mePl, d = Math.hypot(e.x - pl.x, e.y - pl.y);
-        if (e.witnesses.includes(me) || (!pl.alive && d <= g.visionOf(me) && shipSight(pl.x, pl.y, e.x, e.y))) {
+        // Los fantasmas lo ven también a través de las paredes, como ven a los demás.
+        if (e.witnesses.includes(me) || (!pl.alive && d <= g.visionOf(me))) {
             sc?.at(e.x, e.y, ShipSounds.kill());
             this.bodiesSeen.add(e.target);
             const mate = this.isMate(e.p) ? ', tu compañero impostor,' : '';
             this.tell(`¡${cap(killer)}${mate} ha matado ${toWhom(victim)}, ${this.rel(e.x, e.y)}!${pl.alive && !this.amImpostor ? this.hint('witness', `${cap(this.press('R', 'Avisar'))} para avisar a todos.`) : ''}`, { keep: true });
             Board.render(this);
-        } else if (d <= g.hearing) {
-            // Solo se oye el golpe, desde donde pasa (amortiguado si hay pared).
-            sc?.at(e.x, e.y, ShipSounds.kill(), { wall: !shipSight(pl.x, pl.y, e.x, e.y) });
-            this.ripple(e.x, e.y, 'bump');
         }
     }
 
@@ -1559,8 +1547,8 @@ class ImpostorMatch extends Match {
         if (e.kind === 'lights') {
             this.flat(ShipSounds.lightsOff());
             Board.banner('¡Sin luces!', imp ? 'La tripulación casi no ve' : 'Se arreglan en Electricidad');
-            if (imp) t = `${mine ? 'Has apagado' : by + 'apagado'} las luces: la tripulación casi no ve, y tú sí. A oscuras, sus pasos suenan todos igual.`;
-            else t = `¡Se han apagado las luces! Casi no ves, y los pasos de quien no ves suenan todos igual. Se arreglan en el cuadro de Electricidad.${me.alive ? this.hint('lights', `Con ${this.touch ? 'Guía' : 'la G'}, la guía te lleva.`) : ''}`;
+            if (imp) t = `${mine ? 'Has apagado' : by + 'apagado'} las luces: la tripulación casi no ve ni oye a nadie, y tú sí.`;
+            else t = `¡Se han apagado las luces! Casi no ves, y solo oyes a quien tienes muy cerca. Se arreglan en el cuadro de Electricidad.${me.alive ? this.hint('lights', `Con ${this.touch ? 'Guía' : 'la G'}, la guía te lleva.`) : ''}`;
         } else if (e.kind === 'comms') {
             this.flat(ShipSounds.panel('comms'));
             Board.banner('¡Sin comunicaciones!', imp ? 'La tripulación no ve sus tareas' : 'Se arreglan en Comunicaciones');
@@ -1641,7 +1629,7 @@ class ImpostorMatch extends Match {
     presentDoors(e) {
         const g = this.game, me = this.mePl, r = SHIP.byId[e.room], sc = this.scene;
         for (const d of r.doors) {
-            if (Math.hypot(d.x - me.x, d.y - me.y) > g.hearing * 1.6) continue;
+            if (Math.hypot(d.x - me.x, d.y - me.y) > IMP_DOOR_HEAR * 1.6) continue;
             sc?.at(d.x, d.y, ShipSounds.doorSlam(), { wall: !shipSight(me.x, me.y, d.x, d.y) });
             this.ripple(d.x, d.y, 'bump');
         }
@@ -1656,7 +1644,7 @@ class ImpostorMatch extends Match {
     presentDoorsOpen(e) {
         const g = this.game, me = this.mePl, r = SHIP.byId[e.room];
         if (!r) return;
-        for (const d of r.doors) if (Math.hypot(d.x - me.x, d.y - me.y) <= g.hearing) this.scene?.at(d.x, d.y, ShipSounds.doorOpen(), { wall: !shipSight(me.x, me.y, d.x, d.y) });
+        for (const d of r.doors) if (Math.hypot(d.x - me.x, d.y - me.y) <= IMP_DOOR_HEAR) this.scene?.at(d.x, d.y, ShipSounds.doorOpen(), { wall: !shipSight(me.x, me.y, d.x, d.y) });
         if (this.guide) this.guide.replan = 0;
         if (me.alive && (me.area === r.id || r.doors.some(d => d.corridor === me.area))) this.notice(`Se abren las puertas ${ofWhom(r.name)}.`);
         Board.render(this);
@@ -1691,12 +1679,11 @@ class ImpostorMatch extends Match {
             return;
         }
         if (e.kind === 'move') return;
-        // Se oye la tapa del conducto, desde su sitio.
+        // Solo lo oye quien lo ve: la tapa del conducto suena desde su sitio.
         const d = Math.hypot(e.x - me.x, e.y - me.y);
-        if (d <= g.hearing) sc?.at(e.x, e.y, ShipSounds.vent(), { wall: !shipSight(me.x, me.y, e.x, e.y, g.closed) });
-        if (e.heard) return;
         const sees = e.witnesses?.includes(this.me) || (!me.alive && d <= g.visionOf(this.me));
         if (!sees) return;
+        sc?.at(e.x, e.y, ShipSounds.vent());
         if (me.alive && !this.amImpostor) this.ventSaw = { who: e.p, area: e.area };
         const mate = this.isMate(e.p) ? ', tu compañero impostor,' : '';
         this.tell(`¡${this.Nm(e.p)}${mate} ${e.kind === 'in' ? 'se ha metido en' : 'ha salido de'} un conducto, ${this.rel(e.x, e.y)}!${me.alive && !this.amImpostor ? this.hint('ventSaw', 'Solo los impostores van por los conductos. Cuéntalo en la reunión.') : ''}`, { keep: true });
@@ -1711,11 +1698,11 @@ class ImpostorMatch extends Match {
         this.tell(e.visible ? `${this.Nm(e.p)} está pasando por el escáner: es tripulante.` : `${this.Nm(e.p)} se ha puesto en el escáner, pero el escáner no hace nada.`);
     }
 
-    /** Un sonido en el sitio de otro jugador (o donde dice el suceso), si lo tienes a la vista o al oído. */
+    /** Un sonido en el sitio de otro jugador (o donde dice el suceso), solo si lo ves, como en la pantalla. */
     otherSound(p, play, e = null) {
-        const g = this.game, pl = g.players[p], me = this.mePl, x = e?.x ?? pl.x, y = e?.y ?? pl.y, d = Math.hypot(x - me.x, y - me.y);
-        if (d > g.hearing) return;
-        this.scene?.at(x, y, play, { wall: !shipSight(me.x, me.y, x, y, g.closed), group: 'people' });
+        if (!this.seenNow.has(p)) return;
+        const pl = this.game.players[p];
+        this.scene?.at(e?.x ?? pl.x, e?.y ?? pl.y, play, { group: 'people' });
     }
 
     gameOverText(won) {
@@ -2204,15 +2191,10 @@ class ImpostorMatch extends Match {
         if (here.length) parts.push(here.map(t => `${mine} ${this.taskName(t)} está ${this.rel(t.spot.x, t.spot.y)}.`).join(' '));
         else if (pend.length) { const n = this.nearestTask(); parts.push(`${this.amImpostor ? 'Tu tarea de mentira más cercana' : 'Tu tarea más cercana'} es ${this.taskName(n.t)}, ${inPlace(this.areaName(n.t.spot.area))}.`); }
         else parts.push('Ya has hecho todas tus tareas.');
-        const { seen, heard, bodies } = g.perceive(this.me);
+        const { seen, bodies } = g.perceive(this.me);
         for (const p of bodies) { const b = g.bodies.find(x => x.p === p); parts.push(`${p === this.me ? 'Tu cuerpo' : `El cuerpo ${ofWhom(this.seats[p].name)}`} está ${this.rel(b.x, b.y)}.`); }
         if (seen.length) parts.push(`Ves ${impList(seen.map(p => `${toWhom(this.names[p])}${g.players[p].alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}, ${this.rel(g.players[p].x, g.players[p].y)}`))}.`);
-        const steps = new Set(heard.map(p => {
-            const pl = g.players[p];
-            return `${impDir(pl.x - me.x, pl.y - me.y)}${shipSight(me.x, me.y, pl.x, pl.y) ? ', lejos' : ', al otro lado de la pared'}`;
-        }));
-        if (steps.size) parts.push(`Oyes pasos ${impList([...steps])}.`);
-        if (!seen.length && !heard.length) parts.push('No hay nadie cerca.');
+        else parts.push('No ves a nadie cerca.');
         if (this.amImpostor && me.alive) {
             const t = g.killTargets(this.me)[0];
             parts.push(me.killCd > 0 ? `Para matar, faltan ${Math.ceil(me.killCd)} segundos.` : t != null ? `Puedes matar ${toWhom(this.seats[t].name)}.` : 'Ya puedes matar, pero no tienes a nadie a tu alcance.');
@@ -3472,14 +3454,14 @@ class ImpostorMatch extends Match {
             for (const p of G.path) c.lineTo(X(p.x), Y(p.y));
             c.stroke(); c.setLineDash([]);
         }
-        // Las ondas de lo que suena y no se ve (pasos tras la pared, choques, la guía).
+        // Las ondas de lo que suena: tus choques, las puertas, la guía y los cuerpos.
         this.ripples = this.ripples.filter(r => now - r.t0 < 0.9);
         for (const r of this.ripples) {
             const age = (now - r.t0) / 0.9;
             c.strokeStyle = r.kind === 'ping' ? `rgba(69,201,201,${0.9 * (1 - age)})` : r.kind === 'bump' ? `rgba(255,140,120,${0.8 * (1 - age)})`
-                : r.kind === 'body' ? `rgba(240,70,70,${0.9 * (1 - age)})` : `rgba(255,255,255,${0.45 * (1 - age)})`;
+                : `rgba(240,70,70,${0.9 * (1 - age)})`;
             c.lineWidth = 2;
-            c.beginPath(); c.arc(X(r.x), Y(r.y), S * (0.2 + age * (r.kind === 'step' ? 1.2 : 0.8)), 0, Math.PI * 2); c.stroke();
+            c.beginPath(); c.arc(X(r.x), Y(r.y), S * (0.2 + age * 0.8), 0, Math.PI * 2); c.stroke();
         }
         // El botón de emergencia, en el centro de la mesa del comedor.
         const B = SHIP.button;
