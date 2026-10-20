@@ -188,7 +188,8 @@ class TrivialMatch extends Match {
     }
 
     // ── Ayudas ────────────────────────────────────────
-    get side() { return this.game.side(this.me); }
+    get side() { return this.game.side(this.pov); }
+    get watchKeys() { return [['p', 'repetir la pregunta y sus respuestas'], ['m', 'dónde está cada ficha'], ['d', 'el último dado']]; }
     catName(cat) { return TRIVIAL_CAT[cat].name; }
     catShort(cat) { return TRIVIAL_CAT[cat].short; }
     rimOf(s) { return TRIVIAL_RIM[this.game.tokens[s].members[0] % 6]; }
@@ -785,20 +786,20 @@ class TrivialMatch extends Match {
         if (this.visual) return;
         const g = this.game;
         const who = g.teamPlay ? cap(this.sideName(s)) : cap(this.v.name(g.tokens[s].members[0]));
-        this.speech.say(`${who}: ${this.wedgesText(s)}. ${s === this.side ? 'Estás' : 'Está'} ${this.placeText(this.shown.at[s])}.`, { interrupt: true });
+        this.speech.say(`${who}: ${this.wedgesText(s)}. ${s === this.side && !this.watching ? 'Estás' : 'Está'} ${this.placeText(this.shown.at[s])}.`, { interrupt: true });
     }
 
     describeBoard() {
         if (this.visual) return;
-        const g = this.game, me = this.side;
+        const g = this.game, me = this.watching ? -1 : this.side;   // mirando la partida no hay ficha tuya
         const order = g.tokens.map((_, s) => s).sort((a, b) => (a === me ? -1 : b === me ? 1 : a - b));
         const parts = order.map(s => {
             const who = s === me ? (g.teamPlay ? 'Tu equipo' : 'Tú') : cap(this.sideName(s));
             return `${who}, ${s === me ? (g.teamPlay ? 'estáis' : 'estás') : 'está'} ${this.placeText(this.shown.at[s])}, con ${this.wedgesText(s)}.`;
         });
-        const near = this.nearestMissing(me, this.shown.at[me]);
+        const near = me >= 0 && this.nearestMissing(me, this.shown.at[me]);
         if (near && !(this.hasAllShown(me))) parts.push(`El quesito que te falta más cerca es el de ${this.catShort(near.cat)}, a ${near.d}.`);
-        else if (this.hasAllShown(me) && g.rules.hubFinal) parts.push(`Te quedan ${TRIVIAL_DIST[this.shown.at[me]][TRIVIAL_HUB]} casillas hasta el centro.`);
+        else if (me >= 0 && this.hasAllShown(me) && g.rules.hubFinal) parts.push(`Te quedan ${TRIVIAL_DIST[this.shown.at[me]][TRIVIAL_HUB]} casillas hasta el centro.`);
         this.speech.say(parts.join(' '), { interrupt: true });
     }
 
@@ -812,7 +813,7 @@ class TrivialMatch extends Match {
         parts.push(`Para ganar hacen falta ${this.needed()} quesitos${g.rules.hubFinal ? ' y acertar la pregunta final en el centro' : ''}.`);
         parts.push('Quesitos: ' + Txt.list(g.tokens.map((_, s) => `${this.sideName(s)} ${S.wedges[s].length}`)) + '.');
         const t = g.tokens[this.side];
-        if (t.right + t.wrong) parts.push(`${g.teamPlay ? 'Lleváis' : 'Llevas'} ${t.right} ${t.right === 1 ? 'acierto' : 'aciertos'} y ${t.wrong} ${t.wrong === 1 ? 'fallo' : 'fallos'}.`);
+        if (t.right + t.wrong && !this.watching) parts.push(`${g.teamPlay ? 'Lleváis' : 'Llevas'} ${t.right} ${t.right === 1 ? 'acierto' : 'aciertos'} y ${t.wrong} ${t.wrong === 1 ? 'fallo' : 'fallos'}.`);
         this.speech.say(parts.join(' '), { interrupt: true });
     }
 

@@ -365,6 +365,7 @@ const GAMES = {
         rivalsKey: 'impostorRivals',
         roundWord: null,
         maxPlayers: 10,
+        lateJoin: false,                                 // ni se mira desde fuera ni se ocupa el sitio de la máquina a mitad
         rivalWords: ['compañero', 'compañeros'],
         rivalLevelLabel: 'Tus compañeros',
         levelText: { facil: 'despistados', normal: 'normales', dificil: 'listos y rápidos', mezcla: 'de todo un poco' },

@@ -17,9 +17,10 @@
  * mode: 'local' (tú y la máquina), 'host' (has creado una sala: la baraja está en tu navegador)
  * o 'client' (te has unido a una sala: el anfitrión te manda lo que pasa).
  * seats: [{ name, kind: 'me' | 'bot' | 'remote', char }] en el orden de la mesa.
+ * watch: miras la partida de una sala sin jugar (me es -1); pov es el sitio que se dibuja abajo.
  */
 class Match {
-    constructor(app, { seats, me = 0, mode = 'local', online = null, rules, seed = (Date.now() ^ 0x5eed) >>> 0, practice = false }) {
+    constructor(app, { seats, me = 0, mode = 'local', online = null, rules, seed = (Date.now() ^ 0x5eed) >>> 0, practice = false, watch = false, pov = 0 }) {
         this.app = app;
         this.settings = app.settings;
         this.speech = app.speech;
@@ -28,13 +29,15 @@ class Match {
         this.online = online;
         this.seats = seats.map(s => ({ ...s }));
         this.practice = practice;
-        this.me = me;
-        this.names = this.seats.map((s, i) => i === me ? 'tú' : s.name);
-        this.v = new Voice(this.names, me);
+        this.watching = watch;
+        this.me = watch ? -1 : me;
+        this.pov = watch ? Math.max(0, Math.min(pov, seats.length - 1)) : me;   // el sitio de abajo en la mesa
+        this.names = this.seats.map((s, i) => i === this.me ? 'tú' : s.name);
+        this.v = new Voice(this.names, this.me);
         this.seed = seed;
         this.game = mode === 'client' ? this.makeMirror(rules) : this.makeGame(rules, seed);
         this.bots = this.seats.map((s, i) => s.kind === 'bot' && mode !== 'client' ? this.makeBot(i, s.char, makeRng(seed + 101 * (i + 1))) : null);
-        this.audio.setPlayers(this.game.n, me);
+        this.audio.setPlayers(this.game.n, this.pov);
         this.inbox = [];                           // anfitrión: lo que mandan los demás jugadores
         this._wake = null;
         this.seq = 0;                              // número del último paquete enviado o recibido
@@ -74,6 +77,8 @@ class Match {
     async present() { }
     async humanStep() { }
     async botStep() { }
+    /** Las teclas del juego que valen mirando la partida: [[tecla, qué dice]]. */
+    get watchKeys() { return []; }
     /** Botones de la mesa: [{ kind, label, key, cls }]. Cada tecla tiene su botón. */
     actionsDef() { return []; }
     resultText() { return this.speech.last; }
@@ -179,6 +184,17 @@ class Match {
     }
 
     async intro() {
+        if (this.watching) {
+            const who = Txt.list(this.seats.map(s => s.kind === 'bot' ? `${s.name}, de la máquina` : s.name));
+            Board.status(`Miras la partida: ${Txt.list(this.seats.map(s => s.name))}`);
+            await this.say(`Miras la partida de ${this.title}. Juegan ${who}. Ves y oyes lo que se ve en la mesa, nada de lo que está oculto. Con la I, cómo va la partida.${this.rejoin ? ' Si quien ha creado la sala te da el sitio de un rival de la máquina, seguirás jugando por él.' : ''}`, { keep: true });
+            return;
+        }
+        if (this.took) {
+            Board.status(`Juegas en el sitio de ${this.took}`);
+            await this.say(`Te sientas en el sitio de ${this.took} en la partida de ${this.title}, desde donde iba. ${this.introText()}`, { keep: true });
+            return;
+        }
         if (this.rejoin) {
             Board.status('Has vuelto a la partida');
             await this.say(`Has vuelto a tu sitio en la partida de ${this.title}. Mientras no estabas, jugaba la máquina por ti.`, { keep: true });
@@ -333,6 +349,7 @@ class Match {
 
     /** Un botón de la mesa. */
     button(kind) {
+        if (this.watching && !['info', 'repeat', 'menu'].includes(kind)) { this.notice('Estás mirando la partida.'); return; }
         if (kind === 'info') return this.info();
         if (kind === 'cards') return this.myCards();
         if (kind === 'repeat') return this.repeat();
@@ -414,6 +431,55 @@ class Match {
         await this.say(`${cap(s.name)} se ha ido de la mesa. Juega la máquina por esa persona hasta que vuelva.`);
     }
 
+    /** Los sitios de la máquina que puede ocupar alguien que mira (no los guardados para quien se ha cortado). */
+    freeSeats() {
+        if (this.mode !== 'host' || !this.online?.lateJoin) return [];
+        const kept = new Set(this.online.table.filter(e => e.away && e.cid).map(e => e.cid));
+        return this.seats.map((s, p) => p).filter(p => this.seats[p].kind === 'bot' && !(this.seats[p].left && kept.has(this.seats[p].cid)));
+    }
+
+    /** Cambia el nombre de un sitio en la mesa (y en la voz). */
+    renameSeat(p, name) {
+        this.seats[p].name = name;
+        this.seats[p].kind = p === this.me ? 'me' : 'remote';
+        this.names[p] = p === this.me ? 'tú' : name;
+        Board.rename(this, p);
+    }
+
+    /** Alguien que miraba ocupa el sitio p, que llevaba la máquina, y sigue desde donde iba. */
+    async seatTaken(p, entry) {
+        const s = this.seats[p], was = s.name;
+        s.conn = entry.conn; s.cid = entry.cid; s.left = false;
+        this.renameSeat(p, entry.name);
+        this.bots[p] = null;
+        this.online?.broadcastAll({ t: 'seat', p, name: entry.name }, entry.conn);
+        Board.bubble(p, 'Se sienta');
+        this.wake();
+        await this.say(`${cap(entry.name)} se sienta en el sitio de ${was} y sigue su partida.`);
+    }
+
+    /** Anfitrión, desde la pausa: dar a quien mira el sitio de un rival de la máquina. */
+    async offerSeat() {
+        const ws = this.online.watchers().filter(w => w.conn && w.viewing);
+        if (!ws.length) return;
+        let w = ws[0];
+        if (ws.length > 1) {
+            const r = await Dialog.open({ title: '¿A quién le das un sitio?', items: [...ws.map((x, i) => ({ label: x.name, value: i })), { label: 'A nadie', value: -1 }], cancel: -1 });
+            if (r == null || r < 0 || this.stopped) return;
+            w = ws[r];
+        }
+        const free = this.freeSeats();
+        if (!free.length) return;
+        const r = await Dialog.open({
+            title: `¿Qué sitio le das a ${w.name}?`,
+            text: 'Seguirá la partida desde donde iba la máquina.',
+            items: [...free.map(p => ({ label: `El de ${this.seats[p].name}`, value: p })), { label: 'Ninguno: que siga mirando', value: -1 }],
+            cancel: -1,
+        });
+        if (r == null || r < 0 || this.stopped) return;
+        if (!this.online.giveSeat(w, r)) { this.audio.error(); this.notice('Ese sitio ya no está libre.'); }
+    }
+
     /** Vuelve a la mesa quien se había ido: recupera su sitio. */
     async seatBack(p, conn) {
         const s = this.seats[p];
@@ -477,6 +543,14 @@ class Match {
                     await this.say(`${cap(this.names[msg.p])} se ha ido de la mesa. Juega la máquina por esa persona hasta que vuelva.`);
                     break;
                 }
+                case 'seat': {
+                    // Alguien que miraba ocupa el sitio de un rival de la máquina.
+                    if (!this.seats[msg.p] || msg.p === this.me) break;
+                    const was = this.names[msg.p];
+                    this.renameSeat(msg.p, msg.name);
+                    await this.say(`${cap(msg.name)} se sienta en el sitio de ${was} y sigue su partida.`);
+                    break;
+                }
                 case 'back': {
                     if (this.seats[msg.p]) this.seats[msg.p].kind = 'remote';
                     Board.bubble(msg.p, 'Ha vuelto');
@@ -503,6 +577,7 @@ class Match {
 
     clientTask() {
         const g = this.game;
+        if (this.watching) return g.phase === 'roundOver' || g.phase === 'gameOver' ? () => this.clientWait() : null;
         if (this.playPhases.includes(g.phase) && this.actor() === this.me) return () => this.humanStep();
         if (g.phase === 'roundOver' || g.phase === 'gameOver') return () => this.clientWait();
         return null;
@@ -516,7 +591,7 @@ class Match {
         if (over && !this._recorded) {
             this._recorded = true;
             const won = (g.winners || []).includes(this.me);
-            this.app.recordGame(this.kind, won);
+            if (!this.watching) this.app.recordGame(this.kind, won);
             const who = this.gameOverText(won);
             Board.status(who);
             await this.say(who, { keep: true });
@@ -549,7 +624,8 @@ class Match {
             title: 'Pausa', text: this.pauseNote(), speak: true,
             items: [
                 { label: 'Seguir jugando', value: 'go' },
-                ...(this.visual ? [] : [{ label: 'Teclas', value: 'keys' }, { label: 'Cómo va la partida', value: 'info' }]),
+                ...(this.visual ? [] : [...(this.watching ? [] : [{ label: 'Teclas', value: 'keys' }]), { label: 'Cómo va la partida', value: 'info' }]),
+                ...(host && this.online.watchers().some(w => w.conn && w.viewing) && this.freeSeats().length ? [{ label: 'Dar a quien mira el sitio de un rival de la máquina', value: 'seat' }] : []),
                 ...this.pauseItems(),
                 ...(host ? [{ label: 'Volver a la sala para elegir otro juego', value: 'lobby' }] : []),
                 { label: host ? 'Cerrar la sala y salir' : this.mode === 'client' ? 'Salir de la sala' : 'Salir al salón', value: 'menu' },
@@ -557,7 +633,8 @@ class Match {
             cancel: 'go',
         });
         this.paused = false;
-        if (r === 'keys') this.keysHelp();
+        if (r === 'seat') this.offerSeat();
+        else if (r === 'keys') this.keysHelp();
         else if (r === 'info') this.info();
         else if (r === 'lobby') this.online.backToLobby();
         else if (r === 'menu') this.app.leaveMatch();
@@ -573,6 +650,23 @@ class Match {
 
     cancelPick() { return false; }
 
+    /** Mirando la partida: cómo va, repetir, la pausa y moverse por la mesa con las flechas. */
+    watchKey(k, e) {
+        if (k === 'Escape') { e.preventDefault(); this.pause(); return true; }
+        if (k === 'i') { e.preventDefault(); this.info(); return true; }
+        if (k === ' ') { e.preventDefault(); this.repeat(); return true; }
+        if (k === 'h') {
+            e.preventDefault();
+            const t = ['Estás mirando la partida.', 'I: cómo va la partida.', ...this.watchKeys.map(([key, what]) => `${key.toUpperCase()}: ${what}.`), 'Flechas: moverte por la mesa. Espacio: repetir lo último. Escape: pausa, para salir.'];
+            this.speech.say(t.join(' ') + this.srKeysTip(), { interrupt: true });
+            return true;
+        }
+        if (this.watchKeys.some(([key]) => key === k)) return this.gameKey(k, e);
+        if (/^Arrow/.test(k)) { e.preventDefault(); Board.moveCursor(k === 'ArrowRight' ? 1 : k === 'ArrowLeft' ? -1 : 0, k === 'ArrowDown' ? 1 : k === 'ArrowUp' ? -1 : 0); return true; }
+        if (k === 'Enter' || /^[a-z0-9]$/.test(k)) { e.preventDefault(); this.notice('Estás mirando la partida: con la H sabes qué teclas valen.'); return true; }
+        return false;
+    }
+
     /** Con lector de pantalla: qué hacer si una tecla no llega al juego. */
     srKeysTip() {
         if (this.speech.mode !== 'sr') return '';
@@ -584,6 +678,7 @@ class Match {
         // Los números valen aunque el teclado los ponga con mayúsculas (como el francés) o desde el teclado numérico.
         const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code || '');
         if (digit && e.key.length === 1) k = digit[1];
+        if (this.watching) return this.watchKey(k, e);
         if (this.gameKey(k, e)) return true;
         if (k === 'Escape') { e.preventDefault(); if (!this.cancelPick()) this.pause(); return true; }
         if (k === 'i') { e.preventDefault(); this.info(); return true; }

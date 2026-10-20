@@ -216,7 +216,8 @@ class ParchisMatch extends Match {
         return v;
     }
     /** El giro del tablero: tu casa abajo a la derecha. */
-    get turnK() { return (4 - ParchisArt.idx[this.colorOf(this.me)]) % 4; }
+    get turnK() { return (4 - ParchisArt.idx[this.colorOf(this.pov)]) % 4; }
+    get watchKeys() { return [['m', 'dónde está cada ficha'], ['d', 'el último dado']]; }
     view(x, y) { return ParchisArt.rot(x, y, this.turnK); }
     /** Lo que suena a la izquierda o a la derecha según dónde está en el tablero. */
     panAt([x]) { return Math.max(-0.9, Math.min(0.9, (x - 11) / 11)); }
@@ -238,7 +239,7 @@ class ParchisMatch extends Match {
         const sq = parchisSquare(this.colorOf(o), pos);
         let t = `en la ${sq}`;
         if (sq === PARCHIS_START[this.colorOf(o)]) t += o === this.me ? ', tu salida' : ', su salida';
-        else if (PARCHIS_START[this.colorOf(this.me)] === sq) t += ', tu salida';
+        else if (!this.watching && PARCHIS_START[this.colorOf(this.me)] === sq) t += ', tu salida';
         else if (PARCHIS_SAFE.has(sq)) t += ', seguro';
         if (far) t += `, a ${PARCHIS_META - pos} de la meta`;
         return t;
@@ -480,7 +481,18 @@ class ParchisMatch extends Match {
                 }).join('');
             }
         }
-        // Tus fichas: un botón por ficha.
+        // Tus fichas: un botón por ficha (mirando la partida, las de abajo se ven como las de los demás).
+        if (this.watching) $('seat-me').dataset.color = this.colorOf(this.pov);
+        else this.renderMine(opts, choosing);
+        this.renderPieces();
+        Board.showAct('roll', !!want?.has('roll'));
+        Board.showAct('play', !!want?.has('play') && this.sel != null && this.settings.confirmPlay);
+        Board.showAct('die', choosing && g.phase === 'move' && this.leftDice().length > 1);
+        Board.showAct('advice', this.practice && !!want);
+    }
+
+    renderMine(opts, choosing) {
+        const me = this.me, S = this.shown;
         const ctrl = this.ctrlOf(me);
         const hand = $('my-hand');
         const pcs = S.pos[ctrl];
@@ -511,11 +523,6 @@ class ParchisMatch extends Match {
             b.classList.toggle('done', pos === PARCHIS_META);
             b.setAttribute('aria-label', this.pieceLabel(ctrl, i, m));
         });
-        this.renderPieces();
-        Board.showAct('roll', !!want?.has('roll'));
-        Board.showAct('play', !!want?.has('play') && this.sel != null && this.settings.confirmPlay);
-        Board.showAct('die', choosing && g.phase === 'move' && this.leftDice().length > 1);
-        Board.showAct('advice', this.practice && !!want);
     }
 
     pieceLabel(o, i, m) {
@@ -700,7 +707,7 @@ class ParchisMatch extends Match {
                 B.render(this);
                 await talk;
                 // ¿Ha quedado alguna ficha rival cerca de las tuyas?
-                if (e.p !== me && g.team(e.p) !== g.team(me) && !this.brief && !this.visual) {
+                if (!this.watching && e.p !== me && g.team(e.p) !== g.team(me) && !this.brief && !this.visual) {
                     const warn = this.threatText(e.o);
                     if (warn) await this.say(warn);
                 } else if (e.p === me && !this.brief && !this.visual && e.to <= PARCHIS_LAST) {
@@ -844,7 +851,7 @@ class ParchisMatch extends Match {
     describeBoard() {
         if (this.visual) return;
         const g = this.game, me = this.me;
-        const order = Array.from({ length: g.n }, (_, k) => (me + k) % g.n);
+        const order = Array.from({ length: g.n }, (_, k) => (this.pov + k) % g.n);
         const parts = order.map(p => `${p === me ? 'Tú' : cap(this.names[p])}, ${PARCHIS_PLURAL[this.colorOf(p)]}: ${this.piecesText(p)}.`);
         this.speech.say(parts.join(' '), { interrupt: true });
     }
@@ -872,7 +879,7 @@ class ParchisMatch extends Match {
         if (g.phase === 'bonus' && S.turn === this.me) parts.push(`Estás contando ${g.bonus}.`);
         parts.push('En la meta: ' + Txt.list(g.players.map((_, p) => `${v.name(p)} ${S.pos[p].filter(q => q === PARCHIS_META).length}`)) + '.');
         parts.push('En casa: ' + Txt.list(g.players.map((_, p) => `${v.name(p)} ${S.pos[p].filter(q => q < 0).length}`)) + '.');
-        if (g.teamPlay) parts.push(`Vas con ${this.names[g.partner(this.me)]}.`);
+        if (g.teamPlay && !this.watching) parts.push(`Vas con ${this.names[g.partner(this.me)]}.`);
         this.speech.say(parts.join(' '), { interrupt: true });
     }
 

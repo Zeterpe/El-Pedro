@@ -26,6 +26,7 @@ class BriscaMatch extends Match {
     }
 
     makeGame(rules, seed) { return new BriscaGame({ players: this.seats.map(s => ({ name: s.name })), rules, seed }); }
+    get watchKeys() { return [['m', 'las cartas de la mesa'], ['u', 'la última baza'], ['t', 'el triunfo y la muestra']]; }
     makeMirror(rules) { return new BriscaMirror({ names: this.seats.map(s => s.name), rules, me: this.me }); }
     makeBot(p, char, rng) { return new BriscaBot(this.game, p, char, rng); }
     eventFor(e, seat) { return briscaEventFor(e, seat); }
@@ -416,6 +417,7 @@ class BriscaMatch extends Match {
 
     sideScoreText() {
         const g = this.game, me = this.me;
+        if (g.teamPlay && this.watching) return 'Puntos: ' + g.sides().map(side => `${Txt.list(side.map(p => this.names[p]))}, ${side.reduce((s, p) => s + this.pts(p), 0)}`).join('; ') + '.';
         if (g.teamPlay) {
             const mine = g.sides().find(s => s.includes(me)), other = g.sides().find(s => !s.includes(me));
             const sum = side => side.reduce((s, p) => s + this.pts(p), 0);
