@@ -20,6 +20,18 @@
      la culpa a otro.
    · De fantasmas, atraviesan las paredes y los
      tripulantes acaban sus tareas.
+   · Con papeles especiales: el ángel protege a quien
+     tiene cerca, el cambiaformas se transforma en otro
+     para cazar y el espectro se vuelve invisible para
+     huir. Si suena la alarma de un ruidoso, algunos van.
+     Como cualquiera, culpan a quien han visto, aunque
+     fuera un cambiaformas transformado.
+   · En el escondite, la tripulación hace tareas y huye
+     del impostor (a veces por un conducto); el impostor
+     espera, sale a cazar y, al final, va a por quien
+     sabe dónde está.
+   · En la práctica de impostor son muñecos: pasean y
+     poco más.
    Solo saben lo que ven y oyen, como cualquiera.
    Usan los personajes de ai.js, que son los mismos
    en todos los juegos.
@@ -82,6 +94,8 @@ class ImpostorBot {
         this.chase = null;
         this.selfReport = null;
         this.said = new Set();     // lo que ya ha dicho en esta reunión
+        this.vanishAt = null;      // espectro: cuándo desaparece
+        this.pings = null;         // escondite: dónde sabe que están todos (al final)
     }
 
     get me_() { return this.game.players[this.me]; }
@@ -91,18 +105,29 @@ class ImpostorBot {
     observe(e) {
         const g = this.game;
         if (e.type === 'kill') {
-            if (e.witnesses?.includes(this.me) && !g.isImpostor(this.me)) this.witness = { killer: e.p, victim: e.target, area: e.area };
+            // Culpa a quien ha visto matar: si era un cambiaformas transformado, a aquel en quien se había transformado.
+            if (e.witnesses?.includes(this.me) && !g.isImpostor(this.me)) this.witness = { killer: e.as ?? e.p, victim: e.target, area: e.area };
             if (e.p === this.me) this.afterKill(e);
             if (e.target === this.me) this.reset();
+        } else if (e.type === 'ping' && e.p === this.me) {
+            this.pings = e.at;
+        } else if (e.type === 'alarm') {
+            // La alarma de un ruidoso: algunos van a ver qué ha pasado.
+            const pl = this.me_;
+            if (pl.alive && !this.impostor && !g.rules.dummies && this.rng.chance(0.6) && !this.goal?.kind?.match(/fix|body/)) { this.goal = { x: e.x, y: e.y, kind: 'alarm', reach: 2.5 }; this.path = null; this.wait = 0; }
+        } else if ((e.type === 'shift' || e.type === 'vanish') && e.witnesses?.includes(this.me) && !this.impostor) {
+            // Ha visto a alguien transformarse o desaparecer: es impostor.
+            this.ventSaw = { who: e.p, area: g.players[e.p]?.area };
         } else if (e.type === 'vent') {
             if (e.p === this.me) {
                 if (e.kind === 'out') { this.ventPlan = null; this.goal = null; this.path = null; }
                 else if (e.kind === 'in' && this.ventPlan) this.ventPlan.stage = 'inside';
             }
-            else if (e.kind !== 'move' && e.witnesses?.includes(this.me) && !this.impostor) this.ventSaw = { who: e.p, area: e.area };
-        } else if (e.type === 'taskStart' && e.task === 'escaner' && e.p !== this.me && !this.impostor && g.players[this.me].alive) {
-            // El escáner se ve: quien pasa por él es tripulante. Quien se pone en él y no pasa nada, finge.
-            if (g.perceive(this.me).seen.includes(e.p)) (e.visible ? this.scanned : this.fakeScan).add(e.p);
+            // Un ingeniero tampoco es de fiar si no sabes que lo es; en el escondite, todos van por los conductos.
+            else if (e.kind !== 'move' && e.witnesses?.includes(this.me) && !this.impostor && !g.hideSeek) this.ventSaw = { who: g.shown(e.p), area: e.area };
+        } else if (e.type === 'taskStart' && e.visual && e.p !== this.me && !this.impostor && g.players[this.me].alive) {
+            // Las tareas que se ven: quien las hace es tripulante. Quien se pone y no pasa nada, finge.
+            if (g.perceive(this.me).seen.includes(e.p)) (e.visible ? this.scanned : this.fakeScan).add(g.shown(e.p));
         } else if (e.type === 'doors' || e.type === 'doorsOpen') {
             this.path = null;
         } else if (e.type === 'meeting') {
@@ -141,6 +166,8 @@ class ImpostorBot {
             if (this.impostor && pl.alive && this.hunting && this.pickTarget() != null) return { type: 'cancelTask' };
             // Si va a estallar el reactor o se acaba el oxígeno, se deja la tarea y se va corriendo.
             if (!this.impostor && pl.alive && g.critical) return { type: 'cancelTask' };
+            // En el escondite, si ve venir al impostor, la deja y huye.
+            if (!this.impostor && pl.alive && g.hideSeek && this.per.seen.some(q => g.isImpostor(q))) return { type: 'cancelTask' };
             this.work -= dt;
             if (this.work > 0) return null;
             return this.impostor ? { type: 'cancelTask' } : { type: 'task', i: pl.busy.i };
@@ -149,7 +176,13 @@ class ImpostorBot {
             const s = this.sabThink(dt);
             if (s) return s;
         }
-        if (pl.alive) {
+        const pw = this.powerThink(dt);
+        if (pw) return pw;
+        if (pl.alive && g.hideSeek) {
+            const a = this.impostor ? this.seekThink(dt) : this.hideThink(dt);
+            if (a?.wait) { g.input(me, 0, 0); return null; }
+            if (a) { g.input(me, 0, 0); return a; }
+        } else if (pl.alive) {
             const a = this.impostor ? this.impostorThink(dt) : this.crewThink();
             if (a?.wait) { g.input(me, 0, 0); return null; }
             if (a) { g.input(me, 0, 0); return a; }
@@ -166,7 +199,8 @@ class ImpostorBot {
         this.mine.push({ t: g.time, area: pl.area });
         for (const q of this.per.seen) {
             const o = g.players[q];
-            if (o.alive && this.rng.chance(this.level.recall)) this.log.push({ t: g.time, q, area: o.area, x: o.x, y: o.y });
+            // Se acuerda de quien le parece que es: un cambiaformas transformado pasa por otro.
+            if (o.alive && this.rng.chance(this.level.recall)) this.log.push({ t: g.time, q: this.impostor ? q : g.shown(q), real: q, area: o.area, x: o.x, y: o.y });
         }
         const old = g.time - 90;
         if (this.log.length > 400 || (this.log[0] && this.log[0].t < old)) this.log = this.log.filter(x => x.t >= old);
@@ -177,6 +211,8 @@ class ImpostorBot {
     /** Si ve un cuerpo, va hacia él y avisa. Si hay un sabotaje, va a arreglarlo. */
     crewThink() {
         const g = this.game;
+        // Los muñecos de la práctica no avisan.
+        if (g.rules.dummies) return this.fixThink();
         if (!this.per.bodies.length) {
             this.noticed = null;
             if (this.goal?.kind === 'body') { this.goal = null; this.path = null; }
@@ -271,7 +307,7 @@ class ImpostorBot {
         if (!plan) return null;
         const v = SHIP.vents[plan.vent];
         if (g.time > plan.giveUp) { this.ventPlan = null; return null; }
-        if (g.ventHere(this.me)?.id === v.id) return watchers() === 0 ? { type: 'vent' } : null;
+        if (g.ventHere(this.me)?.id === v.id) return watchers() === 0 && !pl.hidden ? { type: 'vent' } : null;
         if (this.goal?.kind !== 'vent') { this.goal = { x: v.x, y: v.y, kind: 'vent', reach: 0.6 }; this.path = null; this.wait = 0; }
         return null;
     }
@@ -283,7 +319,7 @@ class ImpostorBot {
         if (this.selfReport != null) {
             if (g.time < this.selfReport) { g.input(this.me, 0, 0); this.wait = 0.1; return null; }
             this.selfReport = null;
-            if (g.bodyHere(this.me)) return { type: 'report' };
+            if (g.bodyHere(this.me) && !pl.hidden) return { type: 'report' };
         }
         if (!this.hunting && pl.killCd <= 0) {
             if (this.huntAt == null) this.huntAt = g.time + this.rng.range(...this.level.hunt);
@@ -334,6 +370,14 @@ class ImpostorBot {
     afterKill(e) {
         const g = this.game;
         this.goal = null; this.path = null; this.wait = 0;
+        if (g.hideSeek) return;
+        // El espectro desaparece al momento para huir.
+        if (this.me_.special === 'phantom' && this.me_.powerCd <= 0) {
+            this.vanishAt = g.time + this.rng.range(0.3, 1);
+            const far = SHIP.areas.filter(a => a.kind === 'room' && a.id !== e.area);
+            this.goal = { ...this.roomPoint(this.rng.pick(far)), kind: 'flee' };
+            return;
+        }
         if (this.rng.chance(this.level.selfReport)) { this.selfReport = g.time + this.rng.range(1, 2.5); return; }
         if (g.rules.vents && this.rng.chance(this.level.vent)) {
             const near = SHIP.vents.map(v => ({ v, d: pathLength(e.x, e.y, shipPath(e.x, e.y, v.x, v.y, g.closed)) || 99 })).filter(x => x.d < 9).sort((a, b) => a.d - b.d)[0];
@@ -345,6 +389,76 @@ class ImpostorBot {
         const r = this.rng.pick(rooms.slice(0, 3));
         const p = this.roomPoint(r);
         this.goal = { ...p, kind: 'flee' };
+    }
+
+    // ── Los poderes ───────────────────────────────────
+    /** El ángel protege a quien tiene cerca; el cambiaformas se transforma para cazar; el espectro desaparece para huir. */
+    powerThink(dt) {
+        const g = this.game, pl = this.me_, id = pl.special;
+        if (!id || pl.powerCd > 0 || pl.vent != null || g.hideSeek) return null;
+        if (id === 'angel' && !pl.alive) {
+            const near = g.players.some(q => q.alive && Math.hypot(q.x - pl.x, q.y - pl.y) <= IMPOSTOR_ROLES.angel.range);
+            return near && this.rng.chance(dt * 0.8) ? { type: 'power' } : null;
+        }
+        if (!pl.alive || pl.powerUntil > g.time) return null;
+        if (id === 'shapeshifter' && this.hunting && this.rng.chance(dt * 0.15)) {
+            // Sin que nadie le vea, en alguien que no esté cerca.
+            const watch = this.per.seen.some(q => g.players[q].alive && !g.isImpostor(q));
+            const others = g.living().filter(q => q !== this.me && !this.per.seen.includes(q));
+            if (!watch && others.length) return { type: 'power', as: this.rng.pick(others) };
+        }
+        if (id === 'phantom' && this.vanishAt != null && g.time >= this.vanishAt) { this.vanishAt = null; return { type: 'power' }; }
+        return null;
+    }
+
+    // ── El escondite ──────────────────────────────────
+    /** Tripulante en el escondite: hace sus tareas y, si ve al impostor, huye (a veces por un conducto). */
+    hideThink(dt) {
+        const g = this.game, pl = this.me_;
+        const seeker = this.per.seen.find(q => g.isImpostor(q) && g.players[q].alive);
+        if (pl.vent != null) {
+            // Sale cuando el impostor no está a la vista del conducto, o cuando se le acaba el tiempo (sale solo).
+            const v = SHIP.vents[pl.vent], o = g.players[g.impostors()[0]];
+            const near = o && Math.hypot(o.x - v.x, o.y - v.y) < 7;
+            if (g.time - pl.ventIn > 3 && !near && this.rng.chance(dt * 0.6)) return { type: 'vent' };
+            if (g.time - pl.ventIn > 1.5 && this.rng.chance(dt * 0.5) && v.to.length) return { type: 'ventTo', to: this.rng.pick(v.to) };
+            return { wait: true };
+        }
+        if (seeker == null) { if (this.goal?.kind === 'run' && this.rng.chance(dt * 0.3)) { this.goal = null; this.path = null; } return null; }
+        const o = g.players[seeker];
+        // Junto a un conducto, se mete.
+        if (g.canVent(this.me) && pl.ventCd <= 0 && g.ventHere(this.me) && this.rng.chance(0.7)) return { type: 'vent' };
+        if (pl.busy) return { type: 'cancelTask' };
+        if (this.goal?.kind !== 'run' || this.rng.chance(dt * 0.5)) {
+            // Corre a la sala que quede más lejos del impostor.
+            const rooms = SHIP.areas.filter(a => a.kind === 'room' && a.id !== pl.area)
+                .sort((a, b) => Math.hypot(b.cx - o.x, b.cy - o.y) - Math.hypot(a.cx - o.x, a.cy - o.y));
+            const r = this.rng.pick(rooms.slice(0, 3));
+            this.goal = { ...this.roomPoint(r), kind: 'run' }; this.path = null; this.wait = 0;
+        }
+        return null;
+    }
+
+    /** El impostor del escondite: espera al empezar, persigue a quien ve y, al final, va a por quien sabe dónde está. */
+    seekThink(dt) {
+        const g = this.game, pl = this.me_;
+        if (g.frozen(pl)) return { wait: true };
+        const crew = this.per.seen.filter(q => g.players[q].alive && !g.isImpostor(q));
+        const t = pl.killCd <= 0 ? g.killTargets(this.me)[0] : null;
+        if (t != null) return { type: 'kill', target: t };
+        if (crew.length) {
+            const q = crew.sort((a, b) => Math.hypot(g.players[a].x - pl.x, g.players[a].y - pl.y) - Math.hypot(g.players[b].x - pl.x, g.players[b].y - pl.y))[0];
+            const o = g.players[q];
+            this.chase = q;
+            if (this.goal?.kind !== 'chase' || Math.hypot(this.goal.x - o.x, this.goal.y - o.y) > 0.7) { this.goal = { x: o.x, y: o.y, kind: 'chase', reach: 0.6 }; this.path = null; }
+            return null;
+        }
+        this.chase = null;
+        // Al final sabe dónde está cada uno; antes, va adonde vio a alguien hace poco.
+        const target = this.pings?.length ? this.pings.slice().sort((a, b) => Math.hypot(a.x - pl.x, a.y - pl.y) - Math.hypot(b.x - pl.x, b.y - pl.y))[0]
+            : this.log.findLast(x => x.t > g.time - 8 && g.players[x.real ?? x.q]?.alive && !g.isImpostor(x.real ?? x.q));
+        if (target && this.goal?.kind !== 'stalk') { this.goal = { x: target.x, y: target.y, kind: 'stalk', reach: 1.5 }; this.path = null; }
+        return null;
     }
 
     // ── Andar ─────────────────────────────────────────
@@ -364,9 +478,11 @@ class ImpostorBot {
                 const t = pl.tasks[goal.task];
                 if (!t || t.done || Math.hypot(SHIP.spots[t.spot].x - pl.x, SHIP.spots[t.spot].y - pl.y) > IMPOSTOR_USE) return null;
                 if (t.readyAt != null && g.time < t.readyAt && !this.impostor) return null;
+                if (pl.hidden) return null;
                 this.work = this.impostor ? this.rng.range(2.5, 6) : this.rng.range(...this.level.work);
                 return { type: 'startTask', i: goal.task };
             }
+            if (goal.kind === 'stalk') this.pings = null;
             if (['chase', 'body', 'fix', 'vent'].includes(goal.kind)) return null;
             this.wait = this.rng.range(...this.level.pause);
             return null;
@@ -401,11 +517,12 @@ class ImpostorBot {
         const g = this.game, pl = this.me_;
         // Entre tarea y tarea, a veces se dan una vuelta por otra sala, como cualquiera.
         const stroll = this.rng.chance(0.35);
-        // Los impostores no fingen el escáner: se vería que no pasa nada.
-        const fakes = g.pending(this.me).filter(t => !IMPOSTOR_TASKS[t.type].visible);
+        // Los impostores no fingen las tareas que se ven: se vería que no pasa nada.
+        const fakes = g.pending(this.me).filter(t => !g.visualTask(t.type));
         // Las muestras que se están analizando, después.
         const ready = g.pending(this.me).filter(t => t.readyAt == null || g.time >= t.readyAt);
-        const tasks = pl.role === 'impostor' ? (pl.alive && this.rng.chance(0.5) ? [this.rng.pick(fakes)].filter(Boolean) : []) : stroll && pl.alive ? [] : ready;
+        // Los muñecos de la práctica solo pasean; el impostor del escondite caza.
+        const tasks = g.rules.dummies || (g.hideSeek && pl.role === 'impostor') ? [] : pl.role === 'impostor' ? (pl.alive && this.rng.chance(0.5) ? [this.rng.pick(fakes)].filter(Boolean) : []) : stroll && pl.alive ? [] : ready;
         if (tasks.length) {
             // Los fáciles van a la que les toca en su lista; los demás, a la más cercana.
             const t = this.char.level === 'facil' ? tasks[0] : tasks.slice().sort((a, b) => Math.hypot(a.spot.x - pl.x, a.spot.y - pl.y) - Math.hypot(b.spot.x - pl.x, b.spot.y - pl.y))[0];
@@ -492,6 +609,7 @@ class ImpostorBot {
     /** Lo que dice cuando le toca hablar: una a tres frases. */
     meetingLines(M) {
         const g = this.game, me = this.me, lines = [];
+        if (g.rules.dummies) return [];
         const add = line => { const k = lineKey(line); if (!this.said.has(k)) { this.said.add(k); lines.push(line); } };
         const since = M.start - 25;
         if (!this.impostor) {
@@ -537,7 +655,7 @@ class ImpostorBot {
     /** Lo que contesta cuando alguien dice algo: si le acusan, se defiende; si acusan a alguien con quien estaba, lo defiende. */
     react(speaker, line, M) {
         const g = this.game, me = this.me;
-        if (speaker === me || line.who == null || (this.reacted || 0) >= 2) return [];
+        if (speaker === me || line.who == null || (this.reacted || 0) >= 2 || g.rules.dummies) return [];
         if (!IMPOSTOR_ACCUSE.includes(line.kind)) return [];
         const out = [];
         const add = l => { const k = lineKey(l); if (this.said.has(k)) return false; this.said.add(k); out.push(l); return true; };
@@ -579,6 +697,7 @@ class ImpostorBot {
     vote(M) {
         const g = this.game, me = this.me;
         const alive = g.living().filter(q => q !== me);
+        if (g.rules.dummies) return -1;
         if (this.impostor) return this.impostorVote(M, alive);
         const score = Object.fromEntries(alive.map(q => [q, 0]));
         if (this.witness && score[this.witness.killer] != null) score[this.witness.killer] += 100;
@@ -636,7 +755,7 @@ if (typeof module !== 'undefined') {
     const I = require('./impostor.js');
     Object.assign(globalThis, {
         shipPath: I.shipPath, shipBlocked: I.shipBlocked, shipStandAt: I.shipStandAt, pathLength: I.pathLength, SHIP: I.SHIP,
-        IMPOSTOR_CONSOLE: I.IMPOSTOR_CONSOLE, IMPOSTOR_USE: I.IMPOSTOR_USE, IMPOSTOR_TASKS: I.IMPOSTOR_TASKS,
+        IMPOSTOR_CONSOLE: I.IMPOSTOR_CONSOLE, IMPOSTOR_USE: I.IMPOSTOR_USE, IMPOSTOR_TASKS: I.IMPOSTOR_TASKS, IMPOSTOR_ROLES: I.IMPOSTOR_ROLES,
     });
     module.exports = { ImpostorBot, IMPOSTOR_LEVELS, IMPOSTOR_BLAME };
 }

@@ -52,10 +52,26 @@ const IMPOSTOR_DEFAULT_RULES = {
     voteTime: 60,             // segundos para votar; quien no vota a tiempo, salta el voto
     phrases: 'auto',          // las frases de la reunión: 'auto' (contra la máquina, sí; en una sala, no: habláis en la llamada), true o false
     barUpdates: 'siempre',    // la barra de tareas: 'siempre', 'reuniones' (se pone al día al empezar cada reunión) o 'nunca' (no se ve)
+    mode: 'normal',           // el modo de juego: 'normal' o 'escondite' (el impostor se sabe y caza; la tripulación se esconde hasta que se acaba el tiempo)
+    hideTime: 300,            // en el escondite, segundos que hay que aguantar (cada tarea hecha quita unos pocos)
+    commonTasks: 1,           // de las tareas de cada uno, cuántas son comunes: las mismas, en el mismo sitio, para toda la tripulación
+    longTasks: 1,             // y cuántas son largas: en dos sitios, con espera o de varias rondas; las demás son cortas
+    visualTasks: true,        // tareas que se ven: quien te ve hacer el escáner, vaciar la basura o encender los escudos sabe que eres tripulante
+    roleScientist: 0,         // papeles especiales: cuántos hay de cada uno (0, 1 o 2). Científico: mira las constantes vitales desde cualquier sitio
+    roleEngineer: 0,          // ingeniero: va por los conductos
+    roleNoisemaker: 0,        // ruidoso: al morir, suena una alarma desde su cuerpo
+    roleAngel: 0,             // ángel de la guarda: de fantasma, protege a alguien un rato
+    roleShapeshifter: 0,      // cambiaformas (impostor): se transforma en otro
+    rolePhantom: 0,           // espectro (impostor): se vuelve invisible un rato
+    dummies: false,           // práctica de impostor: los compañeros de la máquina son muñecos que pasean (ni avisan ni hacen tareas)
 };
 
-/** Cuántos impostores hay con n jugadores: ninguno con menos de 4; como mucho 1 hasta 6, 2 hasta 8 y 3 con 9 o 10. */
-function impostorsFor(n, r = 'auto') {
+/**
+ * Cuántos impostores hay con n jugadores: ninguno con menos de 4; como mucho 1 hasta 6, 2 hasta 8 y 3 con 9 o 10.
+ * En el escondite, siempre uno, desde dos jugadores.
+ */
+function impostorsFor(n, r = 'auto', mode = 'normal') {
+    if (mode === 'escondite') return n >= 2 ? 1 : 0;
     if (n < 4) return 0;
     const max = n <= 6 ? 1 : n <= 8 ? 2 : 3;
     const want = r === 'auto' || r == null ? (n >= 7 ? 2 : 1) : r | 0;
@@ -78,11 +94,63 @@ const IMPOSTOR_SAB_COOLDOWN = 30;     // segundos entre sabotaje y sabotaje
 const IMPOSTOR_DOORS_TIME = 10;       // segundos que se quedan cerradas las puertas
 const IMPOSTOR_DOORS_COOLDOWN = 25;   // segundos antes de poder volver a cerrar puertas
 const IMPOSTOR_CAMERA = 6;            // hasta dónde ve cada cámara
+const IMPOSTOR_WATCH = 1.6;           // quien ha mirado las cámaras hace menos de esto, las sigue mirando (la mesa las pide cada segundo)
+/** En el escondite: el impostor espera quieto al empezar; al final, sabe dónde está cada uno; cada tarea quita tiempo. */
+const IMPOSTOR_HIDE = { start: 10, final: 60, task: 8, killCd: 8, ping: 4, danger: 14 };
+/**
+ * Los papeles especiales: de qué lado son, cuánto dura su poder (dur) y cuánto hay que esperar para volver a usarlo (cd).
+ * El científico mira las constantes vitales; el ingeniero va por los conductos (dur: lo que puede estar dentro);
+ * el ruidoso hace sonar una alarma al morir; el ángel, de fantasma, protege a alguien que tenga cerca (range);
+ * el cambiaformas se transforma en otro y el espectro se vuelve invisible.
+ */
+const IMPOSTOR_ROLES = {
+    scientist: { side: 'crew', rule: 'roleScientist', name: 'científico', dur: 10, cd: 15 },
+    engineer: { side: 'crew', rule: 'roleEngineer', name: 'ingeniero', dur: 15, cd: 15 },
+    noisemaker: { side: 'crew', rule: 'roleNoisemaker', name: 'ruidoso' },
+    angel: { side: 'crew', rule: 'roleAngel', name: 'ángel de la guarda', dur: 10, cd: 30, range: 3 },
+    shapeshifter: { side: 'impostor', rule: 'roleShapeshifter', name: 'cambiaformas', dur: 30, cd: 25 },
+    phantom: { side: 'impostor', rule: 'rolePhantom', name: 'espectro', dur: 10, cd: 25 },
+};
+/** Los colores de los tripulantes: cada uno con su nota y sus pasos (en space-audio.js, por su número). */
+const IMPOSTOR_COLORS = [
+    { id: 'rojo', name: 'rojo', hex: '#e05656' },
+    { id: 'azul', name: 'azul', hex: '#4f8fe0' },
+    { id: 'verde', name: 'verde', hex: '#5cc46a' },
+    { id: 'amarillo', name: 'amarillo', hex: '#f2c94c' },
+    { id: 'naranja', name: 'naranja', hex: '#f08a3c' },
+    { id: 'morado', name: 'morado', hex: '#a46fe0' },
+    { id: 'rosa', name: 'rosa', hex: '#f07fbf' },
+    { id: 'cian', name: 'cian', hex: '#45c9c9' },
+    { id: 'blanco', name: 'blanco', hex: '#e8edf5' },
+    { id: 'marron', name: 'marrón', hex: '#a8743f' },
+];
+/** Los gorros (el primero, ninguno). */
+const IMPOSTOR_HATS = ['ninguno', 'una gorra', 'un sombrero de copa', 'una corona', 'un gorro de lana', 'una flor', 'unos cuernos', 'unos auriculares'];
+
+/**
+ * El color y el gorro de cada uno: quien pide un color libre se lo queda (por orden de sitio) y los demás,
+ * el primero que quede. wants: [{ color, hat }] (color: el número en IMPOSTOR_COLORS, o null).
+ */
+function impostorLooks(wants, rng = null) {
+    const used = new Set(), out = wants.map(() => null);
+    wants.forEach((w, i) => {
+        const c = w?.color;
+        if (Number.isInteger(c) && c >= 0 && c < IMPOSTOR_COLORS.length && !used.has(c)) { used.add(c); out[i] = c; }
+    });
+    const free = IMPOSTOR_COLORS.map((_, i) => i).filter(i => !used.has(i));
+    const order = rng ? rng.shuffle(free.slice()) : free;
+    return wants.map((w, i) => {
+        const color = out[i] ?? order.shift() ?? i % IMPOSTOR_COLORS.length;
+        const h = w?.hat;
+        const hat = Number.isInteger(h) && h >= 0 && h < IMPOSTOR_HATS.length ? h : rng ? rng.int(IMPOSTOR_HATS.length) : 0;
+        return { color, hat };
+    });
+}
 /** Los sabotajes que hay; los que se cuentan (el reactor y el oxígeno) dan la partida a los impostores si nadie los arregla. */
 const IMPOSTOR_SABOTAGES = ['lights', 'reactor', 'oxygen', 'comms', 'doors'];
 const IMPOSTOR_CRITICAL = new Set(['reactor', 'oxygen']);
 const IMPOSTOR_ACTIONS = new Set(['startTask', 'cancelTask', 'task', 'kill', 'report', 'button', 'say', 'vote', 'ready',
-    'sabotage', 'fix', 'vent', 'ventTo', 'console']);
+    'sabotage', 'fix', 'vent', 'ventTo', 'console', 'power']);
 /** Lo que se puede decir en una reunión. */
 const IMPOSTOR_LINES = new Set(['where', 'saw', 'kill', 'vent', 'with', 'scan', 'sus', 'agree', 'lie', 'deny', 'nothing', 'skip']);
 
@@ -135,23 +203,24 @@ const SHIP_FURNITURE = [
 
 /**
  * Las tareas: qué son y dónde se hacen. Cada tipo está en uno o varios sitios.
- * visible: quien te ve hacerla sabe que eres tripulante. steps: se hace en dos sitios, uno detrás de otro.
+ * visible: quien te ve hacerla sabe que eres tripulante (con la regla visualTasks). steps: se hace en dos sitios, uno detrás de otro.
  * wait: se hace en dos veces en el mismo sitio, con esos segundos de espera entre una y otra (la mitad, con tareas fáciles).
+ * long: es de las largas. common: puede ser común (la misma, en el mismo sitio, para toda la tripulación).
  */
 const IMPOSTOR_TASKS = {
-    cables: { name: 'Arreglar los cables', short: 'los cables' },
+    cables: { name: 'Arreglar los cables', short: 'los cables', common: true },
     descarga: { name: 'Descargar los datos', short: 'la descarga' },
     motor: { name: 'Calibrar el motor', short: 'el motor' },
-    codigo: { name: 'Teclear el código', short: 'el código' },
+    codigo: { name: 'Teclear el código', short: 'el código', common: true },
     escaner: { name: 'Pasar por el escáner', short: 'el escáner', visible: true },
-    combustible: { name: 'Repostar el motor', short: 'el combustible', steps: ['Llenar la lata de combustible', 'Echar el combustible al motor'] },
-    escudos: { name: 'Encender los escudos', short: 'los escudos' },
-    secuencia: { name: 'Repetir la secuencia', short: 'la secuencia' },
-    rumbo: { name: 'Fijar el rumbo', short: 'el rumbo' },
-    basura: { name: 'Vaciar la basura', short: 'la basura' },
+    combustible: { name: 'Repostar el motor', short: 'el combustible', long: true, steps: ['Llenar la lata de combustible', 'Echar el combustible al motor'] },
+    escudos: { name: 'Encender los escudos', short: 'los escudos', visible: true },
+    secuencia: { name: 'Repetir la secuencia', short: 'la secuencia', long: true },
+    rumbo: { name: 'Fijar el rumbo', short: 'el rumbo', long: true },
+    basura: { name: 'Vaciar la basura', short: 'la basura', visible: true },
     filtro: { name: 'Limpiar el filtro', short: 'el filtro' },
     temperatura: { name: 'Ajustar la temperatura', short: 'la temperatura' },
-    muestras: { name: 'Analizar las muestras', short: 'las muestras', steps: ['Empezar el análisis', 'Recoger los resultados'], wait: 60 },
+    muestras: { name: 'Analizar las muestras', short: 'las muestras', long: true, steps: ['Empezar el análisis', 'Recoger los resultados'], wait: 60 },
 };
 const SHIP_SPOTS = [
     { type: 'cables', area: 'electricidad', x: 3.5, y: 18.5 },
@@ -356,6 +425,19 @@ function shipPath(x0, y0, x1, y1, closed = null) {
     return out;
 }
 
+/** Hacia qué sala va quien anda por un pasillo, mirando hacia (fx, fy); null si no va hacia ninguna. */
+function camHeading(areaId, fx, fy) {
+    const a = SHIP.byId[areaId];
+    if (!a?.links) return null;
+    let best = null, bd = 0.3;
+    for (const id of a.links) {
+        const r = SHIP.byId[id], dx = r.cx - a.cx, dy = r.cy - a.cy, d = Math.hypot(dx, dy) || 1;
+        const dot = (dx * fx + dy * fy) / d;
+        if (dot > bd) { bd = dot; best = id; }
+    }
+    return best;
+}
+
 /** Lo cerca que estás de una mesa (0 si la tocas). */
 function tableDist(t, x, y) {
     const dx = Math.max(t.x - x, 0, x - (t.x + t.w)), dy = Math.max(t.y - y, 0, y - (t.y + t.h));
@@ -380,18 +462,24 @@ function pathLength(x, y, pts) {
 
 class ImpostorGame {
     /**
-     * players: [{ name, role, remote }]; role ('impostor' o 'crew') es lo que prefiere ese jugador, si lo hay;
-     * remote: anda en otro navegador (en una sala) y dice él mismo dónde está.
+     * players: [{ name, role, remote, color, hat }]; role ('impostor' o 'crew') es lo que prefiere ese jugador, si lo hay;
+     * remote: anda en otro navegador (en una sala) y dice él mismo dónde está; color y hat, el que ha elegido (impostorLooks).
      */
     constructor({ players, rules = {}, seed = Date.now() }) {
         this.rules = { ...IMPOSTOR_DEFAULT_RULES, ...rules };
         this.seed = seed >>> 0;
         this.rng = makeRng(this.seed);
+        const looks = impostorLooks(players.map(p => ({ color: p.color, hat: p.hat })), makeRng(this.seed + 31));
         this.players = players.map((p, i) => ({
             name: p.name, index: i, want: p.role || null, x: 0, y: 0, ix: 0, iy: 0, fx: 0, fy: -1,
             area: null, busy: null, tasks: [], bumpT: 0, moved: 0, vent: null,
             role: 'crew', alive: true, knownDead: false, killCd: 0, meetingsLeft: 0,
             remote: !!p.remote, warp: 0, netMoved: 0, stepT: -99,
+            color: looks[i].color, hat: looks[i].hat,
+            // Los papeles especiales: el poder, su espera y hasta cuándo dura; el cambiaformas (shape: en quién se ha
+            // transformado), el espectro (hidden), el escudo del ángel (shieldUntil, shieldBy) y los conductos del ingeniero.
+            special: null, powerCd: 0, powerUntil: 0, shape: null, hidden: false, shieldUntil: 0, shieldBy: null,
+            ventCd: 0, ventIn: 0, camsAt: -99,
         }));
         this.round = 0;
         this.phase = 'idle';
@@ -408,11 +496,14 @@ class ImpostorGame {
         this.doorCd = 0;
         this.closed = new Uint8Array(SHIP_W * SHIP_H);   // las casillas de las puertas cerradas
         this.barShown = { done: 0, total: 0 };              // la barra de tareas tal como la ven todos (según la regla barUpdates)
+        this.hide = null;               // el escondite: { go, until, final, pingT } (cuándo sale el impostor, cuándo se acaba)
         this.winners = null;
         this.result = null;
     }
 
     get n() { return this.players.length; }
+    /** El modo escondite: el impostor se sabe, no hay reuniones y la tripulación aguanta hasta que se acaba el tiempo. */
+    get hideSeek() { return this.rules.mode === 'escondite'; }
     get speed() { return IMPOSTOR_SPEED * this.rules.speed; }
     get vision() { return IMPOSTOR_VISION * this.rules.vision; }
     get killRange() { return IMPOSTOR_KILL_RANGE[this.rules.killRange] || IMPOSTOR_KILL_RANGE.medio; }
@@ -421,7 +512,7 @@ class ImpostorGame {
     /** Hasta dónde ve cada uno: los impostores, un poco más lejos; con las luces apagadas, la tripulación viva casi nada. */
     visionOf(p) {
         const pl = this.players[p];
-        if (this.isImpostor(p)) return this.vision * IMPOSTOR_IMP_VISION;
+        if (this.isImpostor(p)) return this.vision * (this.hideSeek ? 1 : IMPOSTOR_IMP_VISION);
         return this.vision * (this.sab?.kind === 'lights' && pl?.alive ? IMPOSTOR_LIGHTS : 1);
     }
     get lightsOff() { return this.sab?.kind === 'lights'; }
@@ -433,8 +524,38 @@ class ImpostorGame {
     impostors() { return this.players.filter(pl => pl.role === 'impostor').map(pl => pl.index); }
     living() { return this.players.filter(pl => pl.alive).map(pl => pl.index); }
 
-    /** Cuántos impostores hay con estos jugadores: con menos de 4 no hay ninguno. */
-    impostorCount() { return impostorsFor(this.n, this.rules.impostors); }
+    /** Cuántos impostores hay con estos jugadores: con menos de 4 no hay ninguno (en el escondite, uno desde 2). */
+    impostorCount() { return impostorsFor(this.n, this.rules.impostors, this.rules.mode); }
+    /** Cómo se ve a alguien: él mismo o, si es un cambiaformas transformado, aquel en quien se ha transformado. */
+    shown(p) { return this.players[p]?.shape ?? p; }
+    /** ¿Tiene una tarea que se ve (si la regla las deja ver)? */
+    visualTask(type) { return !!this.rules.visualTasks && !!IMPOSTOR_TASKS[type]?.visible; }
+    /** ¿Puede ir por los conductos? Los impostores vivos (no en el escondite), los ingenieros y, en el escondite, la tripulación. */
+    canVent(p) {
+        const pl = this.players[p];
+        if (!pl?.alive || !this.rules.vents || pl.hidden) return false;
+        if (pl.role === 'impostor') return !this.hideSeek;
+        return pl.special === 'engineer' || this.hideSeek;
+    }
+    /** ¿Tiene que ir con cuidado por los conductos? (el ingeniero y la tripulación del escondite: poco rato y con espera) */
+    ventLimited(p) { return this.players[p]?.role !== 'impostor'; }
+    /** En el escondite, el impostor espera quieto al empezar. */
+    frozen(pl) { return !!this.hide && pl.role === 'impostor' && this.time < this.hide.go; }
+    /** ¿Está mirando las cámaras? (la mesa las pide cada segundo mientras miras) */
+    watchingCams(p) {
+        const pl = this.players[p];
+        return !!pl && this.time - pl.camsAt < IMPOSTOR_WATCH && this.consoleHere(p)?.id === 'cams';
+    }
+    /** ¿Hay alguien mirando las cámaras? Se les enciende la luz roja. */
+    get camsOn() { return this.phase === 'ship' && !this.commsDown && this.players.some(pl => this.watchingCams(pl.index)); }
+    /** Lo cerca que está el impostor de un tripulante, de 0 a 1 (en el escondite, el latido; atraviesa las paredes). */
+    dangerOf(p) {
+        const me = this.players[p];
+        if (!this.hide || !me?.alive || me.role === 'impostor') return 0;
+        let best = 0;
+        for (const pl of this.players) if (pl.role === 'impostor' && pl.alive) best = Math.max(best, 1 - Math.hypot(pl.x - me.x, pl.y - me.y) / IMPOSTOR_HIDE.danger);
+        return clampN(best, 0, 1);
+    }
 
     /** La barra de tareas: cuántas hay hechas de todas las de la tripulación (las de los impostores son de mentira). */
     taskBar() {
@@ -470,39 +591,69 @@ class ImpostorGame {
         this.sab = null; this.sabCd = 15;
         this.doorsShut = null; this.doorCd = 15;
         this.closed.fill(0);
-        const types = Object.keys(IMPOSTOR_TASKS);
-        const count = clampN(this.rules.tasks | 0, 1, types.length);
+        const hs = this.hideSeek;
+        this.hide = hs ? { go: IMPOSTOR_HIDE.start, until: Math.max(60, +this.rules.hideTime || 300), final: false, went: false, pingT: 0 } : null;
         // Los impostores: primero quien quiere serlo, luego al azar entre quien no ha pedido ser tripulante.
         const nImp = this.impostorCount();
         const want = this.rng.shuffle(this.players.filter(pl => pl.want === 'impostor').map(pl => pl.index));
         const free = this.rng.shuffle(this.players.filter(pl => !pl.want).map(pl => pl.index));
         const crewOnly = this.rng.shuffle(this.players.filter(pl => pl.want === 'crew').map(pl => pl.index));
         const imps = new Set([...want, ...free, ...crewOnly].slice(0, nImp));
+        const common = this.commonTasks();
         for (const pl of this.players) {
             pl.role = imps.has(pl.index) ? 'impostor' : 'crew';
             pl.alive = true; pl.knownDead = false;
             pl.meetingsLeft = this.rules.meetings | 0;
-            pl.killCd = Math.min(10, this.rules.killCooldown);
-            pl.tasks = this.rng.shuffle(types.slice()).slice(0, count).map(type => {
-                const at = SHIP.spots.filter(s => s.type === type);
-                if (!IMPOSTOR_TASKS[type].steps) return { type, spot: this.rng.pick(at).id, done: false };
-                // Una tarea con espera: dos veces en el mismo sitio.
-                if (IMPOSTOR_TASKS[type].wait) { const s = this.rng.pick(at).id; return { type, spot: s, next: [s], step: 0, done: false }; }
-                // Una tarea en dos sitios: se empieza en uno y se acaba en otro.
-                const [first, ...rest] = IMPOSTOR_TASKS[type].steps.map((_, k) => this.rng.pick(at.filter(s => s.step === k)).id);
-                return { type, spot: first, next: rest, step: 0, done: false };
-            });
+            pl.killCd = hs ? IMPOSTOR_HIDE.start : Math.min(10, this.rules.killCooldown);
+            pl.tasks = this.dealTasks(common);
+            Object.assign(pl, { special: null, powerCd: 10, powerUntil: 0, shape: null, hidden: false, shieldUntil: 0, shieldBy: null, ventCd: 0, ventIn: 0, camsAt: -99 });
+        }
+        // Los papeles especiales (en el escondite no hay): los de la tripulación, entre la tripulación, y los de los impostores, entre ellos.
+        if (!hs && nImp) for (const [id, R] of Object.entries(IMPOSTOR_ROLES)) {
+            const free = this.rng.shuffle(this.players.filter(pl => !pl.special && (pl.role === 'impostor') === (R.side === 'impostor')));
+            for (const pl of free.slice(0, clampN(this.rules[R.rule] | 0, 0, 2))) pl.special = id;
         }
         this.gather();
-        const events = [{ type: 'round', round: this.round, impostors: nImp }];
+        const events = [{ type: 'round', round: this.round, impostors: nImp, mode: this.rules.mode, ...(hs ? { seekers: [...imps], until: this.hide.until, go: this.hide.go } : {}) }];
         for (const pl of this.players) {
             const mates = pl.role === 'impostor' ? [...imps].filter(q => q !== pl.index) : [];
-            events.push({ type: 'role', p: pl.index, role: pl.role, mates, impostors: nImp, secret: true });
+            events.push({ type: 'role', p: pl.index, role: pl.role, special: pl.special, mates, impostors: nImp, secret: true });
         }
         for (const pl of this.players) events.push({ type: 'tasks', p: pl.index, tasks: pl.tasks.map(t => ({ ...t })), fake: pl.role === 'impostor', secret: true });
         this.barShown = { done: 0, total: this.taskBar().total };
         events.push(this.barEvent());
         return { ok: true, events };
+    }
+
+    /** Las tareas comunes de esta partida: las mismas, en el mismo sitio, para todos. */
+    commonTasks() {
+        const pool = this.rng.shuffle(Object.keys(IMPOSTOR_TASKS).filter(t => IMPOSTOR_TASKS[t].common));
+        const n = clampN(this.rules.commonTasks | 0, 0, Math.min(pool.length, this.taskCount()));
+        return pool.slice(0, n).map(type => ({ type, spot: this.rng.pick(SHIP.spots.filter(s => s.type === type)).id, done: false, common: true }));
+    }
+    taskCount() { return clampN(this.rules.tasks | 0, 1, Object.keys(IMPOSTOR_TASKS).length); }
+
+    /** Las tareas de cada uno: las comunes, las largas que digan las reglas y, hasta completar, cortas. */
+    dealTasks(common) {
+        const count = this.taskCount(), types = Object.keys(IMPOSTOR_TASKS), taken = new Set(common.map(t => t.type));
+        const nLong = clampN(this.rules.longTasks | 0, 0, count - common.length);
+        const long = this.rng.shuffle(types.filter(t => IMPOSTOR_TASKS[t].long && !taken.has(t))).slice(0, nLong);
+        for (const t of long) taken.add(t);
+        // Las cortas; si no quedan bastantes, las que sobren.
+        const short = this.rng.shuffle(types.filter(t => !IMPOSTOR_TASKS[t].long && !taken.has(t)));
+        const rest = this.rng.shuffle(types.filter(t => IMPOSTOR_TASKS[t].long && !taken.has(t)));
+        const fill = [...short, ...rest].slice(0, count - common.length - long.length);
+        return [...common.map(t => ({ ...t })), ...[...long, ...fill].map(type => this.makeTask(type))];
+    }
+
+    makeTask(type) {
+        const at = SHIP.spots.filter(s => s.type === type), T = IMPOSTOR_TASKS[type];
+        if (!T.steps) return { type, spot: this.rng.pick(at).id, done: false };
+        // Una tarea con espera: dos veces en el mismo sitio.
+        if (T.wait) { const s = this.rng.pick(at).id; return { type, spot: s, next: [s], step: 0, done: false }; }
+        // Una tarea en dos sitios: se empieza en uno y se acaba en otro.
+        const [first, ...rest] = T.steps.map((_, k) => this.rng.pick(at.filter(s => s.step === k)).id);
+        return { type, spot: first, next: rest, step: 0, done: false };
     }
 
     /** Todos alrededor de la mesa del Comedor: al empezar y después de cada reunión. */
@@ -541,6 +692,19 @@ class ImpostorGame {
         if (!this.doorsShut) this.doorCd = Math.max(0, this.doorCd - dt);
         if (this.sab?.until != null && this.time >= this.sab.until) return this.finish('impostors', this.sab.kind);
         if (this.doorsShut && this.time >= this.doorsShut.until) events.push(this.openDoors());
+        if (this.hide) {
+            const H = this.hide;
+            if (this.time >= H.until) return this.finish('crew', 'time');
+            if (!H.went && this.time >= H.go) { H.went = true; events.push({ type: 'hideGo' }); }
+            if (!H.final && this.time >= H.until - IMPOSTOR_HIDE.final) { H.final = true; H.pingT = 0; events.push({ type: 'finalHide', until: H.until }); }
+            // En el escondite final, el impostor sabe dónde está cada uno, cada pocos segundos.
+            if (H.final && (H.pingT -= dt) <= 0) {
+                H.pingT = IMPOSTOR_HIDE.ping;
+                const at = this.players.filter(q => q.alive && q.role !== 'impostor').map(q => ({ p: q.index, x: q.x, y: q.y, area: q.area }));
+                for (const q of this.impostors()) if (this.players[q].alive) events.push({ type: 'ping', p: q, at, secret: true });
+            }
+        }
+        events.push(...this.powerTick(dt));
         for (const pl of this.players) {
             if (pl.role === 'impostor' && pl.alive) pl.killCd = Math.max(0, pl.killCd - dt);
             // Quien anda en otro navegador ya ha dicho por dónde va (remoteMove).
@@ -550,11 +714,60 @@ class ImpostorGame {
         return events;
     }
 
+    /**
+     * Los poderes con el tiempo: se recargan, se acaban (el cambiaformas vuelve a ser él, el espectro se deja ver,
+     * el científico se queda sin batería), se acaba el escudo del ángel y el ingeniero sale del conducto.
+     */
+    powerTick(dt) {
+        const events = [];
+        for (const pl of this.players) {
+            if (pl.special && !(pl.powerUntil > this.time)) pl.powerCd = Math.max(0, pl.powerCd - dt);
+            if (pl.vent == null) pl.ventCd = Math.max(0, pl.ventCd - dt);
+            if (pl.powerUntil && this.time >= pl.powerUntil) events.push(...this.endPower(pl));
+            if (pl.shieldUntil && this.time >= pl.shieldUntil) {
+                pl.shieldUntil = 0;
+                if (pl.shieldBy != null) events.push({ type: 'shieldOff', p: pl.shieldBy, target: pl.index, secret: true });
+                pl.shieldBy = null;
+            }
+            if (pl.vent != null && this.ventLimited(pl.index) && this.time - pl.ventIn >= IMPOSTOR_ROLES.engineer.dur) {
+                const r = this.ventInOut({ p: pl.index, forced: true }, pl);
+                if (r.ok) events.push(...r.events);
+            }
+        }
+        return events;
+    }
+
+    /** Se acaba el poder de alguien (o lo deja él). */
+    endPower(pl, early = false) {
+        const R = IMPOSTOR_ROLES[pl.special], events = [];
+        pl.powerUntil = 0;
+        if (!R) return events;
+        pl.powerCd = R.cd || 0;
+        if (pl.special === 'shapeshifter' && pl.shape != null) {
+            const as = pl.shape;
+            pl.shape = null;
+            events.push({ type: 'unshift', p: pl.index, as, x: pl.x, y: pl.y, early, witnesses: this.witnesses(pl.x, pl.y, [pl.index]) });
+        } else if (pl.special === 'phantom' && pl.hidden) {
+            pl.hidden = false;
+            events.push({ type: 'appear', p: pl.index, x: pl.x, y: pl.y, early, witnesses: this.witnesses(pl.x, pl.y, [pl.index]) });
+        } else if (pl.special === 'scientist') events.push({ type: 'power', p: pl.index, on: false, secret: true });
+        return events;
+    }
+
+    /** Al empezar una reunión se acaban todos los poderes y los escudos, sin avisar. */
+    clearPowers() {
+        for (const pl of this.players) {
+            if (pl.powerUntil) pl.powerCd = IMPOSTOR_ROLES[pl.special]?.cd || 0;
+            pl.powerUntil = 0; pl.shape = null; pl.hidden = false; pl.shieldUntil = 0; pl.shieldBy = null;
+            pl.ventCd = 0;
+        }
+    }
+
     /** Un jugador anda dt segundos hacia donde quiere ir. Devuelve sus choques y cambios de zona. */
     moveOne(pl, dt) {
         pl.bumpT = Math.max(0, pl.bumpT - dt);
         pl.moved = 0;
-        if (pl.busy || pl.vent != null || (!pl.ix && !pl.iy)) return [];
+        if (pl.busy || pl.vent != null || (!pl.ix && !pl.iy) || this.frozen(pl)) return [];
         const events = [];
         const len = Math.hypot(pl.ix, pl.iy);
         pl.fx = pl.ix / len; pl.fy = pl.iy / len;
@@ -604,6 +817,7 @@ class ImpostorGame {
     remoteMove(p, m, el) {
         const pl = this.players[p];
         if (!pl || !m || this.phase !== 'ship' || pl.busy || pl.vent != null || m.w !== pl.warp) return false;
+        if (this.frozen(pl)) { if (Math.hypot(+m.x - pl.x, +m.y - pl.y) > 0.05) pl.warp++; return false; }
         const x = +m.x, y = +m.y;
         if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
         const d = Math.hypot(x - pl.x, y - pl.y);
@@ -647,9 +861,11 @@ class ImpostorGame {
         const me = this.players[p], seen = [], bodies = [], vis = this.visionOf(p);
         // Los fantasmas ven a través de las paredes lo que tienen cerca.
         const sees = (x, y) => !me.alive || shipSight(me.x, me.y, x, y, this.closed);
+        // Al espectro invisible solo lo ven los impostores y los fantasmas.
+        const seesHidden = !me.alive || me.role === 'impostor';
         for (const pl of this.players) {
             // known: en la mesa de un invitado, si sabe dónde está (si no, su sitio es de hace rato).
-            if (pl === me || (!pl.alive && me.alive) || pl.vent != null || pl.known === false) continue;
+            if (pl === me || (!pl.alive && me.alive) || pl.vent != null || pl.known === false || (pl.hidden && !seesHidden)) continue;
             const d = Math.hypot(pl.x - me.x, pl.y - me.y);
             if (d <= vis && sees(pl.x, pl.y)) seen.push(pl.index);
         }
@@ -677,7 +893,7 @@ class ImpostorGame {
     /** A quién puede matar ahora un impostor: tripulantes vivos a su alcance y a la vista, el más cercano primero. */
     killTargets(p) {
         const me = this.players[p];
-        if (!me || me.role !== 'impostor' || !me.alive || me.vent != null) return [];
+        if (!me || me.role !== 'impostor' || !me.alive || me.vent != null || me.hidden || this.frozen(me)) return [];
         return this.players.filter(pl => pl.alive && pl.role !== 'impostor' && pl.known !== false && pl.vent == null && Math.hypot(pl.x - me.x, pl.y - me.y) <= this.killRange && shipSight(me.x, me.y, pl.x, pl.y, this.closed))
             .sort((a, b) => Math.hypot(a.x - me.x, a.y - me.y) - Math.hypot(b.x - me.x, b.y - me.y)).map(pl => pl.index);
     }
@@ -734,8 +950,11 @@ class ImpostorGame {
         if (a.type === 'sabotage') return this.sabotage(a, pl);
         if (a.type === 'vent') return this.ventInOut(a, pl);
         if (a.type === 'ventTo') return this.ventTo(a, pl);
+        if (a.type === 'power') return this.power(a, pl);
         if (pl.vent != null) return { ok: false, error: 'Estás dentro de un conducto: sal primero.' };
         if (a.type === 'kill') return this.kill(a, pl);
+        if ((a.type === 'report' || a.type === 'button') && this.hideSeek) return { ok: false, error: 'En el escondite no hay reuniones: escóndete y aguanta.' };
+        if (pl.hidden && a.type !== 'cancelTask') return { ok: false, error: 'Mientras eres invisible, solo puedes andar y sabotear.' };
         if (a.type === 'report') return this.report(a, pl);
         if (a.type === 'button') return this.button(a, pl);
         if (a.type === 'fix') return this.fix(a, pl);
@@ -757,9 +976,9 @@ class ImpostorGame {
             if (t.readyAt != null && this.time < t.readyAt) return { ok: false, error: `Las muestras todavía se están analizando: faltan ${Math.ceil(t.readyAt - this.time)} segundos.` };
             pl.busy = { i: a.i, since: this.time };
             pl.ix = pl.iy = 0;
-            // Una tarea que se ve (el escáner): quien te mira sabe que eres tripulante. Un impostor no puede fingirla.
-            const visible = !!IMPOSTOR_TASKS[t.type].visible && pl.role !== 'impostor';
-            return { ok: true, events: [{ type: 'taskStart', p: a.p, i: a.i, task: t.type, step: t.step || 0, fake: pl.role === 'impostor', visible }] };
+            // Una tarea que se ve (el escáner, la basura, los escudos): quien te mira sabe que eres tripulante. Un impostor no puede fingirla.
+            const visible = this.visualTask(t.type) && pl.role !== 'impostor';
+            return { ok: true, events: [{ type: 'taskStart', p: a.p, i: a.i, task: t.type, step: t.step || 0, fake: pl.role === 'impostor', visible, visual: this.visualTask(t.type) }] };
         }
         // 'task': la tarea está hecha.
         if (pl.role === 'impostor') return { ok: false, error: 'Los impostores no hacen tareas: solo lo fingen.' };
@@ -779,7 +998,15 @@ class ImpostorGame {
             return { ok: true, events: [e] };
         }
         t.done = true;
+        // Al científico, cada tarea le recarga la batería.
+        if (pl.special === 'scientist' && !(pl.powerUntil > this.time)) pl.powerCd = 0;
         const events = [{ type: 'taskDone', p: a.p, i: a.i, task: t.type, area: spot.area }];
+        // En el escondite, cada tarea quita tiempo (sin llegar al final de golpe).
+        if (this.hide) {
+            this.hide.until = Math.max(this.time + 5, this.hide.until - IMPOSTOR_HIDE.task);
+            events[0].hideUntil = this.hide.until;
+            return { ok: true, events };
+        }
         // La barra se mueve al momento (si está así en las reglas y funcionan las comunicaciones).
         if (this.rules.barUpdates === 'siempre' && !this.commsDown) events.push(...this.syncBar());
         const bar = this.taskBar();
@@ -790,7 +1017,7 @@ class ImpostorGame {
     // ── Los sabotajes ─────────────────────────────────
     /** Los segundos que faltan para poder hacer un sabotaje (0 si ya se puede), o null si ahora no se puede. */
     sabWait(kind) {
-        if (!this.rules.sabotages || this.phase !== 'ship') return null;
+        if (!this.rules.sabotages || this.phase !== 'ship' || this.hideSeek) return null;
         if (kind === 'doors') return this.doorsShut ? null : this.doorCd;
         if (this.sab) return null;
         return this.sabCd;
@@ -802,7 +1029,7 @@ class ImpostorGame {
      */
     sabotage(a, pl) {
         if (pl.role !== 'impostor') return { ok: false, error: 'Solo los impostores sabotean.' };
-        if (!this.rules.sabotages) return { ok: false, error: 'En esta partida no hay sabotajes.' };
+        if (!this.rules.sabotages || this.hideSeek) return { ok: false, error: 'En esta partida no hay sabotajes.' };
         const kind = a.kind;
         if (!IMPOSTOR_SABOTAGES.includes(kind)) return { ok: false, error: 'Ese sabotaje no existe.' };
         const w = this.sabWait(kind);
@@ -888,9 +1115,11 @@ class ImpostorGame {
     }
 
     // ── Los conductos ─────────────────────────────────
-    /** Entrar en el conducto que tienes al lado, o salir del conducto en el que estás. */
+    /**
+     * Entrar en el conducto que tienes al lado, o salir del conducto en el que estás. Los impostores, cuando quieran;
+     * el ingeniero (y la tripulación del escondite), un rato como mucho y con espera entre vez y vez.
+     */
     ventInOut(a, pl) {
-        if (pl.role !== 'impostor') return { ok: false, error: 'Solo los impostores van por los conductos.' };
         if (!pl.alive) return { ok: false, error: 'Los fantasmas no necesitan conductos.' };
         if (!this.rules.vents) return { ok: false, error: 'En esta partida no se usan los conductos.' };
         if (pl.vent != null) {
@@ -898,17 +1127,42 @@ class ImpostorGame {
             const witnesses = this.witnesses(v.x, v.y, [pl.index]);
             pl.vent = null;
             pl.x = v.x; pl.y = v.y; pl.area = v.area; pl.warp++;
+            if (this.ventLimited(pl.index)) pl.ventCd = IMPOSTOR_ROLES.engineer.cd;
             this.turns++;
-            return { ok: true, events: [{ type: 'vent', p: pl.index, kind: 'out', vent: v.id, x: v.x, y: v.y, area: v.area, witnesses }] };
+            return { ok: true, events: [{ type: 'vent', p: pl.index, kind: 'out', vent: v.id, x: v.x, y: v.y, area: v.area, witnesses, cams: this.camsSee(v.x, v.y), ...(a.forced ? { forced: true } : {}) }] };
         }
+        if (pl.hidden) return { ok: false, error: 'Mientras eres invisible no puedes meterte en un conducto.' };
+        if (!this.canVent(pl.index)) return { ok: false, error: pl.role === 'impostor' ? 'En el escondite, el impostor no va por los conductos.' : 'Solo los impostores van por los conductos.' };
+        if (this.frozen(pl)) return { ok: false, error: 'Todavía no puedes moverte.' };
+        if (pl.ventCd > 0) return { ok: false, error: `Todavía no puedes volver a meterte en un conducto: faltan ${Math.ceil(pl.ventCd)} segundos.` };
         if (pl.busy) return { ok: false, error: 'Ya estás con otra cosa.' };
         const v = this.ventHere(a.p);
         if (!v) return { ok: false, error: 'No hay ningún conducto cerca.' };
         const witnesses = this.witnesses(v.x, v.y, [pl.index]);
-        pl.vent = v.id;
+        pl.vent = v.id; pl.ventIn = this.time;
         pl.x = v.x; pl.y = v.y; pl.area = v.area; pl.ix = pl.iy = 0; pl.warp++;
         this.turns++;
-        return { ok: true, events: [{ type: 'vent', p: pl.index, kind: 'in', vent: v.id, x: v.x, y: v.y, area: v.area, witnesses }] };
+        return { ok: true, events: [{ type: 'vent', p: pl.index, kind: 'in', vent: v.id, x: v.x, y: v.y, area: v.area, witnesses, cams: this.camsSee(v.x, v.y), limit: this.ventLimited(pl.index) ? IMPOSTOR_ROLES.engineer.dur : null }] };
+    }
+
+    /** Las cámaras que ven un punto (sus números en SHIP.cameras). */
+    camsSee(x, y) {
+        if (this.commsDown) return [];
+        return SHIP.cameras.map((c, i) => Math.hypot(x - c.x, y - c.y) <= IMPOSTOR_CAMERA && shipSight(c.x, c.y, x, y, this.closed) ? i : -1).filter(i => i >= 0);
+    }
+
+    /** Lo que se ve ahora en cada cámara, para quien mira: quién (con su sitio, hacia dónde mira y si anda) y los cuerpos. */
+    camFeed() {
+        if (this.commsDown) return null;
+        const out = this.players.filter(q => q.alive && q.vent == null && !q.hidden);
+        return SHIP.cameras.map((cam, i) => {
+            const sees = (x, y) => Math.hypot(x - cam.x, y - cam.y) <= IMPOSTOR_CAMERA && shipSight(cam.x, cam.y, x, y, this.closed);
+            return {
+                i, area: cam.area,
+                people: out.filter(q => sees(q.x, q.y)).map(q => ({ p: q.index, x: q.x, y: q.y, fx: q.fx, fy: q.fy, mv: this.walking(q), busy: !!q.busy, as: q.shape })),
+                bodies: this.bodies.filter(b => sees(b.x, b.y)).map(b => ({ p: b.p, x: b.x, y: b.y })),
+            };
+        });
     }
 
     /** Dentro de un conducto, ir a otro de la misma red (a.to). */
@@ -930,7 +1184,10 @@ class ImpostorGame {
      */
     console(a, pl) {
         const c = SHIP.consoles.find(x => x.id === a.id) || this.consoleHere(a.p);
-        if (!c || this.consoleHere(a.p) !== c) return { ok: false, error: 'No estás junto a esa consola.' };
+        // El científico mira las constantes vitales desde cualquier sitio mientras le dura la batería.
+        const remote = c?.id === 'vitals' && pl.special === 'scientist' && pl.powerUntil > this.time;
+        if (!c || (!remote && this.consoleHere(a.p) !== c)) return { ok: false, error: 'No estás junto a esa consola.' };
+        if (c.id === 'cams') pl.camsAt = this.time;
         let data;
         const out = this.players.filter(q => q.alive && q.vent == null);
         // Sin comunicaciones, el mapa y las cámaras no tienen señal.
@@ -940,11 +1197,13 @@ class ImpostorGame {
             for (const q of out) { const r = SHIP.byId[q.area]; if (r?.kind === 'room') counts[r.id] = (counts[r.id] || 0) + 1; }
             data = { counts };
         } else if (c.id === 'cams') {
+            // De cada uno, cómo se le ve (el cambiaformas, como otro) y hacia qué sala va, si anda.
             data = {
-                cams: SHIP.cameras.map(cam => ({
-                    area: cam.area,
-                    seen: out.filter(q => Math.hypot(q.x - cam.x, q.y - cam.y) <= IMPOSTOR_CAMERA && shipSight(cam.x, cam.y, q.x, q.y, this.closed)).map(q => q.index),
-                    bodies: this.bodies.filter(b => Math.hypot(b.x - cam.x, b.y - cam.y) <= IMPOSTOR_CAMERA && shipSight(cam.x, cam.y, b.x, b.y, this.closed)).map(b => b.p),
+                cams: this.camFeed().map(f => ({
+                    area: f.area,
+                    seen: f.people.map(q => q.as ?? q.p),
+                    going: f.people.map(q => q.mv ? camHeading(f.area, q.fx, q.fy) : null),
+                    bodies: f.bodies.map(b => b.p),
                 })),
             };
         } else {
@@ -956,24 +1215,80 @@ class ImpostorGame {
     kill(a, pl) {
         if (pl.role !== 'impostor') return { ok: false, error: 'Solo los impostores pueden matar.' };
         if (!pl.alive) return { ok: false, error: 'Los fantasmas no pueden matar.' };
+        if (pl.hidden) return { ok: false, error: 'Mientras eres invisible no puedes matar: déjate ver primero.' };
+        if (this.frozen(pl)) return { ok: false, error: 'Todavía no puedes salir a cazar.' };
         if (pl.killCd > 0) return { ok: false, error: `Todavía no puedes matar: faltan ${Math.ceil(pl.killCd)} segundos.` };
         const v = this.players[a.target];
         if (!v || !v.alive) return { ok: false, error: 'Ahí no hay nadie a quien matar.' };
         if (v.role === 'impostor') return { ok: false, error: 'Es de los tuyos: otro impostor.' };
         if (!this.killTargets(a.p).includes(v.index)) return { ok: false, error: 'Está demasiado lejos.' };
+        this.turns++;
+        // Un ángel de la guarda lo protege: no muere, y el impostor tiene que esperar otra vez.
+        if (v.shieldUntil > this.time) {
+            pl.killCd = Math.min(this.rules.killCooldown, 10);
+            return { ok: true, events: [{ type: 'shielded', p: pl.index, target: v.index, angel: v.shieldBy, x: v.x, y: v.y }] };
+        }
         // Quien lo ve: los vivos que tienen a la vista el sitio (antes de que caiga).
         const witnesses = this.witnesses(v.x, v.y, [pl.index, v.index]);
-        v.alive = false; v.busy = null; v.ix = v.iy = 0;
+        v.alive = false; v.busy = null; v.ix = v.iy = 0; v.shape = null;
+        if (v.special === 'angel') v.powerCd = 10;
+        if (v.vent != null) v.vent = null;
         const body = { p: v.index, x: v.x, y: v.y, area: v.area, t: this.time };
         this.bodies.push(body);
         // El impostor se lanza sobre su víctima.
         pl.busy = null;
         pl.x = v.x; pl.y = v.y; pl.area = v.area; pl.warp++;
-        pl.killCd = this.rules.killCooldown;
-        this.turns++;
-        const events = [{ type: 'kill', p: pl.index, target: v.index, x: v.x, y: v.y, area: v.area, witnesses }];
+        pl.killCd = this.hide ? IMPOSTOR_HIDE.killCd : this.rules.killCooldown;
+        const events = [{ type: 'kill', p: pl.index, target: v.index, x: v.x, y: v.y, area: v.area, witnesses, as: pl.shape, cams: this.camsSee(v.x, v.y) }];
+        // El ruidoso: al morir, suena una alarma desde su cuerpo, para todos.
+        if (v.special === 'noisemaker') events.push({ type: 'alarm', p: v.index, x: v.x, y: v.y, area: v.area });
         events.push(...this.checkWin());
         return { ok: true, events };
+    }
+
+    // ── Los poderes de los papeles especiales ─────────
+    /**
+     * B: el poder de cada uno. El científico enciende las constantes vitales (y las apaga); el ángel, de fantasma,
+     * protege a quien tiene más cerca (o a a.target); el cambiaformas se transforma en a.as (o vuelve a ser él) y
+     * el espectro se vuelve invisible (o se deja ver).
+     */
+    power(a, pl) {
+        const id = pl.special, R = IMPOSTOR_ROLES[id];
+        if (!R || !R.cd) return { ok: false, error: id === 'engineer' ? 'Tu poder son los conductos: ve a uno y métete con la V.' : id === 'noisemaker' ? 'Tu poder es la alarma: sonará sola si te matan.' : 'No tienes ningún poder.' };
+        if (pl.vent != null) return { ok: false, error: 'Dentro de un conducto no puedes.' };
+        if (id === 'angel') {
+            if (pl.alive) return { ok: false, error: 'Cuando seas fantasma, podrás proteger a los vivos.' };
+        } else if (!pl.alive) return { ok: false, error: 'Los fantasmas ya no tienen ese poder.' };
+        // Lo que está en marcha se deja antes de tiempo.
+        if (pl.powerUntil > this.time && id !== 'angel') { this.turns++; return { ok: true, events: this.endPower(pl, true) }; }
+        if (pl.powerCd > 0) return { ok: false, error: `Tu poder estará listo dentro de ${Math.ceil(pl.powerCd)} segundos.` };
+        this.turns++;
+        if (id === 'scientist') {
+            pl.powerUntil = this.time + R.dur;
+            return { ok: true, events: [{ type: 'power', p: pl.index, on: true, until: pl.powerUntil, secret: true }] };
+        }
+        if (id === 'angel') {
+            const near = this.players.filter(q => q.alive && Math.hypot(q.x - pl.x, q.y - pl.y) <= R.range)
+                .sort((x, y) => Math.hypot(x.x - pl.x, x.y - pl.y) - Math.hypot(y.x - pl.x, y.y - pl.y));
+            const t = a.target != null ? near.find(q => q.index === a.target) : near[0];
+            if (!t) { this.turns--; return { ok: false, error: 'No tienes a nadie cerca a quien proteger: acércate a alguien vivo.' }; }
+            t.shieldUntil = this.time + R.dur; t.shieldBy = pl.index;
+            pl.powerCd = R.cd;
+            return { ok: true, events: [{ type: 'protect', p: pl.index, target: t.index, until: t.shieldUntil, secret: true }] };
+        }
+        if (id === 'shapeshifter') {
+            const q = this.players[a.as];
+            if (!q || q === pl || !q.alive) { this.turns--; return { ok: false, error: 'Solo puedes transformarte en alguien que está vivo.' }; }
+            const witnesses = this.witnesses(pl.x, pl.y, [pl.index]);
+            pl.shape = q.index; pl.powerUntil = this.time + R.dur;
+            pl.busy = null;
+            return { ok: true, events: [{ type: 'shift', p: pl.index, as: q.index, x: pl.x, y: pl.y, until: pl.powerUntil, witnesses }] };
+        }
+        // El espectro: quien lo ve desaparecer, lo sabe.
+        const witnesses = this.witnesses(pl.x, pl.y, [pl.index]);
+        pl.hidden = true; pl.powerUntil = this.time + R.dur;
+        pl.busy = null;
+        return { ok: true, events: [{ type: 'vanish', p: pl.index, x: pl.x, y: pl.y, until: pl.powerUntil, witnesses }] };
     }
 
     report(a, pl) {
@@ -1012,6 +1327,7 @@ class ImpostorGame {
             stage: talk > 0 ? 'talk' : 'vote', talkUntil: this.time + talk, voteUntil: this.time + talk + this.voteSecs,
         };
         this.bodies = [];
+        this.clearPowers();
         // La reunión acaba con los sabotajes y abre las puertas; después, hay que esperar un poco para el siguiente.
         const sab = this.sab?.kind || null, doors = this.doorsShut?.room || null;
         this.sab = null; this.sabCd = Math.max(this.sabCd, 15);
@@ -1100,6 +1416,7 @@ class ImpostorGame {
         if (ejected != null) {
             const pl = this.players[ejected];
             pl.alive = false; pl.knownDead = true;
+            if (pl.special === 'angel') pl.powerCd = 10;
             const left = this.players.filter(q => q.role === 'impostor' && q.alive).length;
             events.push({ type: 'eject', p: ejected, impostor: this.rules.confirmEjects ? pl.role === 'impostor' : null, left: this.rules.confirmEjects ? left : null });
         }
@@ -1128,6 +1445,8 @@ class ImpostorGame {
         const imp = this.players.filter(pl => pl.alive && pl.role === 'impostor').length;
         const crew = this.players.filter(pl => pl.alive && pl.role !== 'impostor').length;
         if (!imp) return this.finish('crew', 'ejected');
+        // En el escondite, el impostor tiene que cazarlos a todos.
+        if (this.hideSeek) return crew ? [] : this.finish('impostors', 'kills');
         if (imp >= crew) return this.finish('impostors', 'kills');
         return [];
     }
@@ -1148,9 +1467,9 @@ class ImpostorGame {
     knownBy(seat) {
         const me = this.players[seat], out = new Set([seat]);
         if (!me || this.phase !== 'ship') { for (const pl of this.players) out.add(pl.index); return out; }
-        const vis = this.visionOf(seat) + 1;
+        const vis = this.visionOf(seat) + 1, seesHidden = !me.alive || me.role === 'impostor';
         for (const pl of this.players) {
-            if (pl === me || pl.vent != null || (!pl.alive && me.alive)) continue;
+            if (pl === me || pl.vent != null || (!pl.alive && me.alive) || (pl.hidden && !seesHidden)) continue;
             const d = Math.hypot(pl.x - me.x, pl.y - me.y);
             if (d <= vis && (!me.alive || shipSight(me.x, me.y, pl.x, pl.y, this.closed))) out.add(pl.index);
         }
@@ -1166,9 +1485,12 @@ class ImpostorGame {
         const me = this.players[seat], imp = this.isImpostor(seat), ghost = !!me && !me.alive;
         const known = this.knownBy(seat), M = this.meeting;
         const range = Math.max(me ? this.visionOf(seat) : 0, IMPOSTOR_REPORT) + 1;
+        const hs = this.hideSeek, watching = me && this.watchingCams(seat);
         const v = {
             phase: this.phase, round: this.round, time: this.time, winners: this.winners, result: this.result,
-            meetings: this.meetings, buttonAt: this.buttonAt,
+            meetings: this.meetings, buttonAt: this.buttonAt, mode: this.rules.mode,
+            hide: this.hide ? { go: this.hide.go, until: this.hide.until, final: this.hide.final } : null,
+            danger: me ? this.dangerOf(seat) : 0, camsOn: this.camsOn, feed: watching ? this.camFeed() : null,
             bar: this.rules.barUpdates === 'nunca' ? null : { ...this.barShown },
             bodies: me ? this.bodies.filter(b => Math.hypot(b.x - me.x, b.y - me.y) <= range && (ghost || shipSight(me.x, me.y, b.x, b.y, this.closed))).map(b => ({ ...b })) : [],
             sab: this.sab ? { kind: this.sab.kind, until: this.sab.until, t0: this.sab.t0, done: this.sab.done.slice() } : null,
@@ -1182,14 +1504,21 @@ class ImpostorGame {
                 ...(light ? {} : { said: M.said.map(s => ({ ...s, line: { ...s.line } })) }),
             } : null,
             players: this.players.map(pl => {
-                const self = pl.index === seat, k = known.has(pl.index);
+                const self = pl.index === seat, k = known.has(pl.index), mate = imp && pl.role === 'impostor';
                 const e = {
-                    name: pl.name, known: k, fix: pl.busy?.fix || null,
+                    name: pl.name, known: k, fix: pl.busy?.fix || null, color: pl.color, hat: pl.hat,
                     alive: self || ghost ? pl.alive : pl.alive || !pl.knownDead,
-                    role: self || (imp && pl.role === 'impostor') ? pl.role : null,
+                    // En el escondite, todos saben quién es el impostor.
+                    role: self || mate || (hs && pl.role === 'impostor') ? pl.role : null,
                 };
-                if (k) Object.assign(e, { x: pl.x, y: pl.y, fx: pl.fx, fy: pl.fy, area: pl.area, busy: !!pl.busy, mv: this.walking(pl), vent: self || (imp && pl.role === 'impostor') ? pl.vent : null });
-                if (self) Object.assign(e, { busy: pl.busy ? { ...pl.busy } : null, warp: pl.warp, tasks: pl.tasks.map(t => ({ ...t, next: t.next?.slice() })), killCd: pl.killCd, meetingsLeft: pl.meetingsLeft });
+                if (k) Object.assign(e, { x: pl.x, y: pl.y, fx: pl.fx, fy: pl.fy, area: pl.area, busy: !!pl.busy, mv: this.walking(pl), vent: self || mate ? pl.vent : null, as: pl.shape, hidden: self || mate ? pl.hidden : false });
+                // El ángel sabe a quién protege.
+                if (me && pl.shieldBy === seat && pl.shieldUntil > this.time) e.shield = pl.shieldUntil;
+                if (self) Object.assign(e, {
+                    busy: pl.busy ? { ...pl.busy } : null, warp: pl.warp, tasks: pl.tasks.map(t => ({ ...t, next: t.next?.slice() })), killCd: pl.killCd, meetingsLeft: pl.meetingsLeft,
+                    special: pl.special, powerCd: pl.powerCd, powerUntil: pl.powerUntil, ventCd: pl.ventCd, ventIn: pl.ventIn, shape: pl.shape,
+                });
+                if (mate && !self) Object.assign(e, { special: pl.special, shape: pl.shape });
                 return e;
             }),
         };
@@ -1210,15 +1539,23 @@ function impostorEventFor(g, e, seat) {
     if (!me) return e;
     const ghost = !me.alive, imp = g.isImpostor(seat);
     const sees = p => !!g.players[p] && g.knownBy(seat).has(p);
+    // Quien mira las cámaras ve lo que pasa delante de ellas.
+    const onCams = () => !!e.cams?.length && g.watchingCams(seat);
     switch (e.type) {
         case 'kill':
-            return e.p === seat || e.target === seat || imp || ghost || e.witnesses.includes(seat) ? e : null;
+            return e.p === seat || e.target === seat || imp || ghost || e.witnesses.includes(seat) || onCams() ? e : null;
         case 'vent':
+            return e.p === seat || imp || ghost || e.witnesses?.includes(seat) || onCams() ? e : null;
+        // Transformarse, desaparecer y aparecer: quien lo hace, sus compañeros, quien lo ve y los fantasmas.
+        case 'shift': case 'unshift': case 'vanish': case 'appear':
             return e.p === seat || imp || ghost || e.witnesses?.includes(seat) ? e : null;
+        // El escudo del ángel: lo saben el impostor que lo ha intentado y el ángel.
+        case 'shielded':
+            return e.p === seat || e.angel === seat ? e : null;
         // Con su sitio, para que suene desde donde está.
         case 'taskStart':
             if (e.p === seat) return e;
-            return sees(e.p) ? { type: 'taskStart', p: e.p, task: e.task === 'escaner' ? 'escaner' : null, visible: e.visible, x: g.players[e.p].x, y: g.players[e.p].y } : null;
+            return sees(e.p) ? { type: 'taskStart', p: e.p, task: e.visual ? e.task : null, visible: e.visible, ...(e.visual ? { visual: true } : {}), x: g.players[e.p].x, y: g.players[e.p].y } : null;
         case 'taskStop': case 'taskStep': case 'taskDone':
             if (e.p === seat) return e;
             return sees(e.p) ? { type: e.type, p: e.p, x: g.players[e.p].x, y: g.players[e.p].y } : null;
@@ -1243,7 +1580,8 @@ class ImpostorMirror {
         this.players = names.map((name, i) => ({
             name, index: i, x: 0, y: 0, tx: 0, ty: 0, ix: 0, iy: 0, fx: 0, fy: -1, area: null, busy: null, tasks: [],
             bumpT: 0, moved: 0, vent: null, role: i === me ? 'crew' : null, alive: true, knownDead: false, killCd: 0, meetingsLeft: 0,
-            warp: -1, stepT: -99, known: i === me, fix: null,
+            warp: -1, stepT: -99, known: i === me, fix: null, color: i % IMPOSTOR_COLORS.length, hat: 0,
+            special: null, powerCd: 0, powerUntil: 0, shape: null, hidden: false, shieldUntil: 0, ventCd: 0, ventIn: 0, camsAt: -99,
         }));
         this.round = 0;
         this.phase = 'idle';
@@ -1260,6 +1598,10 @@ class ImpostorMirror {
         this.closed = new Uint8Array(SHIP_W * SHIP_H);
         this.barShown = { done: 0, total: 0 };
         this.held = [];
+        this.hide = null;
+        this.danger = 0;
+        this.camsLit = false;
+        this.feed = null;
         this.winners = null;
         this.result = null;
         this.imps = null;
@@ -1269,6 +1611,10 @@ class ImpostorMirror {
     impostors() { return this.imps ? this.imps.slice() : this.players.filter(pl => pl.role === 'impostor').map(pl => pl.index); }
     taskBar() { return { ...this.barShown }; }
     reactorHeld() { return this.held.slice(); }
+    dangerOf() { return this.danger; }
+    get camsOn() { return this.camsLit; }
+    camFeed() { return this.feed; }
+    watchingCams() { return !!this.feed; }
 
     setView(v) {
         const fresh = v.round !== this.round;
@@ -1279,6 +1625,10 @@ class ImpostorMirror {
         this.phase = v.phase; this.round = v.round; this.winners = v.winners; this.result = v.result;
         if (v.rules) this.rules = { ...IMPOSTOR_DEFAULT_RULES, ...v.rules };
         this.meetings = v.meetings; this.buttonAt = v.buttonAt;
+        this.hide = v.hide ? { ...v.hide } : null;
+        this.danger = v.danger || 0;
+        this.camsLit = !!v.camsOn;
+        this.feed = v.feed || null;
         // El reloj del anfitrión: si el tuyo se ha ido lejos, se pone en hora de golpe; si no, poco a poco (tickSelf).
         this.hostTime = v.time;
         if (fresh || Math.abs(v.time - this.time) > 1.5) this.time = v.time;
@@ -1305,6 +1655,9 @@ class ImpostorMirror {
         pl.alive = e.alive && (self || !this.deadSeen.has(pl.index));
         pl.knownDead = !e.alive;
         pl.fix = e.fix;
+        if (e.color != null) { pl.color = e.color; pl.hat = e.hat; }
+        pl.shieldUntil = e.shield || 0;
+        if (e.special !== undefined) pl.special = e.special;
         if (self) {
             pl.known = true;
             pl.tasks = e.tasks.map(t => ({ ...t }));
@@ -1312,6 +1665,8 @@ class ImpostorMirror {
             pl.killCd = e.killCd;
             pl.meetingsLeft = e.meetingsLeft;
             pl.vent = e.vent ?? null;
+            pl.powerCd = e.powerCd; pl.powerUntil = e.powerUntil; pl.ventCd = e.ventCd; pl.ventIn = e.ventIn;
+            pl.shape = e.shape ?? null; pl.hidden = !!e.hidden;
             // Tu sitio lo llevas tú; solo se toma el del anfitrión cuando te lleva a otro.
             if (e.warp > pl.warp) {
                 pl.warp = e.warp;
@@ -1325,6 +1680,7 @@ class ImpostorMirror {
         pl.known = !!e.known;
         if (!pl.known) { pl.moved = 0; return; }
         pl.tx = e.x; pl.ty = e.y; pl.fx = e.fx; pl.fy = e.fy; pl.area = e.area; pl.busy = e.busy; pl.vent = e.vent ?? null;
+        pl.shape = e.as ?? null; pl.hidden = !!e.hidden;
         // Quien aparece, o quien ha saltado lejos (por un conducto, al empezar la reunión), se pone en su sitio de golpe.
         if (!was || Math.hypot(e.x - pl.x, e.y - pl.y) > 3) { pl.x = e.x; pl.y = e.y; }
         if (e.mv) pl.stepT = this.time;
@@ -1351,7 +1707,10 @@ class ImpostorMirror {
             if (e.bar) this.finalBar = { ...e.bar };
         } else if (e.type === 'role' && e.p === this.me) {
             this.players[this.me].role = e.role;
+            this.players[this.me].special = e.special || null;
             for (const q of e.mates || []) this.players[q].role = 'impostor';
+        } else if (e.type === 'round' && e.seekers) {
+            for (const q of e.seekers) this.players[q].role = 'impostor';
         } else if (e.type === 'taskBar') {
             this.barShown = { done: e.done, total: e.total };
         }
@@ -1378,15 +1737,18 @@ class ImpostorMirror {
             if (this.time - pl.stepT < 0.25) pl.moved = Math.hypot(pl.x - x0, pl.y - y0);
         }
         if (me.role === 'impostor' && me.alive) me.killCd = Math.max(0, me.killCd - dt);
+        if (me.special && !(me.powerUntil > this.time)) me.powerCd = Math.max(0, me.powerCd - dt);
+        if (me.vent == null) me.ventCd = Math.max(0, me.ventCd - dt);
         return this.moveOne(me, dt);
     }
 }
 // Lo que se calcula igual en la partida y en la mesa del invitado.
 for (const k of ['visionOf', 'perceive', 'taskHere', 'killTargets', 'bodyHere', 'atButton', 'buttonWait', 'ventHere', 'panelHere',
-    'consoleHere', 'sabWait', 'slideCorner', 'moveOne', 'input', 'walking', 'isImpostor', 'areaOf', 'pending', 'living', 'impostorCount']) {
+    'consoleHere', 'sabWait', 'slideCorner', 'moveOne', 'input', 'walking', 'isImpostor', 'areaOf', 'pending', 'living', 'impostorCount',
+    'shown', 'visualTask', 'canVent', 'ventLimited', 'frozen', 'taskCount']) {
     ImpostorMirror.prototype[k] = ImpostorGame.prototype[k];
 }
-for (const k of ['n', 'speed', 'vision', 'killRange', 'lightsOff', 'commsDown', 'critical', 'voteSecs']) {
+for (const k of ['n', 'speed', 'vision', 'killRange', 'lightsOff', 'commsDown', 'critical', 'voteSecs', 'hideSeek']) {
     Object.defineProperty(ImpostorMirror.prototype, k, Object.getOwnPropertyDescriptor(ImpostorGame.prototype, k));
 }
 
@@ -1398,7 +1760,7 @@ if (typeof module !== 'undefined') {
         IMPOSTOR_DEFAULT_RULES, IMPOSTOR_SPEED, IMPOSTOR_RADIUS, IMPOSTOR_VISION, IMPOSTOR_USE, IMPOSTOR_TASKS,
         IMPOSTOR_REPORT, IMPOSTOR_KILL_RANGE, IMPOSTOR_IMP_VISION, IMPOSTOR_SAY_MAX, impostorsFor,
         IMPOSTOR_VENT_USE, IMPOSTOR_CONSOLE, IMPOSTOR_LIGHTS, IMPOSTOR_SAB_COOLDOWN, IMPOSTOR_DOORS_TIME, IMPOSTOR_DOORS_COOLDOWN, IMPOSTOR_CAMERA,
-        IMPOSTOR_SABOTAGES, IMPOSTOR_CRITICAL,
+        IMPOSTOR_SABOTAGES, IMPOSTOR_CRITICAL, IMPOSTOR_HIDE, IMPOSTOR_ROLES, IMPOSTOR_COLORS, IMPOSTOR_HATS, IMPOSTOR_WATCH, impostorLooks, camHeading,
         SHIP, shipArea, tableDist, shipTile, shipSolid, shipBlocked, shipSight, shipClear, shipPath, shipStandAt, pathLength, toPlace, inPlace,
         ImpostorGame, ImpostorMirror, impostorEventFor,
     };
