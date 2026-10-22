@@ -47,6 +47,8 @@ const DEFAULT_SETTINGS = {
     impostorRole: 'azar',     // El Impostor: el papel que quieres (azar, tripulante o impostor)
     impostorSound: { ...SOUND_DEFAULTS },  // El Impostor: el volumen de cada grupo de sonidos (SOUND_GROUPS)
     impostorPresence: true,   // El Impostor: cada persona que ves suena con su nota
+    impostorColor: null,      // El Impostor: tu color (su número en IMPOSTOR_COLORS), o null, al azar
+    impostorHat: 0,           // El Impostor: tu gorro (su número en IMPOSTOR_HATS; 0, ninguno)
     cardSize: 'normal',       // normal · grande
     contrast: 'normal',       // normal · alto
 };
@@ -321,6 +323,7 @@ const App = {
         $('lobby-shuffle').addEventListener('click', () => Online.shuffleSeats());
         $('lobby-rules').addEventListener('click', () => { this.houseBack = () => Online.showLobby(true); this.openHouse(Online.game); });
         $('lobby-start').addEventListener('click', () => Online.start());
+        $('lobby-look').addEventListener('click', () => Online.pickLook());
         $('lobby-listen').addEventListener('click', () => this.speech.say($('lobby-rules-text').textContent, { interrupt: true }));
         $('lobby-leave').addEventListener('click', () => this.leaveLobby());
         // Con la voz del juego, se oye lo que escribes.
@@ -506,10 +509,18 @@ const App = {
     },
 
     // ── Partida ───────────────────────────────────────
-    startPractice(game = this.gameId) {
+    /** La partida de práctica. Si el juego tiene varias (practiceModes), se pregunta cuál. */
+    async startPractice(game = this.gameId) {
+        const G = GAMES[game];
+        let practice = true;
+        if (G.practiceModes) {
+            const r = await Dialog.open({ title: 'Partida de práctica', text: '¿Qué quieres practicar?', items: [...G.practiceModes, { label: 'Volver', value: 'back' }], cancel: 'back' });
+            if (!r || r === 'back') return;
+            practice = r;
+        }
         const rng = makeRng(Date.now());
-        const rivals = pickRivals(1, 'facil', rng);
-        this.startMatch({ game, rivals, practice: true });
+        const rivals = pickRivals(G.practiceRivals?.(practice) ?? 1, 'facil', rng);
+        this.startMatch({ game, rivals, practice });
     },
 
     startMatch({ game = this.gameId, rivals = null, practice = false }) {
@@ -519,7 +530,7 @@ const App = {
         const rng = makeRng(Date.now());
         rivals = rivals || pickRivals(s[G.rivalsKey], s.difficulty, rng);
         let rules = { ...this.rulesOf(game) };
-        if (practice) rules = G.practice(rules);
+        if (practice) rules = G.practice(rules, practice);
         const seats = [{ name: s.playerName || 'Tú', kind: 'me' }, ...rivals.map(c => ({ name: c.name, kind: 'bot', char: c }))];
         this.runMatch(new G.Match(this, { seats, rules, practice }));
     },

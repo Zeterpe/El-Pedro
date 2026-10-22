@@ -187,21 +187,25 @@ class SpaceAudio {
 // ── Los sonidos de la nave ────────────────────────
 // Cada uno es una función (k, out, t) para SpaceAudio.at o .here.
 
-/** El timbre de los pasos de cada jugador: así se reconoce a cada uno sin verlo. */
+/**
+ * El timbre de los pasos de cada uno: el primero es el tuyo y los demás van por color (IMPOSTOR_COLORS), uno detrás
+ * de otro, así que el marrón suena siempre igual en todos los aparatos.
+ */
 const STEP_TIMBRES = [
     { f: 1500, low: 105, q: 1.2 },   // tú
-    { f: 900, low: 150, q: 2.5 },
-    { f: 2600, low: 85, q: 3 },
-    { f: 1200, low: 210, q: 5 },
-    { f: 3600, low: 120, q: 2 },
-    { f: 650, low: 95, q: 4 },
-    { f: 2000, low: 180, q: 6 },
-    { f: 4500, low: 140, q: 3.5 },
-    { f: 1700, low: 70, q: 8 },
-    { f: 3000, low: 240, q: 1.6 },
+    { f: 900, low: 150, q: 2.5 },    // rojo
+    { f: 2600, low: 85, q: 3 },      // azul
+    { f: 1200, low: 210, q: 5 },     // verde
+    { f: 3600, low: 120, q: 2 },     // amarillo
+    { f: 650, low: 95, q: 4 },       // naranja
+    { f: 2000, low: 180, q: 6 },     // morado
+    { f: 4500, low: 140, q: 3.5 },   // rosa
+    { f: 1700, low: 70, q: 8 },      // cian
+    { f: 3000, low: 240, q: 1.6 },   // blanco
+    { f: 800, low: 60, q: 3 },       // marrón
 ];
-/** La nota de cada uno (como STEP_TIMBRES; la primera, la tuya, no suena): una escala pentatónica, para que no desafinen juntas. */
-const PRESENCE_NOTES = [0, 392, 466, 523, 587, 698, 784, 932, 1047, 1175];
+/** La nota de cada color (IMPOSTOR_COLORS): una escala pentatónica, para que no desafinen juntas. La tuya no suena. */
+const PRESENCE_NOTES = [392, 440, 523, 587, 659, 784, 880, 1047, 1175, 1319];
 
 const ShipSounds = {
     /** Un paso. floor: metal, rejilla o moqueta. vol: 1 normal. */
@@ -461,6 +465,59 @@ const ShipSounds = {
     },
     bubble() { return (k, out, t) => k.tone(out, { t, f: [[0, 300 + Math.random() * 200], [0.08, 700 + Math.random() * 300]], dur: 0.09, peak: 0.05 }); },
     hiss() { return (k, out, t) => k.noise(out, { t, a: 0.1, dur: 0.6, r: 0.4, peak: 0.07, filter: { type: 'highpass', f: 2500 } }); },
+    // Los papeles y el escondite.
+    /** El latido del escondite: más deprisa y más fuerte cuanto más cerca está quien busca (x, de 0 a 1). */
+    heartbeat(x) {
+        return (k, out, t) => {
+            k.tone(out, { t, f: 62, dur: 0.09, peak: 0.12 + 0.25 * x });
+            k.tone(out, { t: t + 0.16, f: 52, dur: 0.09, peak: 0.08 + 0.2 * x });
+        };
+    },
+    /** La alarma del ruidoso: un pitido que sube y baja muy deprisa, desde su cuerpo. */
+    noiseAlarm() {
+        return (k, out, t) => {
+            for (let i = 0; i < 6; i++) k.tone(out, { t: t + i * 0.2, f: i % 2 ? 1760 : 1320, type: 'square', dur: 0.17, peak: 0.08, filter: { type: 'lowpass', f: 3500 } });
+        };
+    },
+    /** El cambiaformas toma otra cara: un barrido que se retuerce. */
+    shift() {
+        return (k, out, t) => {
+            k.tone(out, { t, f: [[0, 200], [0.3, 900], [0.6, 300]], type: 'sawtooth', dur: 0.65, peak: 0.08, filter: { type: 'lowpass', f: 1800 }, vib: { rate: 9, depth: 20 } });
+            k.noise(out, { t, dur: 0.5, peak: 0.08, filter: { type: 'bandpass', f: [[0, 600], [0.5, 2600]], q: 2 } });
+        };
+    },
+    /** El espectro desaparece (un soplo que se va) o aparece (que vuelve). */
+    vanish(on) {
+        return (k, out, t) => {
+            const f = on ? [[0, 1400], [0.5, 300]] : [[0, 300], [0.5, 1400]];
+            k.noise(out, { t, a: 0.05, dur: 0.5, r: 0.2, peak: 0.12, filter: { type: 'bandpass', f, q: 3 } });
+            k.tone(out, { t, f, dur: 0.5, peak: 0.04 });
+        };
+    },
+    /** El escudo del ángel: una campana clara. */
+    shield() {
+        return (k, out, t) => {
+            k.bell(out, { t, f: 1568, partials: [[1, 1, 0.8], [2.01, 0.5, 0.5], [3, 0.2, 0.4]], peak: 0.1 });
+            k.bell(out, { t: t + 0.1, f: 2349, partials: [[1, 1, 0.8]], peak: 0.06 });
+        };
+    },
+    /** El escudo para un cuchillo: un golpe de metal contra cristal. */
+    shieldHit() {
+        return (k, out, t) => {
+            k.noise(out, { t, dur: 0.05, peak: 0.3, filter: { type: 'highpass', f: 3000 } });
+            k.bell(out, { t, f: 1865, partials: [[1, 1, 0.6], [2.7, 0.6, 0.4]], peak: 0.16 });
+        };
+    },
+    /** Escondite: empieza la búsqueda (un gong grave) y la última parte (un gong doble). */
+    gong(twice) {
+        return (k, out, t) => {
+            for (let i = 0; i < (twice ? 2 : 1); i++) k.bell(out, { t: t + i * 0.5, f: 110, partials: [[1, 1, 2.5], [2.4, 0.5, 1.6], [3.9, 0.3, 1]], peak: 0.25 });
+        };
+    },
+    /** Escondite: quien busca nota dónde está alguien, un toque de sonar grave. */
+    seekPing() { return (k, out, t) => { k.tone(out, { t, f: 660, dur: 0.2, peak: 0.12 }); k.tone(out, { t: t + 0.03, f: 330, dur: 0.25, peak: 0.08 }); }; },
+    /** Un poder que vuelve a estar listo. */
+    ready() { return (k, out, t) => { k.tone(out, { t, f: 988, dur: 0.06, peak: 0.08 }); k.tone(out, { t: t + 0.07, f: 1319, dur: 0.08, peak: 0.08 }); }; },
     /** Te han matado: ahora eres un fantasma. */
     ghost() {
         return (k, out, t) => {
@@ -481,6 +538,19 @@ function bodyDrone(c, out) {
     const bg = c.createGain(); bg.gain.value = 0.018; beep.connect(bg); bg.connect(out); nodes.push(beep);
     nodes.forEach(o => o.start());
     return () => nodes.forEach(o => o.stop());
+}
+
+/** Una cámara encendida porque alguien la mira: un zumbido fino con un tic de vez en cuando. */
+function camHum(c, out) {
+    const o = c.createOscillator(); o.frequency.value = 1900;
+    const g = c.createGain(); g.gain.value = 0.012; o.connect(g); g.connect(out);
+    const m = c.createOscillator(); m.type = 'square'; m.frequency.value = 60;
+    const mg = c.createGain(); mg.gain.value = 0.006; m.connect(mg); mg.connect(g.gain);
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 600;
+    const h = c.createOscillator(); h.type = 'sawtooth'; h.frequency.value = 120;
+    const hg = c.createGain(); hg.gain.value = 0.02; h.connect(lp); lp.connect(hg); hg.connect(out);
+    [o, m, h].forEach(n => n.start());
+    return () => [o, m, h].forEach(n => n.stop());
 }
 
 /** Los ambientes continuos de cada sala. Cada uno crea sus nodos y devuelve con qué pararlos. */
