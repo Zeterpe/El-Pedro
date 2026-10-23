@@ -131,6 +131,13 @@ const NEWS = {
 
     impostor: [
         {
+            date: '2026-10-23', items: [
+                'En una sala, antes de cada partida, entráis todos en la sala de espera de la nave: andáis juntos por el Comedor, os oís los pasos y la nota de cada uno, y quien ha creado la sala empieza la partida con la E cuando estéis todos. Al acabar, volvéis a ella.',
+                'En la sala de espera, la C cambia tu color y tu gorro, y los demás lo oyen al momento. Al pasar por cada color suena su nota, que es como te oirán. Un color que ya tiene otra persona no se puede coger; el de un rival de la máquina, sí: te lo cambia por el tuyo.',
+                'Los sonidos de la nave son de cada uno: cada persona los ajusta en su aparato, en la pausa o en la sala, sin cambiárselos a nadie más.',
+            ],
+        },
+        {
             date: '2026-10-22', items: [
                 'Cada uno elige su color y su gorro, al preparar la partida o en la sala de espera. Cada color suena siempre igual, con su nota y sus pasos, en todos los aparatos. La P dice el color de cada uno.',
                 'Papeles especiales, cada uno se pone o se quita en las reglas: el científico mira las constantes vitales desde cualquier sitio, el ingeniero va por los conductos, el ruidoso hace sonar una alarma si le matan, y el ángel de la guarda, de fantasma, protege a los vivos. Entre los impostores, el cambiaformas se transforma en otro y el espectro se vuelve invisible. Los poderes se usan con la B.',

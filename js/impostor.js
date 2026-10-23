@@ -64,6 +64,7 @@ const IMPOSTOR_DEFAULT_RULES = {
     roleShapeshifter: 0,      // cambiaformas (impostor): se transforma en otro
     rolePhantom: 0,           // espectro (impostor): se vuelve invisible un rato
     dummies: false,           // práctica de impostor: los compañeros de la máquina son muñecos que pasean (ni avisan ni hacen tareas)
+    lobby: false,             // la sala de espera de una sala: todos en el Comedor, con las puertas cerradas, sin papeles ni tareas (no es una regla de la casa: la pone la sala)
 };
 
 /**
@@ -150,7 +151,9 @@ function impostorLooks(wants, rng = null) {
 const IMPOSTOR_SABOTAGES = ['lights', 'reactor', 'oxygen', 'comms', 'doors'];
 const IMPOSTOR_CRITICAL = new Set(['reactor', 'oxygen']);
 const IMPOSTOR_ACTIONS = new Set(['startTask', 'cancelTask', 'task', 'kill', 'report', 'button', 'say', 'vote', 'ready',
-    'sabotage', 'fix', 'vent', 'ventTo', 'console', 'power']);
+    'sabotage', 'fix', 'vent', 'ventTo', 'console', 'power', 'look']);
+/** La sala de espera: en esta sala, con sus puertas cerradas. */
+const IMPOSTOR_LOBBY_ROOM = 'comedor';
 /** Lo que se puede decir en una reunión. */
 const IMPOSTOR_LINES = new Set(['where', 'saw', 'kill', 'vent', 'with', 'scan', 'sus', 'agree', 'lie', 'deny', 'nothing', 'skip']);
 
@@ -464,6 +467,7 @@ class ImpostorGame {
     /**
      * players: [{ name, role, remote, color, hat }]; role ('impostor' o 'crew') es lo que prefiere ese jugador, si lo hay;
      * remote: anda en otro navegador (en una sala) y dice él mismo dónde está; color y hat, el que ha elegido (impostorLooks).
+     * bot: es de la máquina (en la sala de espera, cede su color a quien lo pida). at: { x, y }, dónde estaba en la sala de espera.
      */
     constructor({ players, rules = {}, seed = Date.now() }) {
         this.rules = { ...IMPOSTOR_DEFAULT_RULES, ...rules };
@@ -475,7 +479,7 @@ class ImpostorGame {
             area: null, busy: null, tasks: [], bumpT: 0, moved: 0, vent: null,
             role: 'crew', alive: true, knownDead: false, killCd: 0, meetingsLeft: 0,
             remote: !!p.remote, warp: 0, netMoved: 0, stepT: -99,
-            color: looks[i].color, hat: looks[i].hat,
+            color: looks[i].color, hat: looks[i].hat, bot: !!p.bot, at: p.at || null,
             // Los papeles especiales: el poder, su espera y hasta cuándo dura; el cambiaformas (shape: en quién se ha
             // transformado), el espectro (hidden), el escudo del ángel (shieldUntil, shieldBy) y los conductos del ingeniero.
             special: null, powerCd: 0, powerUntil: 0, shape: null, hidden: false, shieldUntil: 0, shieldBy: null,
@@ -503,7 +507,9 @@ class ImpostorGame {
 
     get n() { return this.players.length; }
     /** El modo escondite: el impostor se sabe, no hay reuniones y la tripulación aguanta hasta que se acaba el tiempo. */
-    get hideSeek() { return this.rules.mode === 'escondite'; }
+    get hideSeek() { return this.rules.mode === 'escondite' && !this.rules.lobby; }
+    /** La sala de espera: se anda por el Comedor y se elige color, nada más. */
+    get lobby() { return !!this.rules.lobby; }
     get speed() { return IMPOSTOR_SPEED * this.rules.speed; }
     get vision() { return IMPOSTOR_VISION * this.rules.vision; }
     get killRange() { return IMPOSTOR_KILL_RANGE[this.rules.killRange] || IMPOSTOR_KILL_RANGE.medio; }
@@ -525,7 +531,7 @@ class ImpostorGame {
     living() { return this.players.filter(pl => pl.alive).map(pl => pl.index); }
 
     /** Cuántos impostores hay con estos jugadores: con menos de 4 no hay ninguno (en el escondite, uno desde 2). */
-    impostorCount() { return impostorsFor(this.n, this.rules.impostors, this.rules.mode); }
+    impostorCount() { return this.lobby ? 0 : impostorsFor(this.n, this.rules.impostors, this.rules.mode); }
     /** Cómo se ve a alguien: él mismo o, si es un cambiaformas transformado, aquel en quien se ha transformado. */
     shown(p) { return this.players[p]?.shape ?? p; }
     /** ¿Tiene una tarea que se ve (si la regla las deja ver)? */
@@ -605,7 +611,7 @@ class ImpostorGame {
             pl.alive = true; pl.knownDead = false;
             pl.meetingsLeft = this.rules.meetings | 0;
             pl.killCd = hs ? IMPOSTOR_HIDE.start : Math.min(10, this.rules.killCooldown);
-            pl.tasks = this.dealTasks(common);
+            pl.tasks = this.lobby ? [] : this.dealTasks(common);
             Object.assign(pl, { special: null, powerCd: 10, powerUntil: 0, shape: null, hidden: false, shieldUntil: 0, shieldBy: null, ventCd: 0, ventIn: 0, camsAt: -99 });
         }
         // Los papeles especiales (en el escondite no hay): los de la tripulación, entre la tripulación, y los de los impostores, entre ellos.
@@ -614,7 +620,8 @@ class ImpostorGame {
             for (const pl of free.slice(0, clampN(this.rules[R.rule] | 0, 0, 2))) pl.special = id;
         }
         this.gather();
-        const events = [{ type: 'round', round: this.round, impostors: nImp, mode: this.rules.mode, ...(hs ? { seekers: [...imps], until: this.hide.until, go: this.hide.go } : {}) }];
+        if (this.lobby) this.shutLobby();
+        const events = [{ type: 'round', round: this.round, impostors: nImp, mode: this.rules.mode, ...(this.lobby ? { lobby: true } : {}), ...(hs ? { seekers: [...imps], until: this.hide.until, go: this.hide.go } : {}) }];
         for (const pl of this.players) {
             const mates = pl.role === 'impostor' ? [...imps].filter(q => q !== pl.index) : [];
             events.push({ type: 'role', p: pl.index, role: pl.role, special: pl.special, mates, impostors: nImp, secret: true });
@@ -625,8 +632,15 @@ class ImpostorGame {
         return { ok: true, events };
     }
 
+    /** La sala de espera: las puertas del Comedor, cerradas mientras dure. */
+    shutLobby() {
+        for (const d of SHIP.byId[IMPOSTOR_LOBBY_ROOM].doors) for (const c of d.cells) this.closed[c] = 1;
+        this.doorsShut = { room: IMPOSTOR_LOBBY_ROOM, by: null, until: 1e9 };
+    }
+
     /** Las tareas comunes de esta partida: las mismas, en el mismo sitio, para todos. */
     commonTasks() {
+        if (this.lobby) return [];
         const pool = this.rng.shuffle(Object.keys(IMPOSTOR_TASKS).filter(t => IMPOSTOR_TASKS[t].common));
         const n = clampN(this.rules.commonTasks | 0, 0, Math.min(pool.length, this.taskCount()));
         return pool.slice(0, n).map(type => ({ type, spot: this.rng.pick(SHIP.spots.filter(s => s.type === type)).id, done: false, common: true }));
@@ -659,10 +673,22 @@ class ImpostorGame {
     /** Todos alrededor de la mesa del Comedor: al empezar y después de cada reunión. */
     gather() {
         const n = this.n, t = SHIP.furniture[0], cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+        // En la sala de espera, quien ya estaba sigue donde estaba (al entrar alguien, se empieza otra vez).
+        const okAt = at => at && Number.isFinite(at.x) && Number.isFinite(at.y) && shipArea(at.x, at.y)?.id === IMPOSTOR_LOBBY_ROOM && !shipBlocked(at.x, at.y);
+        const stay = new Set(this.lobby ? this.players.filter(pl => okAt(pl.at)).map(pl => pl.index) : []);
+        const ring = k => { const ang = -Math.PI / 2 + k * 2 * Math.PI / n; return { x: cx + Math.cos(ang) * 3.3, y: cy + Math.sin(ang) * 2.8 }; };
+        const placed = this.players.filter(pl => stay.has(pl.index)).map(pl => ({ ...pl.at }));
         this.rng.shuffle(this.players.map((_, i) => i)).forEach((p, k) => {
             const pl = this.players[p];
-            const ang = -Math.PI / 2 + k * 2 * Math.PI / n;
-            pl.x = cx + Math.cos(ang) * 3.3; pl.y = cy + Math.sin(ang) * 2.8;
+            let at = stay.has(p) ? pl.at : ring(k);
+            // Quien llega a la sala de espera, al sitio de la mesa más lejos de los demás.
+            if (stay.size && !stay.has(p)) {
+                const far = q => Math.min(99, ...placed.map(o => Math.hypot(o.x - q.x, o.y - q.y)));
+                at = Array.from({ length: 12 }, (_, j) => { const ang = j * Math.PI / 6; return { x: cx + Math.cos(ang) * 3.3, y: cy + Math.sin(ang) * 2.8 }; })
+                    .filter(q => !shipBlocked(q.x, q.y)).sort((a, b) => far(b) - far(a))[0] || at;
+                placed.push(at);
+            }
+            pl.x = at.x; pl.y = at.y;
             pl.ix = pl.iy = 0; pl.fx = 0; pl.fy = -1; pl.busy = null; pl.moved = 0; pl.vent = null; pl.warp++;
             pl.area = shipArea(pl.x, pl.y)?.id || null;
         });
@@ -947,6 +973,8 @@ class ImpostorGame {
         if (!pl) return { ok: false, error: 'Ese jugador no está en la nave.' };
         if (a.type === 'say' || a.type === 'vote' || a.type === 'ready') return this.meetingAct(a, pl);
         if (this.phase !== 'ship') return { ok: false, error: 'Ahora no.' };
+        if (a.type === 'look') return this.look(a, pl);
+        if (this.lobby) return { ok: false, error: 'En la sala de espera solo se anda y se elige color. La partida la empieza quien ha creado la sala.' };
         if (a.type === 'sabotage') return this.sabotage(a, pl);
         if (a.type === 'vent') return this.ventInOut(a, pl);
         if (a.type === 'ventTo') return this.ventTo(a, pl);
@@ -1044,6 +1072,23 @@ class ImpostorGame {
         // El reactor y el oxígeno se cuentan; en el oxígeno, done son los teclados ya arreglados.
         this.sab = { kind, by: pl.index, t0: this.time, until: IMPOSTOR_CRITICAL.has(kind) ? this.time + this.rules.reactorTime : null, done: [] };
         return { ok: true, events: [{ type: 'sabotage', kind, by: pl.index, until: this.sab.until }] };
+    }
+
+    /**
+     * En la sala de espera, alguien cambia de color o de gorro (color: el número en IMPOSTOR_COLORS; hat, en IMPOSTOR_HATS).
+     * Un color de otra persona no se puede coger; el de un rival de la máquina, sí: se lo cambia por el tuyo (swap).
+     */
+    look(a, pl) {
+        if (!this.lobby) return { ok: false, error: 'El color se elige en la sala de espera, antes de empezar.' };
+        const c = a.color, h = a.hat;
+        if (!Number.isInteger(c) || c < 0 || c >= IMPOSTOR_COLORS.length) return { ok: false, error: 'Ese color no existe.' };
+        if (!Number.isInteger(h) || h < 0 || h >= IMPOSTOR_HATS.length) return { ok: false, error: 'Ese gorro no existe.' };
+        const other = this.players.find(q => q !== pl && q.color === c);
+        if (other && !other.bot) return { ok: false, error: `El ${IMPOSTOR_COLORS[c].name} ya lo tiene ${other.name}. Elige otro.` };
+        let swap = null;
+        if (other) { other.color = pl.color; swap = { p: other.index, color: other.color }; }
+        pl.color = c; pl.hat = h;
+        return { ok: true, events: [{ type: 'look', p: pl.index, color: c, hat: h, swap }] };
     }
 
     /** Se cierran todas las puertas de una sala. Quien está justo en la puerta se queda a un lado. */
@@ -1713,6 +1758,9 @@ class ImpostorMirror {
             for (const q of e.seekers) this.players[q].role = 'impostor';
         } else if (e.type === 'taskBar') {
             this.barShown = { done: e.done, total: e.total };
+        } else if (e.type === 'look') {
+            Object.assign(this.players[e.p], { color: e.color, hat: e.hat });
+            if (e.swap) this.players[e.swap.p].color = e.swap.color;
         }
     }
 
@@ -1748,7 +1796,7 @@ for (const k of ['visionOf', 'perceive', 'taskHere', 'killTargets', 'bodyHere', 
     'shown', 'visualTask', 'canVent', 'ventLimited', 'frozen', 'taskCount']) {
     ImpostorMirror.prototype[k] = ImpostorGame.prototype[k];
 }
-for (const k of ['n', 'speed', 'vision', 'killRange', 'lightsOff', 'commsDown', 'critical', 'voteSecs', 'hideSeek']) {
+for (const k of ['n', 'speed', 'vision', 'killRange', 'lightsOff', 'commsDown', 'critical', 'voteSecs', 'hideSeek', 'lobby']) {
     Object.defineProperty(ImpostorMirror.prototype, k, Object.getOwnPropertyDescriptor(ImpostorGame.prototype, k));
 }
 
@@ -1760,7 +1808,7 @@ if (typeof module !== 'undefined') {
         IMPOSTOR_DEFAULT_RULES, IMPOSTOR_SPEED, IMPOSTOR_RADIUS, IMPOSTOR_VISION, IMPOSTOR_USE, IMPOSTOR_TASKS,
         IMPOSTOR_REPORT, IMPOSTOR_KILL_RANGE, IMPOSTOR_IMP_VISION, IMPOSTOR_SAY_MAX, impostorsFor,
         IMPOSTOR_VENT_USE, IMPOSTOR_CONSOLE, IMPOSTOR_LIGHTS, IMPOSTOR_SAB_COOLDOWN, IMPOSTOR_DOORS_TIME, IMPOSTOR_DOORS_COOLDOWN, IMPOSTOR_CAMERA,
-        IMPOSTOR_SABOTAGES, IMPOSTOR_CRITICAL, IMPOSTOR_HIDE, IMPOSTOR_ROLES, IMPOSTOR_COLORS, IMPOSTOR_HATS, IMPOSTOR_WATCH, impostorLooks, camHeading,
+        IMPOSTOR_SABOTAGES, IMPOSTOR_CRITICAL, IMPOSTOR_LOBBY_ROOM, IMPOSTOR_HIDE, IMPOSTOR_ROLES, IMPOSTOR_COLORS, IMPOSTOR_HATS, IMPOSTOR_WATCH, impostorLooks, camHeading,
         SHIP, shipArea, tableDist, shipTile, shipSolid, shipBlocked, shipSight, shipClear, shipPath, shipStandAt, pathLength, toPlace, inPlace,
         ImpostorGame, ImpostorMirror, impostorEventFor,
     };

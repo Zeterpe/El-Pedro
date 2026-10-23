@@ -1365,4 +1365,64 @@ for (let seed = 1; seed <= 10; seed++) {
 }
 assert(extra.practice >= 8, `en la práctica de impostor, se acaba cazando a todos: ${extra.practice} de 10`);
 
+// ── La sala de espera ─────────────────────────────
+{
+    // Todos en el Comedor con las puertas cerradas, sin impostores ni tareas, aunque las reglas digan escondite.
+    const players = Array.from({ length: 6 }, (_, i) => ({ name: 'L' + i, color: i === 0 ? 3 : null, bot: i >= 4, remote: i === 1 || i === 2 }));
+    players[1].at = { x: 17.5, y: 3.5 };
+    players[2].at = { x: 5, y: 5 };   // fuera del Comedor: no vale
+    const g = new ImpostorGame({ players, rules: { lobby: true, mode: 'escondite', impostors: 2 }, seed: 9 });
+    const res = g.startRound();
+    assert(g.lobby && !g.hideSeek, 'la sala de espera no es el escondite');
+    assert.strictEqual(g.impostorCount(), 0, 'en la sala de espera no hay impostores');
+    assert(res.events.find(e => e.type === 'round').lobby, 'el suceso round dice que es la sala de espera');
+    assert(g.players.every(pl => pl.role === 'crew' && !pl.tasks.length && !pl.special), 'ni papeles ni tareas');
+    assert.strictEqual(g.taskBar().total, 0);
+    assert(g.players.every(pl => pl.area === 'comedor'), 'todos en el Comedor');
+    assert.deepStrictEqual([g.players[1].x, g.players[1].y], [17.5, 3.5], 'quien ya estaba sigue donde estaba');
+    assert.strictEqual(g.players[2].area, 'comedor', 'un sitio de fuera no vale');
+    assert.strictEqual(g.doorsShut.room, 'comedor', 'las puertas del Comedor, cerradas');
+    for (const d of SHIP.byId.comedor.doors) assert(!shipPath(22, 3, d.x + d.nx * 1.5, d.y + d.ny * 1.5, g.closed), 'no se sale del Comedor');
+    // Andando un buen rato, nadie sale y las puertas siguen cerradas.
+    const bots = g.players.map((_, p) => new ImpostorBot(g, p, { ...CHARACTERS[p], level: 'normal' }, R.makeRng(70 + p)));
+    const walked = g.players.map(() => 0);
+    for (let t = 0; t < 120 * 30; t++) {
+        for (const b of bots) { const a = b.update(1 / 30); assert(!a, `en la sala de espera los de la máquina solo pasean: ${a?.type}`); }
+        for (const e of g.tick(1 / 30)) assert(['area', 'bump'].includes(e.type), `en la sala de espera no pasa nada más: ${e.type}`);
+        g.players.forEach((pl, i) => { walked[i] += pl.moved; });
+    }
+    for (const pl of g.players) assert.strictEqual(pl.area, 'comedor', 'nadie sale del Comedor');
+    assert(walked.every((d, i) => g.players[i].remote || d > 20), `los de la máquina pasean: ${walked.map(Math.round)}`);
+    // Quien llega a la sala de espera no aparece encima de quien ya estaba.
+    const k = new ImpostorGame({ players: [{ name: 'A', at: { x: 22, y: 9.3 } }, { name: 'B' }, { name: 'C', at: { x: 17.5, y: 3.5 } }], rules: { lobby: true }, seed: 4 });
+    k.startRound();
+    assert(Math.hypot(k.players[1].x - 22, k.players[1].y - 9.3) > 2 && Math.hypot(k.players[1].x - 17.5, k.players[1].y - 3.5) > 2, 'quien llega, lejos de los demás');
+    assert(g.doorsShut && g.phase === 'ship', 'la sala de espera no se acaba sola');
+    // No se puede hacer nada más que andar y elegir color.
+    for (const type of ['kill', 'report', 'button', 'sabotage', 'vent', 'console', 'power']) assert(!g.act({ type, p: 0, kind: 'lights', target: 1 }).ok, `${type} no vale en la sala de espera`);
+    // El color: el de otra persona, no; el de uno de la máquina, se cambia por el tuyo.
+    assert.strictEqual(g.players[0].color, 3, 'quien lo pidió tiene su color');
+    let r = g.act({ type: 'look', p: 1, color: 3, hat: 2 });
+    assert(!r.ok && /ya lo tiene L0/.test(r.error), 'el color de otra persona no se coge');
+    const was = g.players[1].color, botCol = g.players[5].color;
+    r = g.act({ type: 'look', p: 1, color: botCol, hat: 2 });
+    assert(r.ok && g.players[1].color === botCol && g.players[1].hat === 2, 'el de la máquina, sí');
+    assert.strictEqual(g.players[5].color, was, 'y el de la máquina se queda con el tuyo');
+    assert.deepStrictEqual(r.events[0].swap, { p: 5, color: was });
+    assert(!g.act({ type: 'look', p: 1, color: 99, hat: 0 }).ok && !g.act({ type: 'look', p: 1, color: 1, hat: 99 }).ok, 'colores y gorros que no existen');
+    assert.strictEqual(new Set(g.players.map(pl => pl.color)).size, 6, 'ningún color repetido');
+    // El invitado se entera del cambio, y su nave también tiene las puertas cerradas.
+    const m = new I.ImpostorMirror({ names: g.players.map(pl => pl.name), me: 2 });
+    m.setView(g.view(2));
+    assert(m.lobby && m.closed.some(Boolean), 'el invitado está en la sala de espera, con las puertas cerradas');
+    m.observe(r.events[0]);
+    assert.strictEqual(m.players[1].color, botCol);
+    assert.strictEqual(m.players[5].color, was);
+    // Fuera de la sala de espera no se cambia de color.
+    const h = new ImpostorGame({ players: players.map(p => ({ ...p })), rules: {}, seed: 9 });
+    h.startRound();
+    assert(!h.act({ type: 'look', p: 1, color: 9, hat: 0 }).ok, 'en la partida no se cambia de color');
+    assert(!h.closed.some(Boolean), 'en la partida las puertas están abiertas');
+}
+
 console.log(`El Impostor: todo bien. ${games} partidas sin impostores (${Math.round(totalTime / games)} segundos de media, ${Math.round(maxTime)} como mucho) y ${impGames} con impostores (${Math.round(impTime / impGames)} segundos de media, ${impMeetings} reuniones). Ganan: ${JSON.stringify(sides)}; cómo: ${JSON.stringify(ends)}; echados: ${impEjects} impostores y ${crewEjects} tripulantes; sabotajes y conductos: ${JSON.stringify(used)}. Papeles: ${JSON.stringify(extra.roles)}. Escondite: ${JSON.stringify(extra.hide)}.`);

@@ -216,6 +216,50 @@ function impSoundSample(app, scene, group) {
     later(3, () => sc.dispose());
 }
 
+/** La nota de cada color (PRESENCE_NOTES), dicha. */
+const IMP_NOTE_NAMES = ['sol', 'la', 'do', 're', 'mi', 'sol agudo', 'la agudo', 'do agudo', 're agudo', 'mi agudo'];
+
+/** Suena la nota de un color: en la nave, donde estás; fuera, aparte. */
+function impNoteSample(app, scene, color) {
+    app.audio.unlock();
+    const play = ShipSounds.presence(PRESENCE_NOTES[color]);
+    if (scene?.ok) { scene.here(play, 'people'); return; }
+    const sc = new SpaceAudio(app.audio);
+    if (!sc.ok) return;
+    sc.setMix(app.settings.impostorSound);
+    sc.here(play, 'people');
+    setTimeout(() => sc.dispose(), 1500);
+}
+
+/**
+ * Elegir color y gorro. Cada color tiene su nota, que suena al pasar por él: así te oirán los demás.
+ * taken: Map color → { name, mine } (mine: lo tiene otra persona, no la máquina). random: se puede pedir al azar.
+ * Devuelve { color, hat } (color null: al azar) o null si vuelves.
+ */
+async function impostorLookDialog(app, { scene = null, taken = new Map(), random = false, color = null, hat = 0 } = {}) {
+    const items = [
+        ...(random ? [{ label: 'Al azar', value: 'azar' }] : []),
+        ...IMPOSTOR_COLORS.map((c, i) => {
+            const t = taken.get(i);
+            const who = t ? `: ${t.person ? 'lo tiene' : 'lo lleva'} ${t.name}${t.person ? '' : ', de la máquina, que te lo cambia'}` : '';
+            return { label: `${cap(c.name)}, nota ${IMP_NOTE_NAMES[i]}${who}`, value: 'c' + i, onFocus: () => impNoteSample(app, scene, i) };
+        }),
+        { label: 'Volver', value: 'back' },
+    ];
+    const pick = await Dialog.open({
+        title: 'Tu color', text: 'Cada color suena siempre igual: con su nota y sus pasos. Al pasar por cada uno, suena su nota.',
+        items, cancel: 'back', focusIndex: color == null ? 0 : color + (random ? 1 : 0),
+    });
+    if (!pick || pick === 'back') return null;
+    const h = await Dialog.open({
+        title: 'Tu gorro',
+        items: [...IMPOSTOR_HATS.map((x, i) => ({ label: i ? cap(x) : 'Sin gorro', value: 'h' + i })), { label: 'Volver', value: 'back' }],
+        cancel: 'back', focusIndex: hat || 0,
+    });
+    if (!h || h === 'back') return null;
+    return { color: pick === 'azar' ? null : +pick.slice(1), hat: +h.slice(1) };
+}
+
 // ═══════════════════════════════════════════════════════
 // El dibujo de la ficha del salón
 // ═══════════════════════════════════════════════════════
@@ -266,6 +310,11 @@ class ImpostorMatch extends Match {
     get roundWord() { return 'partida'; }
     get playPhases() { return ['ship', 'meeting']; }
     get againLabel() { return 'Jugar otra vez con los mismos compañeros'; }
+    get hostAgainLabel() { return 'Volver a la sala de espera de la nave'; }
+    /** La sala de espera de una sala: andar por el Comedor y elegir color hasta que quien la ha creado empiece. */
+    get lobby() { return !!this.game?.lobby; }
+    /** Quien ha creado la sala, para decirlo: «tú» si eres tú. */
+    get hostName() { return this.mode === 'host' ? 'tú' : this.seats[this.hostSeat]?.name || 'quien ha creado la sala'; }
 
     setup() {
         this.held = new Set();          // teclas de andar pulsadas (y botones de la cruceta)
@@ -326,7 +375,7 @@ class ImpostorMatch extends Match {
         const wish = this.practice === 'impostor' ? 'impostor' : this.mode === 'local' ? { tripulante: 'crew', impostor: 'impostor' }[this.settings.impostorRole] || null : null;
         // Tu color y tu gorro, de tus ajustes; en una sala, los que ha elegido cada uno (los de la máquina, al azar).
         const look = (s, i) => i === this.me && this.mode === 'local' ? { color: this.settings.impostorColor, hat: this.settings.impostorHat } : { color: s.color ?? null, hat: s.hat ?? null };
-        return new ImpostorGame({ players: this.seats.map((s, i) => ({ name: s.name, role: i === this.me ? wish : null, remote: s.kind === 'remote', ...look(s, i) })), rules, seed });
+        return new ImpostorGame({ players: this.seats.map((s, i) => ({ name: s.name, role: i === this.me ? wish : null, remote: s.kind === 'remote', bot: s.kind === 'bot', at: s.at || null, ...look(s, i) })), rules, seed });
     }
     makeMirror(rules) { return new ImpostorMirror({ names: this.seats.map(s => s.name), rules, me: this.me }); }
     makeBot(p, char, rng) { return new ImpostorBot(this.game, p, char, rng); }
@@ -347,8 +396,19 @@ class ImpostorMatch extends Match {
     }
     async gate() { while (this.paused && !this.room && !this.stopped) await new Promise(r => setTimeout(r, 50)); }
     pauseNote() { return this.room ? 'La partida sigue mientras tanto: los demás siguen jugando.' : ''; }
-    pauseItems() { return [{ label: 'Sonidos de la nave', value: 'sound' }]; }
-    async pauseItem(r) { if (r === 'sound') await impostorSoundMenu(this.app, this.scene); }
+    pauseItems() {
+        if (!this.lobby) return [{ label: 'Sonidos de la nave', value: 'sound' }];
+        return [
+            { label: 'Tu color y tu gorro', value: 'look' },
+            ...(this.mode === 'host' ? [{ label: 'Empezar la partida', value: 'start' }] : []),
+            { label: 'Sonidos de la nave: solo cambian para ti', value: 'sound' },
+        ];
+    }
+    async pauseItem(r) {
+        if (r === 'sound') await impostorSoundMenu(this.app, this.scene);
+        else if (r === 'look') await this.lobbyLook();
+        else if (r === 'start') await this.lobbyStart();
+    }
 
     /** Lo que pasa se aprende al momento; se cuenta en orden, uno detrás de otro. */
     apply(res) {
@@ -634,6 +694,9 @@ class ImpostorMatch extends Match {
     }
 
     async intro() {
+        // El invitado espera a la primera nave del anfitrión: hasta entonces no sabe ni su color.
+        if (this.mode === 'client' && !this.game.round) await this.waitFor(() => this.game.round > 0);
+        if (this.lobby) return this.lobbyIntro();
         if (this.rejoin) return super.intro();
         const n = this.game.impostorCount();
         Board.status(this.visual ? (n ? `${this.title}: ${n === 1 ? 'hay un impostor' : `hay ${n} impostores`} a bordo` : `${this.title}: haced entre todos las tareas de la nave`) : '');
@@ -645,6 +708,95 @@ class ImpostorMatch extends Match {
             Match.voTipDone = true;
             await this.say(UI.VO_TIP);
         }
+    }
+
+    // ── La sala de espera ─────────────────────────────
+    lobbyText() {
+        const others = this.seats.filter((_, p) => p !== this.me).map(s => s.name);
+        let t = `Estáis en el Comedor de la nave, con las puertas cerradas, esperando a que empiece la partida. ${others.length ? `Contigo ${others.length > 1 ? 'están' : 'está'} ${Txt.list(others)}.` : 'De momento no hay nadie más.'} Eres ${this.lookText(this.me)}: tu nota es ${IMP_NOTE_NAMES[this.mePl.color]}.`;
+        t += ` ${cap(this.press('C', 'Tu color y tu gorro'))} para cambiar de color y de gorro: cada color suena con su nota, y así te oyen los demás. ${cap(this.press('P', 'Los pasos'))} para oír cómo suena cada uno.`;
+        t += this.mode === 'host' ? ` Cuando estéis todos, ${this.press('E', 'Empezar la partida')} para empezar.` : ` Cuando estéis todos, ${this.hostName} empezará la partida.`;
+        if (!this.settings.mono) t += ' Ponte auriculares: lo que suena a tu derecha está a tu derecha, y lo que suena delante está arriba en la pantalla.';
+        t += this.hint('keys', this.touch ? 'Para andar, toca la nave y arrastra el dedo, o usa la cruceta.' : 'Anda con W, A, S y D, o con las flechas. La H te dice todas las teclas.');
+        return t;
+    }
+
+    async lobbyIntro() {
+        Board.status(this.statusIdle());
+        Board.render(this);
+        // Sin voz no se lee: la nave y la línea de estado ya lo cuentan.
+        if (this.visual) return;
+        // Al entrar o irse alguien, la sala de espera empieza otra vez: solo se dice quién.
+        await this.say(this.note || `${this.title}: sala de espera. ${this.lobbyText()}`, { keep: true });
+    }
+
+    /** C: tu color y tu gorro. Uno de otra persona no se puede coger; el de uno de la máquina, sí (te da el suyo). */
+    async lobbyLook() {
+        if (Dialog.active || !this.lobby) return;
+        const g = this.game, me = this.mePl;
+        const person = p => this.seats[p].kind !== 'bot';
+        const taken = new Map(g.players.filter(pl => pl.index !== this.me).map(pl => [pl.color, { name: this.seats[pl.index].name, person: person(pl.index) }]));
+        const r = await impostorLookDialog(this.app, { scene: this.scene, taken, color: me.color, hat: me.hat });
+        if (!r || this.stopped || !this.lobby) return;
+        const t = taken.get(r.color);
+        if (t?.person) { this.audio.error(); this.tell(`El ${IMPOSTOR_COLORS[r.color].name} ya lo tiene ${t.name}. Elige otro.`); return; }
+        if (r.color === me.color && r.hat === me.hat) { this.tell(`Sigues siendo ${this.lookText(this.me)}.`); return; }
+        this.settings.impostorColor = r.color;
+        this.settings.impostorHat = r.hat;
+        this.app.save();
+        this.act({ type: 'look', p: this.me, color: r.color, hat: r.hat });
+    }
+
+    /** E: quien ha creado la sala empieza la partida; los demás esperan. */
+    async lobbyStart() {
+        if (this.mode !== 'host') { this.tell(`La partida la empieza ${this.hostName}. Mientras, ${this.press('C', 'Tu color y tu gorro')} para elegir tu color.`); return; }
+        if (Dialog.active || this.stopped) return;
+        const n = this.game.n, rules = this.online.rules, imps = impostorsFor(n, rules.impostors, rules.mode);
+        if (n < 2) { this.audio.error(); this.tell('Necesitas al menos otro jugador: espera a tus amigos, o vuelve a la sala desde la pausa y añade un rival de la máquina.'); return; }
+        const who = Txt.list(this.seats.map((s, p) => p === this.me ? 'tú' : s.kind === 'bot' ? `${s.name}, de la máquina` : s.name));
+        const what = rules.mode === 'escondite' ? 'Escondite: uno busca y los demás se esconden.' : imps ? (imps === 1 ? 'Habrá un impostor.' : `Habrá ${imps} impostores.`) : 'Con menos de cuatro no hay impostores: haréis las tareas entre todos.';
+        const r = await Dialog.open({
+            title: 'Empezar la partida', text: `Sois ${n}: ${who}. ${what}`,
+            items: [{ label: 'Empezar la partida', value: 'go' }, { label: 'Todavía no', value: 'no' }], cancel: 'no',
+        });
+        if (r === 'go' && !this.stopped && this.lobby) this.online.startGame();
+    }
+
+    /** Alguien cambia de color: suena su nota nueva desde donde está, y se dice. */
+    presentLook(e) {
+        const g = this.game, pl = g.players[e.p], sc = this.scene;
+        if (this.mode === 'host') {
+            this.online?.lookTaken?.(this.seats[e.p], { color: e.color, hat: e.hat });
+            if (e.swap) this.online?.lookTaken?.(this.seats[e.swap.p], { color: e.swap.color, hat: g.players[e.swap.p].hat });
+        }
+        if (sc?.ok && this.settings.impostorPresence) {
+            if (e.p === this.me) sc.here(ShipSounds.presence(PRESENCE_NOTES[e.color]), 'people');
+            else if (this.seenNow.has(e.p)) sc.at(pl.x, pl.y, ShipSounds.presence(PRESENCE_NOTES[e.color]), { ref: 2, group: 'people' });
+        }
+        const note = IMP_NOTE_NAMES[e.color];
+        let t = e.p === this.me ? `Ahora eres ${this.lookText(e.p)}: tu nota es ${note}.` : `${this.Nm(e.p)} ahora es ${this.lookText(e.p)}: su nota es ${note}.`;
+        if (e.swap) t += ` ${e.swap.p === this.me ? 'Tú te quedas' : `${this.Nm(e.swap.p)} se queda`} con el ${IMPOSTOR_COLORS[e.swap.color].name}.`;
+        if (e.p === this.me) this.tell(t, { keep: true }); else this.notice(t);
+        Board.render(this);
+    }
+
+    /** Las teclas de la sala de espera: lo que no vale ahí se dice. Devuelve true si la ha atendido. */
+    lobbyKey(k, e) {
+        if (k === 'c') { e.preventDefault(); this.lobbyLook(); return true; }
+        if (k === 'e' || (k === 'Enter' && !e.target?.closest?.('button'))) { e.preventDefault(); this.lobbyStart(); return true; }
+        if (['t', 'g', 'q', 'v', 'x', 'b', 'r'].includes(k)) {
+            e.preventDefault();
+            this.tell(`En la sala de espera solo se anda, se elige color y se conoce a los demás. ${this.mode === 'host' ? `Cuando quieras, ${this.press('E', 'Empezar la partida')} para empezar.` : `La partida la empieza ${this.hostName}.`}`);
+            return true;
+        }
+        return false;
+    }
+
+    lobbyInfo() {
+        const g = this.game;
+        const list = Txt.list(g.players.map(pl => `${pl.index === this.me ? 'tú' : this.seats[pl.index].name}, ${this.lookText(pl.index).replace(/^el /, '')}, nota ${IMP_NOTE_NAMES[pl.color]}`));
+        const rules = GAMES.impostor.summary({ ...g.rules, lobby: false });
+        return `Sala de espera. Estáis ${g.n}: ${list}. Reglas de la partida: ${rules} ${this.mode === 'host' ? `Cuando quieras, ${this.press('E', 'Empezar la partida')} para empezar.` : `La empieza ${this.hostName}.`}`;
     }
 
     /** Lo que eres al empezar: tripulante o impostor, y qué tienes que hacer. */
@@ -698,6 +850,7 @@ class ImpostorMatch extends Match {
     actionsDef() {
         return [
             { kind: 'use', label: 'Usar', key: 'E', cls: 'main' },
+            { kind: 'look', label: 'Tu color y tu gorro', key: 'C', cls: 'main' },
             { kind: 'kill', label: 'Matar', key: 'Q', cls: 'main imp-kill' },
             { kind: 'vent', label: 'Conducto', key: 'V', cls: 'main imp-vent' },
             { kind: 'sabotage', label: 'Sabotear', key: 'X', cls: 'main imp-sabbtn' },
@@ -717,6 +870,7 @@ class ImpostorMatch extends Match {
 
     button(kind) {
         if (kind === 'use') return this.use();
+        if (kind === 'look') return this.lobbyLook();
         if (kind === 'kill') return this.killKey();
         if (kind === 'vent') return this.ventKey();
         if (kind === 'sabotage') return this.sabotageMenu();
@@ -819,14 +973,16 @@ class ImpostorMatch extends Match {
     render() {
         const g = this.game;
         if (!$('imp-bar-fill')) return;
-        const ship = g.phase === 'ship', me = this.mePl;
-        Board.showAct('use', ship, this.useLabel());
+        const ship = g.phase === 'ship', me = this.mePl, lobby = this.lobby;
+        Board.showAct('use', ship && (!lobby || this.mode === 'host'), this.useLabel());
+        Board.showAct('look', ship && lobby);
+        for (const k of ['guide', 'tasks', 'map']) Board.showAct(k, !lobby);
         Board.showAct('kill', ship && this.amImpostor && me.alive, this.killLabel());
         this.impostorBtns();
         this.reportBtn();
         const { done, total } = this.bar, mode = this.barMode, off = g.phase === 'ship' && g.commsDown;
         const bar = $('imp-bar-fill').parentElement;
-        bar.hidden = mode === 'nunca';
+        bar.hidden = mode === 'nunca' || lobby;
         bar.classList.toggle('off', off);
         $('imp-bar-fill').style.width = total && !off ? `${done / total * 100}%` : '0';
         $('imp-bar-text').textContent = off ? 'Tareas de la tripulación: sin señal' : `Tareas de la tripulación${mode === 'reuniones' ? ', en la última reunión' : ''}: ${done} de ${total}`;
@@ -867,7 +1023,7 @@ class ImpostorMatch extends Match {
         if (g.phase === 'ship' && g.sab?.kind === 'reactor') parts.push(`Reactor: ${Math.max(0, Math.ceil(g.sab.until - g.time))} s`);
         if (g.phase === 'ship' && g.sab?.kind === 'oxygen') parts.push(`Oxígeno: ${Math.max(0, Math.ceil(g.sab.until - g.time))} s`);
         if (g.phase === 'ship' && g.sab?.kind === 'comms') parts.push('Sin comunicaciones');
-        if (g.phase === 'ship' && g.doorsShut) parts.push(`Puertas cerradas: ${this.areaName(g.doorsShut.room)}`);
+        if (g.phase === 'ship' && g.doorsShut && !this.lobby) parts.push(`Puertas cerradas: ${this.areaName(g.doorsShut.room)}`);
         const H = g.hide;
         if (g.phase === 'ship' && H) {
             const mmss = t => { const v = Math.max(0, Math.ceil(t)); return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`; };
@@ -891,7 +1047,8 @@ class ImpostorMatch extends Match {
         if (!el) return;
         let t = '';
         const sp = me.special ? ` · ${IMPOSTOR_ROLES[me.special].name}` : '';
-        if (g.hideSeek) t = !me.alive ? 'Te han pillado' : this.amImpostor ? (g.frozen(me) ? 'Buscas · espera' : me.killCd > 0 ? `Buscas · pillar en ${Math.ceil(me.killCd)} s` : 'Buscas · puedes pillar') : 'Te escondes';
+        if (this.lobby) t = 'Sala de espera';
+        else if (g.hideSeek) t = !me.alive ? 'Te han pillado' : this.amImpostor ? (g.frozen(me) ? 'Buscas · espera' : me.killCd > 0 ? `Buscas · pillar en ${Math.ceil(me.killCd)} s` : 'Buscas · puedes pillar') : 'Te escondes';
         else if (!me.alive) t = 'Fantasma' + (me.special === 'angel' ? sp : '');
         else if (this.amImpostor) t = (me.killCd > 0 ? `Impostor · matar en ${Math.ceil(me.killCd)} s` : 'Impostor · puedes matar') + sp;
         else if (g.impostorCount()) t = 'Tripulante' + sp;
@@ -904,6 +1061,7 @@ class ImpostorMatch extends Match {
 
     useLabel() {
         const g = this.game, me = this.mePl;
+        if (this.lobby) return 'Empezar la partida';
         if (this.task) return this.task.fake ? 'Dejar de fingir' : this.task.type === 'consola' ? 'Repetir' : this.task.hold ? 'Cómo va' : 'Seguir la tarea';
         if (g.phase !== 'ship' || me.vent != null) return 'Usar';
         const panel = me.alive ? g.panelHere(this.me) : null;
@@ -925,6 +1083,8 @@ class ImpostorMatch extends Match {
 
     statusIdle() {
         const g = this.game, me = this.mePl;
+        if (this.lobby) return this.touch ? `Sala de espera: anda y elige tu color · ${this.mode === 'host' ? 'Empezar la partida, cuando estéis todos' : `empieza ${this.hostName}`}`
+            : `Sala de espera · C: tu color y tu gorro · ${this.mode === 'host' ? 'E: empezar la partida' : `espera a que ${this.hostName} empiece`}`;
         if (me.vent != null) return this.touch ? 'En un conducto: la cruceta te lleva a otro; Conducto, para salir' : 'En un conducto: las flechas te llevan a otro; V, para salir';
         if (this.guide) return `Guía: te llevo ${this.guide.to}`;
         if (g.hideSeek && g.phase === 'ship' && g.frozen(me)) return 'Espera quieto: los demás se esconden';
@@ -940,7 +1100,7 @@ class ImpostorMatch extends Match {
     async phaseStep(phase) {
         if (phase === 'ship') {
             // En una sala, antes de echar a andar, todos han oído su papel y sus tareas.
-            if (this.mode === 'host' && this.waitStart !== this.game.round) {
+            if (this.mode === 'host' && this.waitStart !== this.game.round && !this.lobby) {
                 this.waitStart = this.game.round;
                 Board.status('Esperando a que todos sepan su papel');
                 await this.online.waitAcks(this.seq, 30000);
@@ -1469,8 +1629,9 @@ class ImpostorMatch extends Match {
                 else await this.say(this.roleText(e), { keep: true });
                 break;
             }
+            case 'look': this.presentLook(e); break;
             case 'tasks':
-                if (e.p === me) {
+                if (e.p === me && !g.lobby) {
                     Board.render(this);
                     const list = g.pending(me).map(t => `${this.taskName(t)}, ${inPlace(this.areaName(t.spot.area))}`);
                     const what = e.fake ? 'Tus tareas de mentira, para disimular' : 'Tus tareas';
@@ -2546,7 +2707,8 @@ class ImpostorMatch extends Match {
         }
         if (me.vent == null) for (const v of SHIP.vents) if (v.area === me.area) parts.push(`Hay un conducto ${this.rel(v.x, v.y)}.`);
         const pend = g.pending(this.me), here = pend.filter(t => t.spot.area === me.area), mine = this.amImpostor ? 'Tu tarea de mentira' : 'Tu tarea';
-        if (here.length) parts.push(here.map(t => `${mine} ${this.taskName(t)} está ${this.rel(t.spot.x, t.spot.y)}.`).join(' '));
+        if (g.lobby) parts.push(this.mode === 'host' ? 'Es la sala de espera: cuando estéis todos, empieza la partida.' : `Es la sala de espera: la partida la empieza ${this.hostName}.`);
+        else if (here.length) parts.push(here.map(t => `${mine} ${this.taskName(t)} está ${this.rel(t.spot.x, t.spot.y)}.`).join(' '));
         else if (pend.length) { const n = this.nearestTask(); parts.push(`${this.amImpostor ? 'Tu tarea de mentira más cercana' : 'Tu tarea más cercana'} es ${this.taskName(n.t)}, ${inPlace(this.areaName(n.t.spot.area))}.`); }
         else parts.push('Ya has hecho todas tus tareas.');
         const { seen, bodies } = g.perceive(this.me);
@@ -2623,6 +2785,7 @@ class ImpostorMatch extends Match {
     myCards() { this.sayTasks(); }
 
     info() {
+        if (this.lobby) { this.tell(this.lobbyInfo(), { keep: true }); return; }
         const g = this.game, me = this.mePl, mine = me.tasks, left = mine.filter(t => !t.done).length;
         const parts = [];
         const n = g.impostorCount();
@@ -2673,6 +2836,17 @@ class ImpostorMatch extends Match {
     }
 
     keysHelp() {
+        if (this.lobby) {
+            const t = [
+                'W, A, S y D, o las flechas: andar por el Comedor. Lo que suena a tu derecha está a tu derecha.',
+                'C: tu color y tu gorro. Cada color suena con su nota; al pasar por cada uno, la oyes.',
+                this.mode === 'host' ? 'E o Enter: empezar la partida.' : `E: saber quién empieza la partida (${this.hostName}).`,
+                'P: el color de cada uno y cómo suenan sus pasos y su nota. F: qué hay cerca. Z: a quién ves. I: quién hay en la sala y las reglas de la partida.',
+                'Espacio: repetir lo último. H: las teclas. Escape: pausa, con los sonidos de la nave, que solo cambian para ti.',
+            ];
+            this.tell(t.join(' ') + this.srKeysTip(), { keep: true });
+            return;
+        }
         const t = [
             'W, A, S y D, o las flechas: andar. W va hacia delante, que es arriba en la pantalla; S, hacia detrás; A, a la izquierda, y D, a la derecha. Lo que suena a tu derecha está a tu derecha.',
             'E o Enter: usar lo que tienes al lado: una tarea, el panel de un sabotaje o una consola. Junto a la mesa del Comedor, pedir una reunión de emergencia.',
@@ -2801,6 +2975,7 @@ class ImpostorMatch extends Match {
 
     // ── Usar, matar y avisar ──────────────────────────
     use() {
+        if (this.lobby) { this.lobbyStart(); return; }
         // El botón Usar, con la basura, pulsa o suelta la palanca.
         if (this.task) { if (this.task.fake) this.cancelPick(); else if (this.task.type === 'basura') this.taskHold(!this.task.down); else this.taskKey('Enter'); return; }
         const g = this.game, me = this.mePl;
@@ -3706,6 +3881,7 @@ class ImpostorMatch extends Match {
             return true;
         }
         if (inVent && /^[1-9]$/.test(k)) { e.preventDefault(); this.ventPick(+k - 1); return true; }
+        if (this.lobby && this.lobbyKey(k, e)) return true;
         if (this.task) {
             if (/^[1-9]$/.test(k) || k === ' ' || k === 'e' || (k === 'Enter' && !e.target?.closest?.('button'))) {
                 e.preventDefault();
