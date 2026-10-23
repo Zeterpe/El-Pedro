@@ -67,8 +67,9 @@ assert.deepStrictEqual(trivialMoves(tvRing(3), 1).map(m => m.to).sort((a, b) => 
 // ── Situaciones concretas ───────────────────────────
 const MINI = {};
 for (const cat of TRIVIAL_CATS) MINI[cat] = Array.from({ length: 8 }, (_, i) => [`¿${cat} ${i}?`, 'Bien', 'Mal uno', 'Mal dos', 'Mal tres', 1 + (i % 3)]);
+// Sin decir nada, quien gana un quesito sigue tirando (la regla de la casa wedgePass se prueba aparte).
 function setup(n = 3, rules = {}) {
-    const g = new TrivialGame({ players: Array.from({ length: n }, (_, i) => ({ name: 'J' + i })), rules, seed: 11, bank: MINI });
+    const g = new TrivialGame({ players: Array.from({ length: n }, (_, i) => ({ name: 'J' + i })), rules: { wedgePass: false, ...rules }, seed: 11, bank: MINI });
     g.startRound();
     g.current = 0;
     g.phase = 'roll';
@@ -109,6 +110,28 @@ const answer = (g, ok) => act(g, { type: 'answer', p: g.actor, choice: ok ? g.an
     assert.strictEqual(g.current, 1);
     assert.strictEqual(r.events[0].answerText, 'Bien', 'al fallar se dice la correcta');
     assert.strictEqual(g.tokens[0].missed[TRIVIAL_BOARD[tvRing(13)].cat], 1);
+}
+{   // Con wedgePass (lo normal), ganar un quesito pasa el turno aunque se acierte; acertar sin quesito, no.
+    assert.strictEqual(TRIVIAL_DEFAULT_RULES.wedgePass, true);
+    const g = setup(3, { streak: 0, wedgePass: true });
+    roll(g, 6); goTo(g, trivialHq('historia'));
+    let r = answer(g, true);
+    assert.deepStrictEqual(kinds(r), ['answer', 'wedge', 'turn']);
+    assert.strictEqual(r.events[1].pass, true);
+    assert.deepStrictEqual(g.tokens[0].wedges, ['historia']);
+    assert.strictEqual(g.current, 1, 'pasa el turno');
+    assert.strictEqual(r.events[2].again, false);
+    assert.strictEqual(g.streak, 0);
+    g.tokens[1].at = tvRing(14);
+    roll(g, 1); goTo(g, tvRing(15));
+    answer(g, true);
+    assert.strictEqual(g.current, 1, 'sin quesito, vuelve a tirar');
+    // Con el último quesito y sin final, gana igual.
+    const u = setup(3, { streak: 0, wedgePass: true, wedges: 3, hubFinal: false });
+    u.tokens[0].wedges = ['geografia', 'espectaculos'];
+    roll(u, 6); goTo(u, trivialHq('historia'));
+    r = answer(u, true);
+    assert.deepStrictEqual(kinds(r), ['answer', 'wedge', 'gameOver']);
 }
 {   // Casilla de volver a tirar: no hay pregunta.
     const g = setup();
@@ -285,6 +308,14 @@ const answer = (g, ok) => act(g, { type: 'answer', p: g.actor, choice: ok ? g.an
     const seen = new Set();
     for (let k = 0; k < 300; k++) { w.phase = 'roll'; w.pick = null; w.act({ type: 'roll', p: 0 }); seen.add(w.dice); }
     assert.strictEqual(seen.size, 7, 'del 1 al 7');
+    // El 7 sale menos: una de cada 14 tiradas (lo normal); los demás, por igual.
+    for (const [odds, lo, hi] of [[14, 0.055, 0.09], [7, 0.12, 0.165]]) {
+        const z = setup(2, { wildOdds: odds });
+        const count = {};
+        for (let k = 0; k < 7000; k++) { z.phase = 'roll'; z.pick = null; z.act({ type: 'roll', p: 0 }); count[z.dice] = (count[z.dice] || 0) + 1; }
+        assert(count[7] / 7000 > lo && count[7] / 7000 < hi, `el 7 con wildOdds ${odds}: ${count[7]}`);
+        for (let f = 1; f <= 6; f++) assert(Math.abs(count[f] / (7000 - count[7]) - 1 / 6) < 0.03, `el ${f}: ${count[f]}`);
+    }
 }
 {   // El rebote: quien falla una pregunta de quesito se la pasa al siguiente, que se lo lleva si acierta.
     const g = setup(3, { streak: 0 });

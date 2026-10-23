@@ -18,9 +18,11 @@ const TRIVIAL_DEFAULT_RULES = {
     hubFinal: true,         // con los quesitos, hay que llegar al centro y acertar la pregunta final (false: ganas al conseguirlos)
     finalPick: 'rivales',   // quién elige la categoría de la pregunta final: rivales · azar · tu
     rollAgain: true,        // si aciertas, vuelves a tirar
+    wedgePass: true,        // si ganas un quesito, pasa el turno aunque aciertes
     streak: 3,              // tras tantos aciertos seguidos, pasa el turno aunque aciertes (0: sin límite)
     level: 'todas',         // las preguntas: todas (mezcla) · faciles · medias · dificiles
     wildDie: true,          // el dado va del 1 al 7: el 7 es el quesito (eliges uno que te falte y te hacen una pregunta muy difícil)
+    wildOdds: 14,           // el 7 sale una de cada tantas tiradas; los otros seis números se reparten el resto por igual
     rebound: true,          // si alguien falla una pregunta de quesito, rebota al siguiente, que se lo lleva si acierta
     answerTime: 60,         // segundos para contestar, desde que se acaba de leer la pregunta (0: sin límite)
 };
@@ -269,7 +271,8 @@ class TrivialGame {
         if (this.phase !== 'roll') return 'Ahora no toca tirar el dado.';
         const faces = this.rules.wildDie ? TRIVIAL_WILD : 6;
         const forced = this.nextDice.length ? this.nextDice.shift() : null;
-        const value = forced >= 1 && forced <= faces ? forced : this.rng.int(faces) + 1;
+        const odds = Math.max(2, this.rules.wildOdds | 0 || 14);
+        const value = forced >= 1 && forced <= faces ? forced : faces === TRIVIAL_WILD && this.rng.int(odds) === 0 ? TRIVIAL_WILD : this.rng.int(6) + 1;
         this.turns++;
         this.dice = value;
         if (value === TRIVIAL_WILD) {
@@ -413,8 +416,10 @@ class TrivialGame {
         if (q.wedge) {
             tok.wedges.push(q.cat);
             const all = tok.wedges.length >= this.rules.wedges;
-            this._emit({ t: 'wedge', p, side: q.side, cat: q.cat, count: tok.wedges.length, all });
+            const pass = !!this.rules.wedgePass;
+            this._emit({ t: 'wedge', p, side: q.side, cat: q.cat, count: tok.wedges.length, all, pass });
             if (all && !this.rules.hubFinal) return this._gameOver(tok.members.slice());
+            if (pass) { this._pass(); return null; }
         }
         this.streak++;
         if (this.rules.rollAgain && this.rules.streak && this.streak >= this.rules.streak) {

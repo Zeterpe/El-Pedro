@@ -156,6 +156,8 @@ class TrivialMatch extends Match {
         this.promptedKey = null;
         this.cut = new Set();          // respuestas quitadas por la pista (práctica)
         this.clock = null;             // la cuenta atrás para contestar: { key, left, reading, done }
+        this.seen = null;              // la cuenta atrás de quien contesta en otro aparato de la sala: { p, qid, left, reading }
+        this.sentClock = '';           // lo último que has mandado de tu cuenta atrás
         this.advisor = new TrivialBot(this.game, this.me, { level: 'dificil' }, makeRng(this.seed + 4242));
         this.syncShown();
     }
@@ -386,7 +388,7 @@ class TrivialMatch extends Match {
                 </svg>
                 <div id="tq" class="tq" hidden>
                     <div class="tq-card">
-                        <div class="tq-head"><span class="tq-ico" aria-hidden="true"></span><span class="tq-cat"></span><span class="tq-kind"></span><span class="tq-time" aria-hidden="true" hidden></span></div>
+                        <div class="tq-head"><span class="tq-ico" aria-hidden="true"></span><span class="tq-cat"></span><span class="tq-kind"></span><span class="tq-time" role="timer" hidden></span></div>
                         <p class="tq-text"></p>
                         <div class="tq-answers" role="group"></div>
                         <p class="tq-foot"></p>
@@ -637,7 +639,7 @@ class TrivialMatch extends Match {
         this.clock = null;
         if (!secs || this.practice) return;
         const key = this.stateKey(), clock = this.clock = { key, left: secs, reading: true, done: false };
-        Promise.resolve(talk).then(() => { clock.reading = false; });
+        Promise.resolve(talk).then(() => { clock.reading = false; this.renderClock(); });
         this.renderClock();
         (async () => {
             while (!this.stopped && this.clock === clock) {
@@ -659,13 +661,53 @@ class TrivialMatch extends Match {
     }
 
     renderClock() {
+        this.shareClock();
         const el = document.querySelector('#tq .tq-time');
         if (!el) return;
-        const c = this.clock;
-        el.hidden = !c || c.done;
+        const c = this.clock && !this.clock.done ? this.clock : this.seenClock();
+        el.hidden = !c;
         if (!c) return;
         el.textContent = `⏱ ${c.left}`;
+        el.setAttribute('aria-label', c === this.clock ? `Te quedan ${c.left} segundos` : `A ${this.names[c.p]} le quedan ${c.left} segundos`);
         el.classList.toggle('low', c.left <= 10);
+    }
+
+    /** La cuenta atrás de quien contesta en otro aparato, si sigue siendo la de la pregunta que se ve. */
+    seenClock() {
+        const c = this.seen, q = this.shown.q;
+        return c && q && !this.shown.result && q.p === c.p && q.qid === c.qid ? c : null;
+    }
+
+    /** En una sala, tu cuenta atrás la ven todos: la mandas cada vez que cambia. */
+    shareClock() {
+        const c = this.clock, q = this.shown.q;
+        if (!c || c.done || !q || q.p !== this.me || !this.online || this.mode === 'local') { if (!c) this.sentClock = ''; return; }
+        const sig = `${q.qid}|${c.left}|${c.reading ? 1 : 0}`;
+        if (sig === this.sentClock) return;
+        this.sentClock = sig;
+        const msg = { t: 'clock', p: this.me, qid: q.qid, left: c.left, reading: c.reading };
+        if (this.mode === 'host') this.online.broadcastAll(msg);
+        else this.online.send(msg);
+    }
+
+    /** Llega la cuenta atrás de otro jugador (al anfitrión, de un invitado, que la reparte; al invitado, del anfitrión). */
+    clockFrom(p, m) {
+        if (p === this.me || !this.seats[p] || typeof m.qid !== 'string') return;
+        const left = Math.max(0, Math.min(999, m.left | 0));
+        const prev = this.seenClock();
+        this.seen = { p, qid: m.qid.slice(0, 40), left, reading: !!m.reading };
+        if (this.mode === 'host') this.online.broadcastAll({ t: 'clock', p, qid: this.seen.qid, left, reading: this.seen.reading }, this.seats[p].conn);
+        const c = this.seenClock();
+        this.renderClock();
+        if (!c || (prev && prev.left === left)) return;
+        // Quien no ve la pantalla también se entera de cuánto le queda.
+        if (left === 10) { this.audio.tick(false); if (!this.visual && !this.brief) this.notice(`A ${this.names[p]} le quedan 10 segundos.`); }
+        else if (left > 0 && left <= 5) this.audio.tick(left <= 3);
+    }
+
+    remoteInstant(p, msg) {
+        if (msg.t === 'clock') { if (this.game.phase === 'answer' && this.game.actor === p) this.clockFrom(p, msg); return true; }
+        return false;
     }
 
     // ── Animaciones ───────────────────────────────────
@@ -929,6 +971,7 @@ class TrivialMatch extends Match {
                 else text = `¡${v.Name(e.p)} se lleva el quesito de ${this.catName(e.cat)}!`;
                 if (e.all && g.rules.hubFinal) text += mine ? ' ¡Ya tenéis todos! Ahora, al centro para la pregunta final.'.replace('tenéis', g.teamPlay ? 'tenéis' : 'tienes') : ' Ya los tiene todos: va a por la pregunta final.';
                 else if (!e.all) text += mine ? ` ${g.teamPlay ? 'Lleváis' : 'Llevas'} ${e.count} de ${need}.` : ` Lleva ${e.count}.`;
+                if (e.pass && !(e.all && !g.rules.hubFinal)) text += ' Pasa el turno.';
                 if (mine) B.banner('¡Quesito!', this.catName(e.cat));
                 B.bubble(e.p, `¡Quesito de ${this.catShort(e.cat)}!`, 2200);
                 B.status(text.replace(/[¡!]/g, ''));
@@ -990,6 +1033,7 @@ class TrivialMatch extends Match {
         else parts.push(S.turn === this.me ? 'Es tu turno.' : `Es el turno de ${v.name(S.turn)}.`);
         if (S.die) parts.push(S.die === TRIVIAL_WILD ? 'Último dado: el quesito.' : `Último dado: ${S.die}.`);
         if (this.clock && !this.clock.done) parts.push(`Te quedan ${this.clock.left} segundos para contestar.`);
+        else if (this.seenClock()) parts.push(`A ${v.name(this.seen.p)} le ${this.seen.left === 1 ? 'queda 1 segundo' : `quedan ${this.seen.left} segundos`} para contestar${this.seen.reading ? ', y aún no empieza a correr' : ''}.`);
         parts.push(`Para ganar hacen falta ${this.needed()} quesitos${g.rules.hubFinal ? ' y acertar la pregunta final en el centro' : ''}.`);
         parts.push('Quesitos: ' + Txt.list(g.tokens.map((_, s) => `${this.sideName(s)} ${S.wedges[s].length}`)) + '.');
         const t = g.tokens[this.side];
@@ -1014,7 +1058,7 @@ class TrivialMatch extends Match {
         // Mientras te la vuelvo a leer, el tiempo no corre.
         const talk = this.speech.say(this.questionSpeech(q) + (this.clock && !this.clock.done ? ` Te quedan ${this.clock.left} segundos.` : ''), { interrupt: true, keep: true });
         const c = this.clock;
-        if (c) { c.reading = true; Promise.resolve(talk).then(() => { if (this.clock === c) c.reading = false; }); }
+        if (c) { c.reading = true; this.renderClock(); Promise.resolve(talk).then(() => { if (this.clock === c) { c.reading = false; this.renderClock(); } }); }
     }
 
     keysHelp() {
