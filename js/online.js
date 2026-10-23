@@ -589,6 +589,8 @@ const Online = {
                 break;
             }
             case 'closed': this.clientClosed(true); break;
+            // La cuenta atrás de quien contesta en el Trivial: se enseña al momento, sin esperar a que se acabe de contar lo anterior.
+            case 'clock': this.app.match?.clockFrom?.(m.p | 0, m); break;
             default:
                 if (this._waiter) { const w = this._waiter; this._waiter = null; w(m); } else this.queue.push(m);
         }

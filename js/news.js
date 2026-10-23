@@ -96,6 +96,13 @@ const NEWS = {
 
     trivial: [
         {
+            date: '2026-10-23', items: [
+                'El 7 del dado, el del quesito, sale la mitad que los demás números: una de cada 14 tiradas. En las reglas de la casa puedes hacer que salga más o menos.',
+                'Si ganas un quesito, pasa el turno aunque aciertes: juega el siguiente. Se puede quitar en las reglas de la casa.',
+                'En una sala, todos ven el tiempo que le queda a quien contesta, también quien mira la partida. Con la I se oye, a los 10 segundos se avisa y en los últimos cinco suena el reloj.',
+            ],
+        },
+        {
             date: '2026-10-20', items: [
                 'Unas 1700 preguntas nuevas: ya hay unas 3800, con más preguntas difíciles en cada categoría y, en Espectáculos, anime y series famosas.',
                 'Seis casillas de volver a tirar en vez de doce: una entre cada dos quesitos.',
