@@ -32,6 +32,8 @@
      sabe dónde está.
    · En la práctica de impostor son muñecos: pasean y
      poco más.
+   · En la sala de espera, antes de la partida, pasean
+     por el Comedor con los demás.
    Solo saben lo que ven y oyen, como cualquiera.
    Usan los personajes de ai.js, que son los mismos
    en todos los juegos.
@@ -515,6 +517,15 @@ class ImpostorBot {
     /** Su siguiente tarea, la más cercana; si no le quedan, una sala cualquiera. Los impostores fingen tareas de vez en cuando. */
     pickGoal() {
         const g = this.game, pl = this.me_;
+        // En la sala de espera, pasean por el Comedor.
+        if (g.lobby) {
+            const r = SHIP.byId[IMPOSTOR_LOBBY_ROOM];
+            for (let k = 0; k < 12; k++) {
+                const x = this.rng.range(r.x + 1, r.x + r.w - 1), y = this.rng.range(r.y + 1, r.y + r.h - 1);
+                if (!shipBlocked(x, y, IMPOSTOR_RADIUS + 0.1)) { this.goal = { x, y, task: null }; this.path = null; return; }
+            }
+            this.goal = null; return;
+        }
         // Entre tarea y tarea, a veces se dan una vuelta por otra sala, como cualquiera.
         const stroll = this.rng.chance(0.35);
         // Los impostores no fingen las tareas que se ven: se vería que no pasa nada.
@@ -756,6 +767,7 @@ if (typeof module !== 'undefined') {
     Object.assign(globalThis, {
         shipPath: I.shipPath, shipBlocked: I.shipBlocked, shipStandAt: I.shipStandAt, pathLength: I.pathLength, SHIP: I.SHIP,
         IMPOSTOR_CONSOLE: I.IMPOSTOR_CONSOLE, IMPOSTOR_USE: I.IMPOSTOR_USE, IMPOSTOR_TASKS: I.IMPOSTOR_TASKS, IMPOSTOR_ROLES: I.IMPOSTOR_ROLES,
+        IMPOSTOR_LOBBY_ROOM: I.IMPOSTOR_LOBBY_ROOM, IMPOSTOR_RADIUS: I.IMPOSTOR_RADIUS,
     });
     module.exports = { ImpostorBot, IMPOSTOR_LEVELS, IMPOSTOR_BLAME };
 }

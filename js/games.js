@@ -411,6 +411,7 @@ const GAMES = {
         roundWord: null,
         maxPlayers: 10,
         lateJoin: false,                                 // ni se mira desde fuera ni se ocupa el sitio de la máquina a mitad
+        waitRoom: true,                                  // en una sala, antes de cada partida, la sala de espera de la nave (andar y elegir color)
         rivalWords: ['compañero', 'compañeros'],
         rivalLevelLabel: 'Tus compañeros',
         levelText: { facil: 'despistados', normal: 'normales', dificil: 'listos y rápidos', mezcla: 'de todo un poco' },

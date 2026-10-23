@@ -188,6 +188,8 @@ const Dialog = {
             b.textContent = it.label;
             if (it.hint) b.setAttribute('aria-label', `${it.label}. ${it.hint}`);
             if (it.disabled) b.disabled = true;
+            // Al pasar por una opción, algo que suena (en El Impostor, la nota de cada color).
+            if (it.onFocus) b.addEventListener('focus', it.onFocus);
             b.addEventListener('click', () => { UI.audio.select(); this.close(it.value); });
             list.appendChild(b);
         });

@@ -59,6 +59,8 @@ class Match {
     get roundWord() { return 'ronda'; }
     /** Al acabar la partida, jugar otra con la misma gente. */
     get againLabel() { return 'Jugar otra vez con los mismos rivales'; }
+    /** Al acabar la partida en una sala, quien la ha creado: otra con la misma gente. */
+    get hostAgainLabel() { return 'Otra partida en esta mesa'; }
     /** Lo que dura cada momento sin voz (modo visual), en milisegundos. */
     get beats() { return {}; }
     setup() { }
@@ -298,7 +300,7 @@ class Match {
         Board.status(who);
         await this.say(who, { keep: true });
         const items = this.mode === 'host'
-            ? [{ label: 'Otra partida en esta mesa', value: 'again' }, { label: 'Volver a la sala para elegir otro juego', value: 'lobby' }, { label: 'Cerrar la sala y salir', value: 'menu' }]
+            ? [{ label: this.hostAgainLabel, value: 'again' }, { label: 'Volver a la sala para elegir otro juego', value: 'lobby' }, { label: 'Cerrar la sala y salir', value: 'menu' }]
             : [{ label: this.againLabel, value: 'again' }, { label: 'Salir al salón', value: 'menu' }];
         const r = await Dialog.open({ title: 'Fin de la partida', text: this.visual ? `${who} ${this.resultText()}` : who, speak: 'Fin de la partida.', items, cancel: this.mode === 'host' ? 'lobby' : 'menu' });
         if (this.stopped) return;

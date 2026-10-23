@@ -15,6 +15,11 @@
    cartas de nadie. Puede ocupar el sitio de un rival
    de la máquina: en la sala de espera, solo; a mitad
    de partida, si quien ha creado la sala se lo da.
+   En El Impostor, antes de cada partida se pasa por la
+   sala de espera de la nave: todos andan por el Comedor
+   y eligen color hasta que quien ha creado la sala
+   empieza. Quien llega o se va mientras, entra o sale
+   de la nave sin cortar nada.
    ============================================= */
 'use strict';
 
@@ -51,6 +56,10 @@ const Online = {
     get rules() { return this.app.settings[this.G.rulesKey]; },
     /** ¿Se puede mirar la partida empezada y ocupar el sitio de la máquina? (En El Impostor, no.) */
     get lateJoin() { return this.G.lateJoin !== false; },
+    /** ¿Tiene este juego sala de espera en la nave antes de empezar? (El Impostor) */
+    get waitRoom() { return !!this.G.waitRoom; },
+    /** Anfitrión: ¿estáis en la sala de espera de la nave? */
+    get waiting() { const m = this.app.match; return !!(m && m.mode === 'host' && !m.stopped && m.lobby); },
 
     /** Anfitrión: quienes tienen sitio en la mesa y quienes solo miran (watch). */
     seated() { return this.table.filter(s => !s.away && !s.watch); },
@@ -155,6 +164,13 @@ const Online = {
         const entry = { name, kind: 'remote', conn, cid, watch: true, look: this.cleanLook(m.look) };
         this.table.push(entry);
         this.app.audio.select();
+        if (this.waiting) {
+            // En la sala de espera de la nave: entra en ella con los demás, si hay sitio.
+            const [placed] = this.seatWatchers();
+            if (placed) this.refreshWaiting(`${name} ha entrado en la sala de espera.`);
+            else { this.app.match.notice(`${name} ha entrado en la sala: la mesa está llena, así que espera fuera.`); this.sendLobby(entry); }
+            return;
+        }
         if (this.playing) {
             const match = this.app.match;
             // Se había ido de la partida con «salir» y vuelve: recupera su sitio.
@@ -216,6 +232,13 @@ const Online = {
         if (i < 0) return;
         const entry = this.table[i];
         const match = this.app.match;
+        if (this.waiting) {
+            // De la sala de espera se sale sin más: la nave empieza otra vez sin esa persona.
+            this.table.splice(i, 1);
+            const sat = this.seatWatchers().map(x => this.seatedText(x));
+            if (match.seats.some(s => s.conn === conn)) this.refreshWaiting([`${entry.name} se ha ido de la sala.`, ...sat].join(' '));
+            return;
+        }
         const seat = this.playing ? match.seats.findIndex(s => s.conn === conn && s.kind === 'remote') : -1;
         if (seat >= 0) {
             // En plena partida: juega la máquina por esa persona y le guardamos el sitio por si vuelve.
@@ -247,6 +270,18 @@ const Online = {
         return { color: Number.isInteger(c) && c >= 0 && c < IMPOSTOR_COLORS.length ? c : null, hat: Number.isInteger(h) && h >= 0 && h < IMPOSTOR_HATS.length ? h : 0 };
     },
     lookOf(s) { return s.look ? { color: s.look.color, hat: s.look.hat } : {}; },
+    /** Anfitrión: alguien ha cambiado de color en la sala de espera de la nave (seat: su sitio en la partida). */
+    lookTaken(seat, look) {
+        const e = this.entryOf(seat);
+        if (e) e.look = this.cleanLook(look);
+    },
+    /** La persona (o el rival de la máquina) de la sala que tiene un sitio de la partida. */
+    entryOf(seat) {
+        if (!seat) return null;
+        if (seat.kind === 'me') return this.table.find(s => s.kind === 'me');
+        if (seat.kind === 'bot') return this.table.find(s => s.kind === 'bot' && s.char?.id === seat.char?.id);
+        return this.table.find(s => s.kind === 'remote' && (seat.cid ? s.cid === seat.cid : s.conn === seat.conn));
+    },
     /** Anfitrión: alguien cambia de color o de gorro en la sala. */
     takeLook(entry, m) {
         if (!entry) return;
@@ -258,24 +293,13 @@ const Online = {
     /** En la sala de El Impostor: elige tu color y tu gorro. Los colores que ya tiene otro se dicen; si pides uno, se lo queda quien está antes. */
     async pickLook() {
         const s = this.app.settings, ps = this.playersOf();
-        const taken = new Map(ps.filter(p => !p.me && p.color != null).map(p => [p.color, p.name]));
-        const color = await Dialog.open({
-            title: 'Tu color', text: 'Cada color suena siempre igual: con su nota y sus pasos.',
-            items: [{ label: 'Al azar', value: 'azar' }, ...IMPOSTOR_COLORS.map((c, i) => ({ label: `${cap(c.name)}${taken.has(i) ? `, lo ha pedido ${taken.get(i)}` : ''}`, value: 'c' + i })), { label: 'Volver', value: 'back' }],
-            cancel: 'back', focusIndex: s.impostorColor == null ? 0 : s.impostorColor + 1,
-        });
-        if (!color || color === 'back') return;
-        const hat = await Dialog.open({
-            title: 'Tu gorro',
-            items: [...IMPOSTOR_HATS.map((h, i) => ({ label: i ? cap(h) : 'Sin gorro', value: 'h' + i })), { label: 'Volver', value: 'back' }],
-            cancel: 'back', focusIndex: s.impostorHat || 0,
-        });
-        if (!hat || hat === 'back') return;
-        s.impostorColor = color === 'azar' ? null : +color.slice(1);
-        s.impostorHat = +hat.slice(1);
+        const taken = new Map(ps.filter(p => !p.me && p.color != null).map(p => [p.color, { name: p.name, person: p.kind !== 'bot' }]));
+        const look = await impostorLookDialog(this.app, { taken, random: true, color: s.impostorColor, hat: s.impostorHat || 0 });
+        if (!look) return;
+        s.impostorColor = look.color;
+        s.impostorHat = look.hat;
         this.app.save();
-        const look = this.myLook();
-        UI.say(`Tu color: ${look.color == null ? 'al azar' : IMPOSTOR_COLORS[look.color].name}${look.hat ? `, con ${IMPOSTOR_HATS[look.hat]}` : ''}.`);
+        UI.say(`Tu color: ${look.color == null ? 'al azar' : `${IMPOSTOR_COLORS[look.color].name}, con la nota ${IMP_NOTE_NAMES[look.color]}`}${look.hat ? `, y ${IMPOSTOR_HATS[look.hat]}` : ''}.`);
         if (this.role === 'host') { const me = this.table.find(x => x.kind === 'me'); if (me) this.takeLook(me, look); }
         else this.net?.send({ t: 'look', ...look });
     },
@@ -340,29 +364,64 @@ const Online = {
         this.renderLobby();
     },
 
-    start() {
+    /** Empezar: en El Impostor, primero la sala de espera de la nave; si ya estáis en ella, la partida. */
+    start() { return this.begin(this.waitRoom && !this.waiting); },
+
+    /** Desde la sala de espera de la nave: empieza la partida. */
+    startGame() {
+        if (!this.waiting) return;
+        this.syncLooks();
+        this.begin(false);
+    },
+
+    /** Lo que llevaba cada uno en la sala de espera (los de la máquina, también): color, gorro y dónde estaba. */
+    syncLooks() {
+        const m = this.app.match;
+        if (!m?.lobby) return;
+        m.seats.forEach((seat, p) => {
+            const e = this.entryOf(seat), pl = m.game.players[p];
+            if (!e || !pl) return;
+            e.look = { color: pl.color, hat: pl.hat };
+            e.at = { x: pl.x, y: pl.y };
+        });
+    },
+
+    /** Alguien entra o se va de la sala de espera: la nave empieza otra vez con quien hay, cada uno donde estaba. */
+    refreshWaiting(note) {
+        this.syncLooks();
+        this.begin(true, note);
+    },
+
+    /** lobby: a la sala de espera de la nave (note: lo que se dice a quien ya estaba en ella). */
+    begin(lobby = false, note = null) {
+        const was = this.waiting;
         this.table = this.table.filter(s => !s.away);
         // Quien miraba la partida anterior se sienta, si hay sitio o un rival de la máquina.
         this.seatWatchers();
         const table = this.seated();
-        if (table.length < 2) {
+        if (!was) for (const s of this.table) delete s.at;
+        // En la sala de espera puedes estar solo, esperando a tus amigos.
+        if (table.length < (lobby ? 1 : 2)) {
             this.app.audio.error();
             UI.say('Necesitas al menos otro jugador: espera a tus amigos o añade un rival de la máquina.');
             return;
         }
         if (table.length > this.G.maxPlayers) { this.app.audio.error(); UI.say(`En ${this.G.name} caben ${this.G.maxPlayers} jugadores.`); return; }
         for (const s of this.table) s.viewing = false;
-        const rules = { ...this.rules };
+        const rules = { ...this.rules, ...(lobby ? { lobby: true } : {}) };
         const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
-        const seats = table.map(s => ({ name: s.name, kind: s.kind, char: s.char, conn: s.conn, cid: s.cid, ...this.lookOf(s) }));
+        const seats = table.map(s => ({ name: s.name, kind: s.kind, char: s.char, conn: s.conn, cid: s.cid, ...this.lookOf(s), ...(lobby && s.at ? { at: s.at } : {}) }));
         const me = table.findIndex(s => s.kind === 'me');
         this.gid = (this.gid || 0) + 1;
         this.seats = seats;
         this.startRules = rules;
         this.acks = new Map();
         this.seq = 0;
-        seats.forEach((s, i) => { if (s.kind === 'remote') this.sendStart(i); });
-        this.app.startOnline({ game: this.game, mode: 'host', seats, me, rules, seed, gid: this.gid });
+        // Quien ya estaba en la sala de espera solo oye quién ha entrado o se ha ido; quien llega, todo.
+        this.startNote = lobby && was ? note : null;
+        seats.forEach((s, i) => { if (s.kind === 'remote') this.sendStart(i, false, null, s.at ? this.startNote : null); });
+        this.app.startOnline({ game: this.game, mode: 'host', seats, me, rules, seed, gid: this.gid, note: this.startNote });
+        if (!lobby) for (const s of this.table) delete s.at;
         for (const w of this.watchers()) {
             if (this.lateJoin) this.sendWatch(w, false);
             else this.sendLobby(w);
@@ -370,11 +429,11 @@ const Online = {
     },
 
     /** Le dice a un jugador que empieza la partida (o que vuelve a ella; took: ocupa el sitio de ese rival). */
-    sendStart(i, rejoin = false, took = null) {
+    sendStart(i, rejoin = false, took = null, note = null) {
         const seats = this.app.match?.seats && rejoin ? this.app.match.seats : this.seats;
         const host = seats.findIndex(x => x.kind === 'me');
         this.net.send(seats[i].conn, {
-            t: 'start', game: this.game, me: i, rules: this.app.match?.game?.rules && rejoin ? this.app.match.game.rules : this.startRules, gid: this.gid, host, rejoin, took,
+            t: 'start', game: this.game, me: i, rules: this.app.match?.game?.rules && rejoin ? this.app.match.game.rules : this.startRules, gid: this.gid, host, rejoin, took, note,
             seats: seats.map((x, j) => ({ name: x.name, kind: j === i ? 'me' : (x.kind === 'bot' ? 'bot' : 'remote') })),
         });
     },
@@ -526,7 +585,7 @@ const Online = {
                 this.dropWaiter();
                 this.queue = [];
                 this.hostSeat = m.host ?? 0;
-                this.app.startOnline({ game: m.game, mode: 'client', seats: m.seats, me: m.me, rules: m.rules, online: this, gid: m.gid, rejoin: !!m.rejoin, hostSeat: this.hostSeat, watch: !!m.watch, took: m.took || null });
+                this.app.startOnline({ game: m.game, mode: 'client', seats: m.seats, me: m.me, rules: m.rules, online: this, gid: m.gid, rejoin: !!m.rejoin, hostSeat: this.hostSeat, watch: !!m.watch, took: m.took || null, note: m.note ? String(m.note).slice(0, 300) : null });
                 break;
             }
             case 'closed': this.clientClosed(true); break;
@@ -597,7 +656,7 @@ const Online = {
         $('lobby-players').innerHTML = '';
         $('lobby-game').innerHTML = '';
         $('lobby-game-text').textContent = '';
-        for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-shuffle', 'lobby-rules', 'lobby-start', 'lobby-listen', 'lobby-look']) $(id).hidden = true;
+        for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-shuffle', 'lobby-rules', 'lobby-start', 'lobby-listen', 'lobby-look', 'lobby-sound']) $(id).hidden = true;
         $('lobby-leave').textContent = 'Cancelar';
         UI.show('lobby', { intro: text, focus: 'lobby-leave' });
     },
@@ -690,13 +749,14 @@ const Online = {
             ul.appendChild(li);
         });
         $('lobby-look').hidden = !looks;
+        $('lobby-sound').hidden = !looks;
         $('lobby-pairs').textContent = this.pairsText();
         for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-shuffle', 'lobby-rules', 'lobby-start']) $(id).hidden = !host;
         const rules = host ? this.rules : this.lobby?.rules;
         $('lobby-rules-title').textContent = `Reglas de esta mesa: ${G.name}`;
         $('lobby-rules-text').textContent = rules ? G.summary(rules) : '';
         $('lobby-listen').hidden = host || !rules;
-        $('lobby-start').querySelector('.lbl').textContent = `Empezar: ${G.name}`;
+        $('lobby-start').querySelector('.lbl').textContent = G.waitRoom ? `Entrar en la sala de espera: ${G.name}` : `Empezar: ${G.name}`;
         $('lobby-leave').textContent = host ? 'Cerrar la sala' : 'Salir de la sala';
     },
 
