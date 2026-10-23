@@ -86,7 +86,7 @@ const Online = {
         }
         if (this.net !== net) { net.close(); return; }   // se canceló mientras abría: se cierra esa sala
         this.code = code;
-        this.table = [{ name: this.cleanName(this.app.settings.playerName), kind: 'me', cid: clientId() }];
+        this.table = [{ name: this.cleanName(this.app.settings.playerName), kind: 'me', cid: clientId(), look: this.myLook() }];
         this.app.keepAwake(true);
         this.showLobby(true);
     },
@@ -110,6 +110,7 @@ const Online = {
 
     hostMessage(conn, m) {
         if (m.t === 'hello') return this.hello(conn, m);
+        if (m.t === 'look') return this.takeLook(this.table.find(s => s.conn === conn), m);
         if (m.t === 'ack') { if (m.gid === this.gid) this.acks.set(conn, Math.max(this.acks.get(conn) || 0, m.seq | 0)); return; }
         if (m.t === 'bye') { this.hostClose(conn, true); try { conn.close(); } catch (_) { /* nada */ } return; }
         const match = this.app.match;
@@ -133,6 +134,7 @@ const Online = {
         if (old) {
             const prev = old.conn;
             old.conn = conn; old.away = false;
+            if (m.look) old.look = this.cleanLook(m.look);
             if (prev && prev !== conn) { try { prev.close(); } catch (_) { /* nada */ } }
             const match = this.app.match;
             const seat = this.playing ? match.seats.findIndex(s => s.cid === cid) : -1;
@@ -150,7 +152,7 @@ const Online = {
         }
         if (this.table.filter(s => !s.away).length >= this.G.maxPlayers + MAX_WATCHERS) return this.refuse(conn, 'La sala está llena: no caben más personas, ni siquiera a mirar.');
         const name = this.uniqueName(this.cleanName(m.name));
-        const entry = { name, kind: 'remote', conn, cid, watch: true };
+        const entry = { name, kind: 'remote', conn, cid, watch: true, look: this.cleanLook(m.look) };
         this.table.push(entry);
         this.app.audio.select();
         if (this.playing) {
@@ -232,8 +234,50 @@ const Online = {
     lobbyMessage() {
         return {
             t: 'lobby', code: this.code, game: this.game, rules: { ...this.rules }, playing: this.playing,
-            players: this.table.filter(s => !s.away).map(s => ({ name: s.name, kind: s.kind === 'me' ? 'host' : s.kind, watch: !!s.watch })),
+            players: this.table.filter(s => !s.away).map(s => ({ name: s.name, kind: s.kind === 'me' ? 'host' : s.kind, watch: !!s.watch, ...this.lookOf(s) })),
         };
+    },
+
+    // ── El color y el gorro (El Impostor) ─────────────
+    /** Los tuyos, de tus ajustes. */
+    myLook() { return { color: this.app.settings.impostorColor ?? null, hat: this.app.settings.impostorHat || 0 }; },
+    /** Lo que manda un invitado, sin nada raro. */
+    cleanLook(l) {
+        const c = l?.color, h = l?.hat;
+        return { color: Number.isInteger(c) && c >= 0 && c < IMPOSTOR_COLORS.length ? c : null, hat: Number.isInteger(h) && h >= 0 && h < IMPOSTOR_HATS.length ? h : 0 };
+    },
+    lookOf(s) { return s.look ? { color: s.look.color, hat: s.look.hat } : {}; },
+    /** Anfitrión: alguien cambia de color o de gorro en la sala. */
+    takeLook(entry, m) {
+        if (!entry) return;
+        entry.look = this.cleanLook(m);
+        if (this.playing) return;
+        this.broadcastLobby();
+        this.renderLobby();
+    },
+    /** En la sala de El Impostor: elige tu color y tu gorro. Los colores que ya tiene otro se dicen; si pides uno, se lo queda quien está antes. */
+    async pickLook() {
+        const s = this.app.settings, ps = this.playersOf();
+        const taken = new Map(ps.filter(p => !p.me && p.color != null).map(p => [p.color, p.name]));
+        const color = await Dialog.open({
+            title: 'Tu color', text: 'Cada color suena siempre igual: con su nota y sus pasos.',
+            items: [{ label: 'Al azar', value: 'azar' }, ...IMPOSTOR_COLORS.map((c, i) => ({ label: `${cap(c.name)}${taken.has(i) ? `, lo ha pedido ${taken.get(i)}` : ''}`, value: 'c' + i })), { label: 'Volver', value: 'back' }],
+            cancel: 'back', focusIndex: s.impostorColor == null ? 0 : s.impostorColor + 1,
+        });
+        if (!color || color === 'back') return;
+        const hat = await Dialog.open({
+            title: 'Tu gorro',
+            items: [...IMPOSTOR_HATS.map((h, i) => ({ label: i ? cap(h) : 'Sin gorro', value: 'h' + i })), { label: 'Volver', value: 'back' }],
+            cancel: 'back', focusIndex: s.impostorHat || 0,
+        });
+        if (!hat || hat === 'back') return;
+        s.impostorColor = color === 'azar' ? null : +color.slice(1);
+        s.impostorHat = +hat.slice(1);
+        this.app.save();
+        const look = this.myLook();
+        UI.say(`Tu color: ${look.color == null ? 'al azar' : IMPOSTOR_COLORS[look.color].name}${look.hat ? `, con ${IMPOSTOR_HATS[look.hat]}` : ''}.`);
+        if (this.role === 'host') { const me = this.table.find(x => x.kind === 'me'); if (me) this.takeLook(me, look); }
+        else this.net?.send({ t: 'look', ...look });
     },
 
     sendLobby(entry) {
@@ -310,7 +354,7 @@ const Online = {
         for (const s of this.table) s.viewing = false;
         const rules = { ...this.rules };
         const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
-        const seats = table.map(s => ({ name: s.name, kind: s.kind, char: s.char, conn: s.conn, cid: s.cid }));
+        const seats = table.map(s => ({ name: s.name, kind: s.kind, char: s.char, conn: s.conn, cid: s.cid, ...this.lookOf(s) }));
         const me = table.findIndex(s => s.kind === 'me');
         this.gid = (this.gid || 0) + 1;
         this.seats = seats;
@@ -447,7 +491,7 @@ const Online = {
         if (this.net !== net) return;
         this.code = code;
         this.app.keepAwake(true);
-        net.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id, id: clientId() });
+        net.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id, id: clientId(), look: this.myLook() });
     },
 
     clientNet() {
@@ -527,7 +571,7 @@ const Online = {
             try {
                 await net.connect(code);
                 if (this.net !== net || this.role !== 'client') return;
-                net.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id, id: clientId() });
+                net.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id, id: clientId(), look: this.myLook() });
                 this.reconnecting = false;
                 say('Conexión recuperada.');
                 return;
@@ -553,7 +597,7 @@ const Online = {
         $('lobby-players').innerHTML = '';
         $('lobby-game').innerHTML = '';
         $('lobby-game-text').textContent = '';
-        for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-shuffle', 'lobby-rules', 'lobby-start', 'lobby-listen']) $(id).hidden = true;
+        for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-shuffle', 'lobby-rules', 'lobby-start', 'lobby-listen', 'lobby-look']) $(id).hidden = true;
         $('lobby-leave').textContent = 'Cancelar';
         UI.show('lobby', { intro: text, focus: 'lobby-leave' });
     },
@@ -576,7 +620,7 @@ const Online = {
     },
 
     playersOf() {
-        if (this.role === 'host') return this.table.filter(s => !s.away).map(s => ({ name: s.name, kind: s.kind === 'me' ? 'host' : s.kind, me: s.kind === 'me', watch: !!s.watch }));
+        if (this.role === 'host') return this.table.filter(s => !s.away).map(s => ({ name: s.name, kind: s.kind === 'me' ? 'host' : s.kind, me: s.kind === 'me', watch: !!s.watch, ...this.lookOf(s) }));
         return (this.lobby?.players || []).map((p, i) => ({ ...p, me: i === this.lobby.you }));
     },
 
@@ -632,14 +676,20 @@ const Online = {
         }
         const ul = $('lobby-players');
         ul.innerHTML = '';
+        // En El Impostor, cada uno con el color que ha pedido.
+        const looks = G.id === 'impostor';
         this.playersOf().forEach((p, i) => {
             const li = document.createElement('li');
             const tag = p.me ? ' (tú)' : p.kind === 'bot' ? ', de la máquina' : p.kind === 'host' ? ', quien ha creado la sala' : '';
+            const col = looks && p.color != null ? IMPOSTOR_COLORS[p.color] : null;
             li.innerHTML = `<span class="avatar" aria-hidden="true" data-c="${i % 6}"></span><span class="pl-name"></span>`;
             li.querySelector('.avatar').textContent = p.name.replace(/^la abuela /i, '').charAt(0).toUpperCase();
-            li.querySelector('.pl-name').textContent = `${p.name}${tag}${p.watch ? ', mira la partida' : ''}`;
+            if (col) { li.querySelector('.avatar').style.background = col.hex; li.querySelector('.avatar').style.color = '#0b1020'; }
+            const look = looks && p.kind !== 'bot' ? `, ${col ? col.name : 'color al azar'}${p.hat ? `, con ${IMPOSTOR_HATS[p.hat]}` : ''}` : '';
+            li.querySelector('.pl-name').textContent = `${p.name}${tag}${look}${p.watch ? ', mira la partida' : ''}`;
             ul.appendChild(li);
         });
+        $('lobby-look').hidden = !looks;
         $('lobby-pairs').textContent = this.pairsText();
         for (const id of ['lobby-share', 'lobby-addbot', 'lobby-delbot', 'lobby-shuffle', 'lobby-rules', 'lobby-start']) $(id).hidden = !host;
         const rules = host ? this.rules : this.lobby?.rules;

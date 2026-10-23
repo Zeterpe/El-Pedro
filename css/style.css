@@ -910,6 +910,15 @@ body[data-cards="grande"] #table[data-game="virus"] { --vorg-w: 60px; --vorg-me:
 .imp-sabtag[data-kind="lights"] { background: #2a2f1b; box-shadow: inset 0 0 0 2px #ffd34d; color: #ffd34d; }
 .imp-sabtag[data-kind="oxygen"] { background: #1d4fa0; animation: breathe 1s ease-in-out infinite; }
 .imp-sabtag[data-kind="comms"] { background: #1b2a2f; box-shadow: inset 0 0 0 2px #45c9c9; color: #8fe9e9; }
+.imp-sabtag[data-kind="hide"] { background: #1f2a44; box-shadow: inset 0 0 0 2px #8fd3ff; color: #cfe9ff; }
+.imp-sabtag[data-kind="hidefinal"] { background: #5a1d2c; box-shadow: inset 0 0 0 2px #ff8a8a; animation: breathe 1.2s ease-in-out infinite; }
+#act-power { background: linear-gradient(180deg, #4b3a8a, #2c2156); border-color: #b9a2ff; color: #fff; }
+/* Las cámaras en directo: cuatro pantallas de vigilancia */
+.imp-cams { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.imp-cam { position: relative; margin: 0; border-radius: 10px; overflow: hidden; background: #060a14; box-shadow: inset 0 0 0 2px #2f7fb0, 0 0 12px rgba(69, 201, 201, .18); }
+.imp-cam canvas { display: block; width: 100%; aspect-ratio: 16 / 10; }
+.imp-cam figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 6px; font-size: .72rem; font-weight: 700; color: #cfe9ff; background: linear-gradient(0deg, rgba(0, 0, 0, .75), transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.imp-task:has(.imp-cams) { width: min(96%, 580px); }
 .imp-bar.off { opacity: .55; }
 .imp-bar[hidden] { display: none; }
 .imp-pads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }

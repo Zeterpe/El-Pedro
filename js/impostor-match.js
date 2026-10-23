@@ -34,8 +34,20 @@
    ============================================= */
 'use strict';
 
-/** El color de cada tripulante (tú eres el primero). */
-const IMP_COLORS = ['#f2c94c', '#4f8fe0', '#e05656', '#5cc46a', '#b071e0', '#f08a3c', '#45c9c9', '#f07fbf', '#c9c9c9', '#a8743f'];
+/**
+ * Los gorros (IMPOSTOR_HATS), dibujados sobre una cabeza de radio 1 con su centro en 0, 0: cada parte, su trazo
+ * (como en SVG) y su color. Sirven igual para el lienzo de la nave (Path2D) y para los dibujos de la reunión.
+ */
+const IMP_HAT_ART = [
+    [],
+    [['M -0.86 -0.42 A 0.9 0.9 0 0 1 0.86 -0.42 Z', '#3f7ae0'], ['M -0.95 -0.46 L 0.95 -0.46 L 0.72 -0.22 L -0.72 -0.22 Z', '#2c5bb0']],
+    [['M -1.05 -0.78 L 1.05 -0.78 L 1.05 -0.58 L -1.05 -0.58 Z', '#15171c'], ['M -0.6 -0.78 L -0.6 -1.75 L 0.6 -1.75 L 0.6 -0.78 Z', '#23262e'], ['M -0.6 -1 L 0.6 -1 L 0.6 -0.82 L -0.6 -0.82 Z', '#c0392b']],
+    [['M -0.72 -0.68 L -0.72 -1.38 L -0.36 -1.02 L 0 -1.5 L 0.36 -1.02 L 0.72 -1.38 L 0.72 -0.68 Z', '#ffd34d'], ['M -0.08 -1.12 L 0.08 -1.12 L 0.08 -0.96 L -0.08 -0.96 Z', '#e05656']],
+    [['M -0.9 -0.38 A 0.92 0.92 0 0 1 0.9 -0.38 Z', '#d94b4b'], ['M -0.96 -0.44 L 0.96 -0.44 L 0.96 -0.22 L -0.96 -0.22 Z', '#f2efe6'], ['M -0.26 -1.3 A 0.26 0.26 0 1 0 0.26 -1.3 A 0.26 0.26 0 1 0 -0.26 -1.3 Z', '#f2efe6']],
+    [['M -0.67 -1.15 A 0.17 0.17 0 1 0 -0.33 -1.15 A 0.17 0.17 0 1 0 -0.67 -1.15 Z M -0.48 -1.01 A 0.17 0.17 0 1 0 -0.14 -1.01 A 0.17 0.17 0 1 0 -0.48 -1.01 Z M -0.55 -0.79 A 0.17 0.17 0 1 0 -0.21 -0.79 A 0.17 0.17 0 1 0 -0.55 -0.79 Z M -0.79 -0.79 A 0.17 0.17 0 1 0 -0.45 -0.79 A 0.17 0.17 0 1 0 -0.79 -0.79 Z M -0.86 -1.01 A 0.17 0.17 0 1 0 -0.52 -1.01 A 0.17 0.17 0 1 0 -0.86 -1.01 Z', '#f07fbf'], ['M -0.61 -0.95 A 0.11 0.11 0 1 0 -0.39 -0.95 A 0.11 0.11 0 1 0 -0.61 -0.95 Z', '#ffd34d']],
+    [['M -0.68 -0.62 L -0.92 -1.4 L -0.28 -0.84 Z M 0.68 -0.62 L 0.92 -1.4 L 0.28 -0.84 Z', '#c0392b']],
+    [['M -1.06 0 A 1.06 1.06 0 0 1 1.06 0 L 0.86 0 A 0.86 0.86 0 0 0 -0.86 0 Z', '#2b2f3a'], ['M -1.28 -0.34 L -0.86 -0.34 L -0.86 0.34 L -1.28 0.34 Z M 0.86 -0.34 L 1.28 -0.34 L 1.28 0.34 L 0.86 0.34 Z', '#e05656']],
+];
 /** El suelo de cada sala, en la pantalla. */
 const IMP_FLOOR = {
     motores: '#3a3f52', comedor: '#4a3e5e', puente: '#2c4a60', electricidad: '#4c4930', almacen: '#3c4a3a', enfermeria: '#523c48',
@@ -61,6 +73,12 @@ const IMP_SPARKS = {
 };
 /** Cómo se dice cada sabotaje. */
 const IMP_SAB = { lights: 'las luces', reactor: 'el reactor', oxygen: 'el oxígeno', comms: 'las comunicaciones', doors: 'las puertas' };
+/** Las tareas que se ven (si la regla lo deja): cómo suenan y cómo se dice quien las hace o las finge. */
+const IMP_VISUAL = {
+    escaner: { doing: 'pasando por el escáner', fake: 'se ha puesto en el escáner', sound: () => ShipSounds.scan() },
+    basura: { doing: 'vaciando la basura', fake: 'tira de la palanca de la basura', sound: () => ShipSounds.trash(0.6) },
+    escudos: { doing: 'encendiendo los escudos', fake: 'toca los escudos', sound: () => ShipSounds.shield() },
+};
 /** Las notas de la secuencia: una por botón. */
 const IMP_PADS = [
     { f: 392, color: '#4f8fe0' }, { f: 494, color: '#5cc46a' }, { f: 587, color: '#f2c94c' }, { f: 784, color: '#e05656' },
@@ -184,7 +202,7 @@ function impSoundSample(app, scene, group) {
         later(1.8, () => sc.setLoop('muestra', { level: 0 }));
     } else if (group === 'people') {
         for (let i = 0; i < 3; i++) later(i * 0.3, () => sc.at(x + 2, y - 1.5, ShipSounds.step(STEP_TIMBRES[1], 'metal', 1.6), { ref: 2.5, group }));
-        if (app.settings.impostorPresence) for (let i = 0; i < 3; i++) later(1 + i * 0.45, () => sc.at(x + 2, y - 1.5, ShipSounds.presence(PRESENCE_NOTES[1]), { ref: 2, group }));
+        if (app.settings.impostorPresence) for (let i = 0; i < 3; i++) later(1 + i * 0.45, () => sc.at(x + 2, y - 1.5, ShipSounds.presence(PRESENCE_NOTES[0]), { ref: 2, group }));
     } else if (group === 'mine') {
         for (let i = 0; i < 3; i++) later(i * 0.3, () => sc.here(ShipSounds.step(STEP_TIMBRES[0], 'metal', 0.5), group));
         later(1, () => sc.at(x, y - 0.6, ShipSounds.bump('pared'), { group }));
@@ -203,9 +221,16 @@ function impSoundSample(app, scene, group) {
 // ═══════════════════════════════════════════════════════
 
 const ImpostorArt = {
-    /** Un tripulante visto desde arriba: cuerpo redondo, visera y antena. */
-    crew(x, y, r, color) {
-        return `<g transform="translate(${x} ${y})"><line x1="0" y1="${-r * 0.9}" x2="${r * 0.35}" y2="${-r * 1.55}" stroke="#dfe7f5" stroke-width="${r * 0.18}" stroke-linecap="round"/><circle cx="${r * 0.35}" cy="${-r * 1.6}" r="${r * 0.2}" fill="#ffd34d"/><circle r="${r}" fill="${color}" stroke="#0b1020" stroke-width="${r * 0.18}"/><ellipse cx="0" cy="${-r * 0.3}" rx="${r * 0.62}" ry="${r * 0.36}" fill="#bfe6ff" stroke="#0b1020" stroke-width="${r * 0.12}"/></g>`;
+    /** Un tripulante visto desde arriba: cuerpo redondo, visera y antena (o su gorro). */
+    crew(x, y, r, color, hat = 0) {
+        const antenna = hat ? '' : `<line x1="0" y1="${-r * 0.9}" x2="${r * 0.35}" y2="${-r * 1.55}" stroke="#dfe7f5" stroke-width="${r * 0.18}" stroke-linecap="round"/><circle cx="${r * 0.35}" cy="${-r * 1.6}" r="${r * 0.2}" fill="#ffd34d"/>`;
+        return `<g transform="translate(${x} ${y})">${antenna}<circle r="${r}" fill="${color}" stroke="#0b1020" stroke-width="${r * 0.18}"/><ellipse cx="0" cy="${-r * 0.3}" rx="${r * 0.62}" ry="${r * 0.36}" fill="#bfe6ff" stroke="#0b1020" stroke-width="${r * 0.12}"/>${this.hat(r, hat)}</g>`;
+    },
+    /** Un gorro, en SVG, para una cabeza de radio r. */
+    hat(r, hat) {
+        const parts = IMP_HAT_ART[hat] || [];
+        if (!parts.length) return '';
+        return `<g transform="scale(${r})">${parts.map(([d, fill]) => `<path d="${d}" fill="${fill}" stroke="#0b1020" stroke-width="0.1" stroke-linejoin="round"/>`).join('')}</g>`;
     },
 
     tile() {
@@ -219,7 +244,8 @@ const ImpostorArt = {
         // Un tripulante que anda por el pasillo y suena: las ondas son su sonido.
         const wx = +X(13.5), wy = +Y(6.5);
         const waves = [4, 7, 10].map((r, i) => `<path d="M ${wx + r * 0.7} ${wy - r * 0.7} A ${r} ${r} 0 0 1 ${wx + r * 0.7} ${wy + r * 0.7}" fill="none" stroke="#45c9c9" stroke-width="1.1" opacity="${0.9 - i * 0.25}"/>`).join('');
-        const crew = [this.crew(+X(18.5), +Y(9), 3.2, IMP_COLORS[2]), this.crew(+X(25.5), +Y(9.2), 3.2, IMP_COLORS[3]), this.crew(wx, wy, 3.2, IMP_COLORS[0]), this.crew(+X(21.5), +Y(13.5), 3.2, IMP_COLORS[1])].join('');
+        const C = IMPOSTOR_COLORS;
+        const crew = [this.crew(+X(18.5), +Y(9), 3.2, C[0].hex, 3), this.crew(+X(25.5), +Y(9.2), 3.2, C[2].hex), this.crew(wx, wy, 3.2, C[3].hex), this.crew(+X(21.5), +Y(13.5), 3.2, C[1].hex, 4)].join('');
         const vents = SHIP.vents.map(v => `<rect x="${(+X(v.x) - 1.3).toFixed(1)}" y="${(+Y(v.y) - 1).toFixed(1)}" width="2.6" height="2" fill="#0b1020" stroke="#8da2c9" stroke-width="0.4"/>`).join('');
         return `<svg class="imp-tile" viewBox="0 0 120 100" aria-hidden="true" focusable="false">${stars}${this.hull(X, Y, s, 'stroke="#8da2c9" stroke-width="1.2"')}${areas}${table}${spots}${vents}${waves}${crew}</svg>`;
     },
@@ -297,8 +323,10 @@ class ImpostorMatch extends Match {
 
     /** Tu papel lo puedes elegir en las opciones de la partida (al azar, si no). En una sala, siempre al azar. */
     makeGame(rules, seed) {
-        const wish = this.mode === 'local' ? { tripulante: 'crew', impostor: 'impostor' }[this.settings.impostorRole] || null : null;
-        return new ImpostorGame({ players: this.seats.map((s, i) => ({ name: s.name, role: i === this.me ? wish : null, remote: s.kind === 'remote' })), rules, seed });
+        const wish = this.practice === 'impostor' ? 'impostor' : this.mode === 'local' ? { tripulante: 'crew', impostor: 'impostor' }[this.settings.impostorRole] || null : null;
+        // Tu color y tu gorro, de tus ajustes; en una sala, los que ha elegido cada uno (los de la máquina, al azar).
+        const look = (s, i) => i === this.me && this.mode === 'local' ? { color: this.settings.impostorColor, hat: this.settings.impostorHat } : { color: s.color ?? null, hat: s.hat ?? null };
+        return new ImpostorGame({ players: this.seats.map((s, i) => ({ name: s.name, role: i === this.me ? wish : null, remote: s.kind === 'remote', ...look(s, i) })), rules, seed });
     }
     makeMirror(rules) { return new ImpostorMirror({ names: this.seats.map(s => s.name), rules, me: this.me }); }
     makeBot(p, char, rng) { return new ImpostorBot(this.game, p, char, rng); }
@@ -550,7 +578,16 @@ class ImpostorMatch extends Match {
     get alive() { return this.mePl.alive; }
     /** ¿Es otro impostor como tú? Solo lo sabes si tú también lo eres. */
     isMate(p) { return p !== this.me && this.amImpostor && this.game.isImpostor(p); }
-    colorOf(p) { return IMP_COLORS[(p - this.me + this.game.n) % this.game.n % IMP_COLORS.length]; }
+    /** Cómo se ve a alguien en la nave: él mismo o, si es un cambiaformas transformado, aquel en quien se ha transformado. */
+    looks(p) { return this.game.phase === 'ship' ? this.game.shown(p) : p; }
+    colorOf(p) { return IMPOSTOR_COLORS[this.game.players[this.looks(p)]?.color ?? 0].hex; }
+    hatOf(p) { return this.game.players[this.looks(p)]?.hat || 0; }
+    /** El color de alguien, de verdad: «rojo». */
+    colorName(p) { return IMPOSTOR_COLORS[this.game.players[p]?.color ?? 0].name; }
+    /** «el rojo, con una corona». */
+    lookText(p) { const h = this.game.players[p]?.hat || 0; return `el ${this.colorName(p)}${h ? `, con ${IMPOSTOR_HATS[h]}` : ''}`; }
+    /** El nombre de quien ves: si es un cambiaformas, el de aquel en quien se ha transformado (salvo que sea de los tuyos). */
+    seenName(p) { return this.names[p === this.me || this.isMate(p) ? p : this.looks(p)]; }
     /** El nombre de alguien para el narrador: «Leo», «tú». */
     nm(p) { return this.names[p]; }
     Nm(p) { return cap(this.names[p]); }
@@ -564,7 +601,9 @@ class ImpostorMatch extends Match {
     waitLeft(t) { return t?.readyAt != null ? Math.max(0, t.readyAt - this.game.time) : 0; }
     /** Dónde está algo respecto a ti: «a la derecha, a 6 metros». */
     rel(x, y) { const m = this.mePl; return `${impDir(x - m.x, y - m.y)}, ${impDist(Math.hypot(x - m.x, y - m.y))}`; }
-    timbreOf(p) { const n = this.game.n; return p === this.me ? 0 : 1 + ((p - this.me - 1 + n) % n) % (STEP_TIMBRES.length - 1); }
+    /** Los pasos y la nota de cada uno van con su color (los del cambiaformas, con los de quien parece). */
+    timbreOf(p) { return p === this.me ? 0 : 1 + (this.game.players[this.looks(p)]?.color ?? 0); }
+    noteOf(p) { return PRESENCE_NOTES[this.game.players[this.looks(p)]?.color ?? 0]; }
     get touch() { return matchMedia('(pointer: coarse)').matches; }
     /** «pulsa E» con teclado; «toca Usar» en una pantalla táctil. */
     press(key, button) { return this.touch ? `toca ${button}` : `pulsa ${key}`; }
@@ -582,13 +621,15 @@ class ImpostorMatch extends Match {
 
     introText() {
         const others = this.seats.filter((_, p) => p !== this.me).map(s => s.name);
-        let t = `Estás en el Comedor de la nave, junto a la mesa, con ${Txt.list(others)}.`;
+        let t = `Estás en el Comedor de la nave, junto a la mesa, con ${Txt.list(others)}. Eres ${this.lookText(this.me)}.`;
         if (!this.game.impostorCount() && !this.practice) t += ' En esta partida no hay impostores: entre todos tenéis que hacer las tareas de la nave.';
+        if (this.game.hideSeek) t += ' Modo escondite: uno busca y los demás se esconden.';
         if (!this.settings.mono) t += ' Ponte auriculares: lo que suena a tu derecha está a tu derecha, y lo que suena delante está arriba en la pantalla.';
         t += this.hint('keys', this.touch
             ? 'Para andar, toca la nave y arrastra el dedo, o usa la cruceta. El botón Qué hay cerca te dice lo que tienes alrededor, y Guía te lleva adonde quieras.'
             : 'Anda con W, A, S y D, o con las flechas. La F te dice qué hay cerca, la G te guía y la H te dice todas las teclas.');
-        if (this.practice) t = 'Partida de práctica, sin impostores y con dos tareas fáciles: sirve para aprender a moverte por la nave. ' + t;
+        if (this.practice === 'impostor') t = 'Práctica de impostor: tus compañeros no hacen nada, no avisan y no votan. Sirve para aprender a matar, a sabotear y a ir por los conductos sin prisa. ' + t;
+        else if (this.practice) t = 'Partida de práctica, sin impostores y con dos tareas fáciles: sirve para aprender a moverte por la nave. ' + t;
         return t;
     }
 
@@ -608,6 +649,35 @@ class ImpostorMatch extends Match {
 
     /** Lo que eres al empezar: tripulante o impostor, y qué tienes que hacer. */
     roleText(e) {
+        const n = e.impostors, g = this.game;
+        if (g.hideSeek) return this.hideRoleText(e);
+        const sp = e.special ? ` ${this.specialText(e.special)}` : '';
+        return this.baseRoleText(e) + sp;
+    }
+
+    /** El escondite: quien busca y quien se esconde. */
+    hideRoleText(e) {
+        const g = this.game, mins = Math.round((g.hide?.until ?? g.rules.hideTime) / 60), wait = Math.round(g.hide?.go ?? IMPOSTOR_HIDE.start);
+        const time = mins >= 2 ? `${mins} minutos` : `${Math.round(g.hide?.until ?? g.rules.hideTime)} segundos`;
+        if (e.role === 'impostor') return `Te toca buscar. Espera quieto ${wait} segundos mientras los demás se esconden; después, encuéntralos y pilla a cada uno con ${this.touch ? 'Matar' : 'la Q'} antes de que pasen ${time}. Cada tarea que hacen quita ${IMPOSTOR_HIDE.task} segundos al reloj. En el último minuto sabrás cada pocos segundos dónde está cada uno.`;
+        const seek = g.impostors().filter(q => q !== this.me).map(q => this.seats[q].name);
+        return `Te toca esconderte: ${seek.length ? `busca ${Txt.list(seek)}` : 'uno busca'}, y todos sabéis quién es. Aguanta ${time} sin que te pille. Si se te acerca, oirás tu corazón cada vez más deprisa, aunque haya paredes en medio. Haz tus tareas para que se acabe antes: cada una quita ${IMPOSTOR_HIDE.task} segundos.${g.rules.vents ? ' Puedes esconderte en los conductos, pero poco rato.' : ''} Aquí no hay reuniones ni sabotajes.`;
+    }
+
+    /** Lo que hace cada papel especial, para quien lo tiene. */
+    specialText(id) {
+        const R = IMPOSTOR_ROLES[id], B = this.touch ? 'el botón Poder' : 'la B';
+        return {
+            scientist: `Además, eres científico: con ${B} miras las constantes vitales desde cualquier sitio durante ${R.dur} segundos. La batería se recarga con el tiempo y con cada tarea que haces.`,
+            engineer: `Además, eres ingeniero: puedes ir por los conductos como los impostores, ${this.touch ? 'con el botón Conducto' : 'con la V'}, pero solo ${R.dur} segundos seguidos.`,
+            noisemaker: 'Además, eres ruidoso: si te matan, sonará una alarma en toda la nave y todos sabrán dónde está tu cuerpo.',
+            angel: `Además, eres ángel de la guarda: si te matan, de fantasma podrás proteger con ${B} a quien tengas cerca durante ${R.dur} segundos. Si un impostor intenta matarle, no podrá.`,
+            shapeshifter: `Además, eres cambiaformas: con ${B} te transformas en otro durante ${R.dur} segundos; te verán y te oirán como si fueras esa persona, con su color, sus pasos y su nota. Quien te vea transformarte sabrá lo que eres.`,
+            phantom: `Además, eres espectro: con ${B} te vuelves invisible durante ${R.dur} segundos; nadie te ve ni te oye, pero no puedes matar hasta que te dejes ver.`,
+        }[id] || '';
+    }
+
+    baseRoleText(e) {
         const n = e.impostors;
         if (e.role === 'impostor') {
             const mates = e.mates.map(q => this.seats[q].name);
@@ -631,6 +701,7 @@ class ImpostorMatch extends Match {
             { kind: 'kill', label: 'Matar', key: 'Q', cls: 'main imp-kill' },
             { kind: 'vent', label: 'Conducto', key: 'V', cls: 'main imp-vent' },
             { kind: 'sabotage', label: 'Sabotear', key: 'X', cls: 'main imp-sabbtn' },
+            { kind: 'power', label: 'Poder', key: 'B', cls: 'main imp-power' },
             { kind: 'report', label: 'Avisar', key: 'R', cls: 'main imp-report' },
             { kind: 'near', label: 'Qué hay cerca', key: 'F', cls: 'small talk' },
             { kind: 'who', label: 'Quién hay', key: 'Z', cls: 'small talk' },
@@ -649,6 +720,7 @@ class ImpostorMatch extends Match {
         if (kind === 'kill') return this.killKey();
         if (kind === 'vent') return this.ventKey();
         if (kind === 'sabotage') return this.sabotageMenu();
+        if (kind === 'power') return this.powerKey();
         if (kind === 'report') return this.report();
         if (kind === 'near') return this.radar();
         if (kind === 'who') return this.whoHere();
@@ -765,15 +837,17 @@ class ImpostorMatch extends Match {
         if (this.raf == null) this.draw();
     }
 
-    /** Los botones del impostor: el conducto y sabotear. */
+    /** Los botones del impostor (y del ingeniero): el conducto, sabotear y el poder de tu papel. */
     impostorBtns() {
         const g = this.game, me = this.mePl, ship = g.phase === 'ship';
-        Board.showAct('vent', ship && this.amImpostor && me.alive && !!g.rules.vents, this.ventLabel());
-        Board.showAct('sabotage', ship && this.amImpostor && !!g.rules.sabotages, this.sabLabel());
+        Board.showAct('vent', ship && (me.vent != null || g.canVent(this.me)), this.ventLabel());
+        Board.showAct('sabotage', ship && this.amImpostor && !!g.rules.sabotages && !g.hideSeek, this.sabLabel());
+        Board.showAct('power', ship && this.hasPower(), this.powerLabel());
     }
     ventLabel() {
         const g = this.game, me = this.mePl;
-        if (me.vent != null) return 'Salir del conducto';
+        if (me.vent != null) return g.ventLimited(this.me) ? `Salir del conducto (${Math.max(0, Math.ceil(IMPOSTOR_ROLES.engineer.dur - (g.time - me.ventIn)))} s)` : 'Salir del conducto';
+        if (me.ventCd > 0) return `Conducto (${Math.ceil(me.ventCd)} s)`;
         return g.phase === 'ship' && g.ventHere(this.me) ? 'Entrar en el conducto' : 'Conducto';
     }
     sabLabel() {
@@ -794,26 +868,35 @@ class ImpostorMatch extends Match {
         if (g.phase === 'ship' && g.sab?.kind === 'oxygen') parts.push(`Oxígeno: ${Math.max(0, Math.ceil(g.sab.until - g.time))} s`);
         if (g.phase === 'ship' && g.sab?.kind === 'comms') parts.push('Sin comunicaciones');
         if (g.phase === 'ship' && g.doorsShut) parts.push(`Puertas cerradas: ${this.areaName(g.doorsShut.room)}`);
+        const H = g.hide;
+        if (g.phase === 'ship' && H) {
+            const mmss = t => { const v = Math.max(0, Math.ceil(t)); return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`; };
+            parts.push(g.time < H.go ? `Busca en ${Math.ceil(H.go - g.time)} s` : `${H.final ? 'Último minuto' : 'Escondite'}: ${mmss(H.until - g.time)}`);
+        }
         el.textContent = parts.join(' · ');
         el.hidden = !parts.length;
-        el.dataset.kind = g.sab?.kind || 'doors';
+        el.dataset.kind = g.sab?.kind || (H && g.phase === 'ship' && !g.doorsShut ? (H.final ? 'hidefinal' : 'hide') : 'doors');
     }
 
     /** Lo que eres, en la pantalla: tripulante, impostor (con la espera para matar) o fantasma. */
     /** El botón de avisar: se enciende cuando tienes un cuerpo al lado. */
     reportBtn() {
         const g = this.game, near = g.phase === 'ship' && !!g.bodyHere(this.me);
-        Board.showAct('report', g.phase === 'ship' && this.alive && g.impostorCount() > 0, near ? 'Avisar del cuerpo' : 'Avisar');
+        Board.showAct('report', g.phase === 'ship' && this.alive && g.impostorCount() > 0 && !g.hideSeek, near ? 'Avisar del cuerpo' : 'Avisar');
         $('act-report')?.classList.toggle('ready', near);
     }
 
     renderRole() {
-        const el = $('imp-role'), me = this.mePl;
+        const el = $('imp-role'), me = this.mePl, g = this.game;
         if (!el) return;
         let t = '';
-        if (!me.alive) t = 'Fantasma';
-        else if (this.amImpostor) t = me.killCd > 0 ? `Impostor · matar en ${Math.ceil(me.killCd)} s` : 'Impostor · puedes matar';
-        else if (this.game.impostorCount()) t = 'Tripulante';
+        const sp = me.special ? ` · ${IMPOSTOR_ROLES[me.special].name}` : '';
+        if (g.hideSeek) t = !me.alive ? 'Te han pillado' : this.amImpostor ? (g.frozen(me) ? 'Buscas · espera' : me.killCd > 0 ? `Buscas · pillar en ${Math.ceil(me.killCd)} s` : 'Buscas · puedes pillar') : 'Te escondes';
+        else if (!me.alive) t = 'Fantasma' + (me.special === 'angel' ? sp : '');
+        else if (this.amImpostor) t = (me.killCd > 0 ? `Impostor · matar en ${Math.ceil(me.killCd)} s` : 'Impostor · puedes matar') + sp;
+        else if (g.impostorCount()) t = 'Tripulante' + sp;
+        if (me.hidden) t += ' · invisible';
+        else if (me.shape != null && g.phase === 'ship') t += ` · como ${this.names[me.shape]}`;
         el.textContent = t;
         el.dataset.role = !me.alive ? 'ghost' : this.amImpostor ? 'impostor' : 'crew';
         el.hidden = !t;
@@ -829,7 +912,7 @@ class ImpostorMatch extends Match {
         if (t) return `${this.amImpostor ? 'Fingir' : 'Usar'}: ${IMPOSTOR_TASKS[t.type].short}`;
         const c = g.consoleHere(this.me);
         if (c) return `Mirar ${c.name}`;
-        if (g.phase === 'ship' && this.alive && g.impostorCount() && g.atButton(this.me)) return 'Botón de emergencia';
+        if (g.phase === 'ship' && this.alive && g.impostorCount() && !g.hideSeek && g.atButton(this.me)) return 'Botón de emergencia';
         return 'Usar';
     }
 
@@ -844,7 +927,8 @@ class ImpostorMatch extends Match {
         const g = this.game, me = this.mePl;
         if (me.vent != null) return this.touch ? 'En un conducto: la cruceta te lleva a otro; Conducto, para salir' : 'En un conducto: las flechas te llevan a otro; V, para salir';
         if (this.guide) return `Guía: te llevo ${this.guide.to}`;
-        if (!this.alive) return 'Eres un fantasma: nadie te ve ni te oye';
+        if (g.hideSeek && g.phase === 'ship' && g.frozen(me)) return 'Espera quieto: los demás se esconden';
+        if (!this.alive) return g.hideSeek ? 'Te han pillado: ahora miras' : me.special === 'angel' ? `Eres un fantasma: ${this.press('B', 'Proteger')} para proteger a alguien que tengas cerca` : 'Eres un fantasma: nadie te ve ni te oye';
         if (g.sab && !this.amImpostor) return {
             lights: 'Sin luces: se arreglan en Electricidad', reactor: '¡El reactor va a estallar! Corre al Reactor',
             oxygen: '¡Se acaba el oxígeno! Teclea el código en Oxígeno y en Administración', comms: 'Sin comunicaciones: se arreglan en la radio de Comunicaciones',
@@ -963,8 +1047,9 @@ class ImpostorMatch extends Match {
         }
         const evs = g.tick(dt);
         for (const e of evs) this.onTick(e);
-        // Lo que pasa con el tiempo y tiene que contarse: las puertas que se abren y el reactor que estalla.
-        const told = evs.filter(e => e.type === 'doorsOpen' || e.type === 'gameOver');
+        // Lo que pasa con el tiempo y tiene que contarse: las puertas que se abren, el reactor que estalla, los poderes
+        // que se acaban, el escondite… Todo menos andar y chocar.
+        const told = evs.filter(e => e.type !== 'area' && e.type !== 'bump');
         if (told.length) this.apply({ ok: true, events: told });
         this.footsteps();
         // Anfitrión: unas quince veces por segundo, a cada invitado, la nave como la ve.
@@ -1051,7 +1136,20 @@ class ImpostorMatch extends Match {
         this.updateGuide(dt);
         this.ambience(dt);
         this.sabCues(dt);
+        this.hideCues(dt);
+        this.ventCues();
+        this.powerCues();
         this.nearCue();
+    }
+
+    /** Tu poder vuelve a estar listo: suena y, si no haces nada, se dice. */
+    powerCues() {
+        const ready = this.hasPower() && !this.powerOn() && this.mePl.powerCd <= 0;
+        if (ready && this.powerReady === false) {
+            this.scene?.here(ShipSounds.ready(), 'cues');
+            if (!this.task && !this.speech.busy) this.notice('Tu poder ya está listo.');
+        }
+        this.powerReady = ready;
     }
 
     /** Los sabotajes en marcha: los paneles que hay que arreglar pitan, y el reactor suena en toda la nave y cuenta los segundos. */
@@ -1105,9 +1203,11 @@ class ImpostorMatch extends Match {
             if (this.bodiesSeen.has(p)) continue;
             this.bodiesSeen.add(p);
             const b = g.bodies.find(x => x.p === p);
-            if (!b || this.myKills.has(p)) continue;
+            // Tu propio cuerpo ya lo dice tu muerte.
+            if (!b || this.myKills.has(p) || p === this.me) continue;
             this.ripple(b.x, b.y, 'body');
             if (!me.alive) { this.tell(`${p === this.me ? 'Tu cuerpo' : `El cuerpo ${ofWhom(this.seats[p].name)}`}, ${this.rel(b.x, b.y)}.`); continue; }
+            if (g.hideSeek) { this.tell(`Han pillado ${toWhom(this.seats[p].name)}: su cuerpo está ${this.rel(b.x, b.y)}.`); continue; }
             this.tell(`¡Un cuerpo! Es ${this.seats[p].name}, ${this.rel(b.x, b.y)}.${this.hint('report', `Acércate y ${this.press('R', 'Avisar')} para llamar a todos a una reunión.`)}`, { keep: true });
             Board.status(`Un cuerpo: ${this.press('R', 'Avisar')}`);
             Board.render(this);
@@ -1121,7 +1221,7 @@ class ImpostorMatch extends Match {
         const ready = me.killCd <= 0;
         if (ready && !this.killReady) {
             this.scene?.here(ShipSounds.knife());
-            if (!this.task && !this.speech.busy) this.notice('Ya puedes matar.');
+            if (!this.task && !this.speech.busy && !(g.hideSeek && !g.hide?.went)) this.notice(g.hideSeek ? 'Ya puedes pillar a otro.' : 'Ya puedes matar.');
         }
         this.killReady = ready;
         const t = ready ? g.killTargets(this.me)[0] ?? null : null;
@@ -1151,7 +1251,7 @@ class ImpostorMatch extends Match {
             if ((T[p] = (T[p] ?? 0.35) - dt) > 0) continue;
             const d = Math.hypot(pl.x - me.x, pl.y - me.y);
             T[p] = clamp(0.4 + d * 0.15, 0.45, 1.4);
-            sc.at(pl.x, pl.y, ShipSounds.presence(PRESENCE_NOTES[this.timbreOf(p)]), { ref: 2, group: 'people' });
+            sc.at(pl.x, pl.y, ShipSounds.presence(this.noteOf(p)), { ref: 2, group: 'people' });
         }
         for (const p of Object.keys(T)) if (!this.seenNow.has(+p)) delete T[p];
     }
@@ -1162,7 +1262,7 @@ class ImpostorMatch extends Match {
         // Se dice quién aparece si hace rato que no lo veías, y no mientras haces una tarea.
         if (!this.settings.impostorNames || this.visual || this.task) return;
         if (this.clock - (this.lastSeen[p] ?? -99) < 12 || this.speech.busy) return;
-        this.say(`${cap(this.names[p])}${pl.alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}, ${impDir(pl.x - me.x, pl.y - me.y)}.`);
+        this.say(`${cap(this.seenName(p))}${pl.alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}, ${impDir(pl.x - me.x, pl.y - me.y)}.`);
     }
 
     announceArea({ id, from }) {
@@ -1274,7 +1374,7 @@ class ImpostorMatch extends Match {
         // Tus tareas te llaman bajito, cada una desde su consola.
         if ((T.beacon -= dt) <= 0) {
             T.beacon = 2.6;
-            if (!this.task) g.pending(this.me).forEach((t, k) => {
+            if (!this.task && !(g.hideSeek && this.amImpostor)) g.pending(this.me).forEach((t, k) => {
                 const s = t.spot, d = Math.hypot(s.x - me.x, s.y - me.y);
                 if (d > 16) return;
                 const wall = !shipSight(me.x, me.y, s.x, s.y);
@@ -1284,7 +1384,7 @@ class ImpostorMatch extends Match {
         // Quien pasa por el escáner suena mientras tanto.
         if (this.scanning.size && (T.scan -= dt) <= 0) {
             T.scan = 1.1;
-            for (const p of this.scanning.keys()) this.otherSound(p, ShipSounds.scan());
+            for (const [p, task] of this.scanning) this.otherSound(p, (IMP_VISUAL[task] || IMP_VISUAL.escaner).sound());
         }
         // Los ruidos sueltos de cada sala.
         for (const [id, [name, lo, hi]] of Object.entries(IMP_SPARKS)) {
@@ -1303,6 +1403,18 @@ class ImpostorMatch extends Match {
             const inside = me.area === a.id, d = Math.hypot(a.cx - me.x, a.cy - me.y);
             const level = inside ? 1 : clamp(1 - d / 20, 0, 1) * 0.55;
             sc.setLoop('amb:' + a.id, { level, wall: !inside && !shipSight(me.x, me.y, a.cx, a.cy) });
+        }
+        // Las cámaras que alguien mira zumban: así sabes, si estás debajo, que te pueden ver.
+        const lit = g.phase === 'ship' && g.camsOn;
+        SHIP.cameras.forEach((k, i) => {
+            const id = 'cam:' + i, near = lit && Math.hypot(k.x - me.x, k.y - me.y) < 9 && shipSight(me.x, me.y, k.x, k.y, g.closed);
+            if (!sc.loops.has(id)) { if (!near) return; sc.loop(id, k.x, k.y, camHum, { ref: 1.5, group: 'cues' }); }
+            sc.setLoop(id, { level: near ? 0.8 : 0 });
+        });
+        if (lit !== this.camsLitSaid) {
+            if (lit && this.camsLitSaid === false && SHIP.cameras.some(k => Math.hypot(k.x - me.x, k.y - me.y) < 9 && shipSight(me.x, me.y, k.x, k.y, g.closed)) && !this.speech.busy && !this.camsWatching())
+                this.notice('La cámara de aquí se ha encendido: alguien está mirando.');
+            this.camsLitSaid = lit;
         }
         if (!this.settings.impostorWalls) return;
         // Los fantasmas atraviesan las paredes: no las rozan.
@@ -1324,7 +1436,7 @@ class ImpostorMatch extends Match {
         let key = null, name = '', how = '';
         if (!this.task && me.vent == null && g.phase === 'ship') {
             const panel = me.alive ? g.panelHere(this.me) : null, t = g.taskHere(this.me), c = g.consoleHere(this.me);
-            const v = this.amImpostor && me.alive && g.rules.vents ? g.ventHere(this.me) : null;
+            const v = g.canVent(this.me) ? g.ventHere(this.me) : null;
             if (panel) { key = 'panel:' + panel.id; name = cap(panel.name); how = `${this.press('E', 'Usar')} para ${{ lights: 'arreglarlas', oxygen: 'teclear el código', comms: 'arreglarla' }[panel.sab] || 'poner la mano'}`; }
             else if (t) { key = t.i; name = this.taskName(t); how = `${this.press('E', 'Usar')} para empezar`; }
             else if (c) { key = 'console:' + c.id; name = cap(c.name); how = `${this.press('E', 'Usar')} para mirar`; }
@@ -1343,22 +1455,27 @@ class ImpostorMatch extends Match {
     async present(e) {
         const me = this.me, g = this.game;
         switch (e.type) {
-            case 'role':
+            case 'role': {
                 if (e.p !== me || !e.impostors) break;
                 this.flat(e.role === 'impostor' ? ShipSounds.roleImpostor() : ShipSounds.roleCrew());
-                Board.banner(e.role === 'impostor' ? (e.impostors === 1 ? 'Eres el impostor' : 'Eres impostor') : 'Eres tripulante',
-                    e.role === 'impostor' ? (e.mates.length ? `Con ${Txt.list(e.mates.map(q => this.seats[q].name))}` : 'Que no te pillen') : (e.impostors === 1 ? 'Hay un impostor a bordo' : `Hay ${e.impostors} impostores a bordo`));
+                const sp = e.special ? IMPOSTOR_ROLES[e.special].name : '';
+                const title = g.hideSeek ? (e.role === 'impostor' ? 'Te toca buscar' : 'Te toca esconderte')
+                    : e.role === 'impostor' ? (e.impostors === 1 ? 'Eres el impostor' : 'Eres impostor') : 'Eres tripulante';
+                Board.banner(title, g.hideSeek ? (e.role === 'impostor' ? 'Espera y luego, a buscar' : 'Que no te pille')
+                    : sp ? `y ${sp}` : e.role === 'impostor' ? (e.mates.length ? `Con ${Txt.list(e.mates.map(q => this.seats[q].name))}` : 'Que no te pillen') : (e.impostors === 1 ? 'Hay un impostor a bordo' : `Hay ${e.impostors} impostores a bordo`));
                 this.renderRole();
                 // Sin voz, el papel y las tareas se leen juntos en un cuadro, al llegar las tareas.
-                if (this.visual) this.roleIntro = { title: e.role === 'impostor' ? (e.impostors === 1 ? 'Eres el impostor' : 'Eres impostor') : 'Eres tripulante', text: this.roleText(e) };
+                if (this.visual) this.roleIntro = { title: sp ? `${title} y ${sp}` : title, text: this.roleText(e) };
                 else await this.say(this.roleText(e), { keep: true });
                 break;
+            }
             case 'tasks':
                 if (e.p === me) {
                     Board.render(this);
                     const list = g.pending(me).map(t => `${this.taskName(t)}, ${inPlace(this.areaName(t.spot.area))}`);
                     const what = e.fake ? 'Tus tareas de mentira, para disimular' : 'Tus tareas';
-                    const text = `${what}: ${impList(list)}.${this.hint('guide', `${cap(this.press('G', 'Guía'))} y la guía te lleva a la que quieras.`)}`;
+                    // En el escondite, quien busca no tiene tareas que fingir.
+                    const text = g.hideSeek && e.fake ? '' : `${what}: ${impList(list)}.${this.hint('guide', `${cap(this.press('G', 'Guía'))} y la guía te lleva a la que quieras.`)}`;
                     if (this.visual) {
                         const R = this.roleIntro;
                         this.roleIntro = null;
@@ -1380,7 +1497,7 @@ class ImpostorMatch extends Match {
             }
             case 'taskStart':
                 if (e.p === me) this.openTask(e.i, e.task, e.fake);
-                else if (e.task === 'escaner') this.otherScan(e);
+                else if (e.visual) this.otherVisual(e);
                 else this.otherSound(e.p, ShipSounds.beep(), e);
                 break;
             case 'taskStop':
@@ -1410,13 +1527,21 @@ class ImpostorMatch extends Match {
                     this.closeTask();
                     this.scene?.here(ShipSounds.done());
                     const left = g.pending(me).length;
-                    this.tell(left ? `Tarea hecha. Te ${left === 1 ? 'queda 1' : `quedan ${left}`}.${this.hint('next', `${cap(this.press('G', 'Guía'))} para ir a la siguiente.`)}` : g.phase === 'ship' ? `¡Has hecho todas tus tareas! ${g.impostorCount() ? 'Ahora, a vigilar: pasea por la nave y fíjate en quién va con quién.' : 'Pasea por la nave mientras los demás acaban las suyas.'}` : '', { keep: true });
+                    const clock = e.hideUntil != null ? ` Le quitas ${IMPOSTOR_HIDE.task} segundos al reloj.` : '';
+                    const after = g.hideSeek ? 'Ahora, a esconderte hasta que se acabe el tiempo.' : g.impostorCount() ? 'Ahora, a vigilar: pasea por la nave y fíjate en quién va con quién.' : 'Pasea por la nave mientras los demás acaban las suyas.';
+                    this.tell(left ? `Tarea hecha.${clock} Te ${left === 1 ? 'queda 1' : `quedan ${left}`}.${this.hint('next', `${cap(this.press('G', 'Guía'))} para ir a la siguiente.`)}` : g.phase === 'ship' ? `¡Has hecho todas tus tareas!${clock} ${after}` : '', { keep: true });
                 } else this.otherSound(e.p, ShipSounds.clink(), e);
                 break;
             case 'kill': this.presentKill(e); break;
+            case 'power': this.presentPower(e); break;
+            case 'protect': case 'shieldOff': case 'shielded': this.presentShield(e); break;
+            case 'shift': case 'unshift': case 'vanish': case 'appear': this.presentShape(e); break;
+            case 'alarm': this.presentAlarm(e); break;
+            case 'hideGo': case 'finalHide': case 'ping': this.presentHide(e); break;
             case 'meeting': {
                 this.bodiesNow = [];
                 this.scanning.clear();
+                this.alarm = null;
                 this.closeTask();
                 this.setGuide(null);
                 this.releaseKeys();
@@ -1478,7 +1603,9 @@ class ImpostorMatch extends Match {
                 this.silenceBodies();
                 if (this.meetDialog) Dialog.close(undefined, true);
                 if (e.bar) this.finalBar = { ...e.bar };
-                if (e.reason === 'reactor') { this.flat(ShipSounds.kill()); Board.banner('¡Ha estallado el reactor!', `Ganan los impostores: ${Txt.list(e.impostors.map(q => q === me ? 'tú' : this.seats[q].name))}`); }
+                if (e.reason === 'time') { this.flat(ShipSounds.gong(true)); Board.banner('¡Se acabó el tiempo!', 'Ganan los que se escondían'); }
+                else if (g.hideSeek) Board.banner('¡Os ha pillado a todos!', `Gana ${Txt.list(e.impostors.map(q => q === me ? 'tú' : this.seats[q].name))}`);
+                else if (e.reason === 'reactor') { this.flat(ShipSounds.kill()); Board.banner('¡Ha estallado el reactor!', `Ganan los impostores: ${Txt.list(e.impostors.map(q => q === me ? 'tú' : this.seats[q].name))}`); }
                 else if (e.reason === 'oxygen') { this.flat(ShipSounds.kill()); Board.banner('¡Se ha acabado el oxígeno!', `Ganan los impostores: ${Txt.list(e.impostors.map(q => q === me ? 'tú' : this.seats[q].name))}`); }
                 else if (e.side === 'impostors') Board.banner('¡Ganan los impostores!', Txt.list(e.impostors.map(q => q === me ? 'tú' : this.seats[q].name)));
                 else Board.banner(e.reason === 'tasks' ? '¡Nave arreglada!' : '¡Impostores fuera!', e.reason === 'tasks' ? 'La tripulación ha hecho todas las tareas' : 'Gana la tripulación');
@@ -1511,8 +1638,14 @@ class ImpostorMatch extends Match {
             this.setGuide(null);
             sc?.here(ShipSounds.kill());
             setTimeout(() => this.scene?.here(ShipSounds.ghost()), 500);
-            Board.banner('Te han matado', `Ha sido ${killer}`);
-            this.tell(`¡${cap(killer)} te ha matado! Ahora eres un fantasma: nadie te ve ni te oye, y no puedes avisar ni votar.${this.amImpostor ? '' : ' Pero puedes acabar tus tareas para ayudar a la tripulación.'}`, { keep: true });
+            if (g.hideSeek) {
+                Board.banner('Te han pillado', `Ha sido ${killer}`);
+                this.tell(`¡${cap(killer)} te ha pillado! Ahora eres un fantasma: puedes seguir la partida, pero nadie te ve ni te oye.`, { keep: true });
+            } else {
+                Board.banner('Te han matado', `Ha sido ${killer}`);
+                const angel = this.mePl.special === 'angel' ? ` Como eres ángel de la guarda, ahora puedes proteger a los vivos con ${this.touch ? 'el botón Proteger' : 'la B'}.` : '';
+                this.tell(`¡${cap(killer)} te ha matado! Ahora eres un fantasma: nadie te ve ni te oye, y no puedes avisar ni votar.${this.amImpostor ? '' : ' Pero puedes acabar tus tareas para ayudar a la tripulación.'}${angel}`, { keep: true });
+            }
             Board.status(this.statusIdle());
             Board.render(this);
             return;
@@ -1523,20 +1656,37 @@ class ImpostorMatch extends Match {
             this.inRange = null;
             sc?.here(ShipSounds.kill());
             const seen = e.witnesses.length ? ` Cuidado: te ${e.witnesses.length === 1 ? `ha visto ${this.seats[e.witnesses[0]].name}` : `han visto ${Txt.list(e.witnesses.map(q => this.seats[q].name))}`}.` : '';
-            this.tell(`Has matado ${toWhom(victim)}.${seen}${this.hint('fled', 'Aléjate antes de que alguien encuentre el cuerpo, o avisa tú mismo con la R para disimular.')}`, { keep: true });
+            const left = g.living().filter(q => !g.isImpostor(q)).length;
+            if (g.hideSeek) this.tell(`¡Has pillado ${toWhom(victim)}!${g.phase === 'ship' ? ` ${left === 1 ? 'Queda uno' : `Quedan ${left}`}.` : ''}`, { keep: true });
+            else this.tell(`Has matado ${toWhom(victim)}.${seen}${this.hint('fled', 'Aléjate antes de que alguien encuentre el cuerpo, o avisa tú mismo con la R para disimular.')}`, { keep: true });
             Board.render(this);
             return;
         }
         const pl = this.mePl, d = Math.hypot(e.x - pl.x, e.y - pl.y);
+        // Quien lo ve, ve a quien parece el asesino (un cambiaformas, como otro); sus compañeros saben quién es.
+        const mate = this.isMate(e.p), seenKiller = mate || e.as == null ? killer : this.seats[e.as].name;
         // Los fantasmas lo ven también a través de las paredes, como ven a los demás.
         if (e.witnesses.includes(me) || (!pl.alive && d <= g.visionOf(me))) {
             sc?.at(e.x, e.y, ShipSounds.kill());
             this.bodiesSeen.add(e.target);
-            const mate = this.isMate(e.p) ? ', tu compañero impostor,' : '';
-            this.tell(`¡${cap(killer)}${mate} ha matado ${toWhom(victim)}, ${this.rel(e.x, e.y)}!${pl.alive && !this.amImpostor ? this.hint('witness', `${cap(this.press('R', 'Avisar'))} para avisar a todos.`) : ''}`, { keep: true });
+            const tag = mate ? ', tu compañero impostor,' : '';
+            const hint = pl.alive && !this.amImpostor && !g.hideSeek ? this.hint('witness', `${cap(this.press('R', 'Avisar'))} para avisar a todos.`) : '';
+            this.tell(`¡${cap(seenKiller)}${tag} ${g.hideSeek ? 'ha pillado' : 'ha matado'} ${toWhom(victim)}, ${this.rel(e.x, e.y)}!${hint}`, { keep: true });
+            Board.render(this);
+            return;
+        }
+        // En las cámaras: quien las mira lo ve en su pantalla.
+        const cam = this.camsWatching() && e.cams?.length ? e.cams[0] : null;
+        if (cam != null) {
+            this.camFlash = { i: cam, t0: this.clock, kind: 'kill' };
+            this.flat(ShipSounds.kill());
+            this.tell(`¡En la cámara ${ofWhom(this.areaName(SHIP.cameras[cam].area))}: ${seenKiller}${mate ? ', tu compañero impostor,' : ''} ha matado ${toWhom(victim)}!${!this.amImpostor ? ' Corre a contarlo.' : ''}`, { keep: true, interrupt: true });
             Board.render(this);
         }
     }
+
+    /** ¿Estás mirando las cámaras, con señal? */
+    camsWatching() { return this.task?.type === 'consola' && this.task.id === 'cams' && !this.task.data?.down && !this.game.commsDown; }
 
     // ── Los sabotajes, las puertas, los conductos y el escáner ──
     /** Alguien sabotea: las luces o el reactor. */
@@ -1670,11 +1820,13 @@ class ImpostorMatch extends Match {
             if (e.kind === 'out') {
                 sc?.here(ShipSounds.vent());
                 this.saidArea = me.area;
-                this.tell(`Sales del conducto, ${inPlace(this.areaName(e.area))}.${seen}`);
+                this.tell(`${e.forced ? 'Se acaba el tiempo: sales' : 'Sales'} del conducto, ${inPlace(this.areaName(e.area))}.${seen}`);
             } else {
                 sc?.here(e.kind === 'in' ? ShipSounds.vent() : ShipSounds.ventMove());
+                if (e.kind === 'in') this.ventWarned = false;
                 const how = this.touch ? 'La cruceta te lleva al que está hacia ese lado; Conducto, para salir.' : 'Pulsa su número, o la flecha hacia donde está; la V, para salir.';
-                this.tell(`${e.kind === 'in' ? 'Estás dentro del' : 'Llegas al'} ${ventName(v).replace(/^el /, '')}. Lleva ${impList(this.ventExits(v))}.${seen}${this.hint('vent', how)}`);
+                const limit = e.limit ? ` Puedes estar dentro ${e.limit} segundos.` : '';
+                this.tell(`${e.kind === 'in' ? 'Estás dentro del' : 'Llegas al'} ${ventName(v).replace(/^el /, '')}. Lleva ${impList(this.ventExits(v))}.${limit}${seen}${this.hint('vent', how)}`);
             }
             Board.status(this.statusIdle());
             Board.render(this);
@@ -1684,20 +1836,34 @@ class ImpostorMatch extends Match {
         // Solo lo oye quien lo ve: la tapa del conducto suena desde su sitio.
         const d = Math.hypot(e.x - me.x, e.y - me.y);
         const sees = e.witnesses?.includes(this.me) || (!me.alive && d <= g.visionOf(this.me));
+        const mate = this.isMate(e.p) ? ', tu compañero impostor,' : '';
+        const what = `${e.kind === 'in' ? 'se ha metido en' : 'ha salido de'} un conducto`;
+        const cam = !sees && this.camsWatching() && e.cams?.length ? e.cams[0] : null;
+        if (cam != null) {
+            this.camFlash = { i: cam, t0: this.clock, kind: 'vent' };
+            this.flat(ShipSounds.vent());
+            if (me.alive && !this.amImpostor && !g.hideSeek) this.ventSaw = { who: g.shown(e.p), area: e.area };
+            this.tell(`En la cámara ${ofWhom(this.areaName(SHIP.cameras[cam].area))}: ¡${cap(this.seenName(e.p))}${mate} ${what}!`, { keep: true });
+            return;
+        }
         if (!sees) return;
         sc?.at(e.x, e.y, ShipSounds.vent());
-        if (me.alive && !this.amImpostor) this.ventSaw = { who: e.p, area: e.area };
-        const mate = this.isMate(e.p) ? ', tu compañero impostor,' : '';
-        this.tell(`¡${this.Nm(e.p)}${mate} ${e.kind === 'in' ? 'se ha metido en' : 'ha salido de'} un conducto, ${this.rel(e.x, e.y)}!${me.alive && !this.amImpostor ? this.hint('ventSaw', 'Solo los impostores van por los conductos. Cuéntalo en la reunión.') : ''}`, { keep: true });
+        if (me.alive && !this.amImpostor && !g.hideSeek) this.ventSaw = { who: g.shown(e.p), area: e.area };
+        const hint = me.alive && !this.amImpostor && !g.hideSeek ? this.hint('ventSaw', 'Los impostores van por los conductos, y también los ingenieros. Cuéntalo en la reunión.') : '';
+        this.tell(`¡${cap(this.seenName(e.p))}${mate} ${what}, ${this.rel(e.x, e.y)}!${hint}`, { keep: true });
     }
 
-    /** Otro pasa por el escáner: si lo ves, sabes que es tripulante. Un impostor se puede poner, pero el escáner no hace nada. */
-    otherScan(e) {
+    /**
+     * Otro hace una tarea que se ve (el escáner, la basura o los escudos): si lo ves, sabes que es tripulante.
+     * Un impostor puede ponerse, pero no pasa nada.
+     */
+    otherVisual(e) {
         const g = this.game;
-        if (e.visible) this.scanning.set(e.p, true);
-        this.otherSound(e.p, e.visible ? ShipSounds.scan() : ShipSounds.beep());
+        if (e.visible) this.scanning.set(e.p, e.task);
+        this.otherSound(e.p, e.visible ? IMP_VISUAL[e.task].sound() : ShipSounds.beep());
         if (!g.perceive(this.me).seen.includes(e.p)) return;
-        this.tell(e.visible ? `${this.Nm(e.p)} está pasando por el escáner: es tripulante.` : `${this.Nm(e.p)} se ha puesto en el escáner, pero el escáner no hace nada.`);
+        const V = IMP_VISUAL[e.task], who = cap(this.seenName(e.p));
+        this.tell(e.visible ? `${who} está ${V.doing}: es tripulante.` : `${who} ${V.fake}, pero no pasa nada.`);
     }
 
     /** Un sonido en el sitio de otro jugador (o donde dice el suceso), solo si lo ves, como en la pantalla. */
@@ -1707,9 +1873,199 @@ class ImpostorMatch extends Match {
         this.scene?.at(e?.x ?? pl.x, e?.y ?? pl.y, play, { group: 'people' });
     }
 
+    // ── Los papeles especiales ────────────────────────
+    /** El científico enciende sus constantes vitales (o se le acaba la batería). */
+    presentPower(e) {
+        if (e.p !== this.me) return;
+        if (e.on) {
+            this.sound(ShipSounds.console());
+            this.openVitals(true);
+            return;
+        }
+        if (this.task?.type === 'consola' && this.task.remote) this.closeTask();
+        this.sound(ShipSounds.flip(false));
+        this.tell(`Se acaba la batería de las constantes vitales.${this.hint('battery', 'Se recarga con el tiempo, y del todo con cada tarea que haces.')}`);
+        Board.render(this);
+    }
+
+    /** El escudo del ángel de la guarda: ponerlo, que se acabe y que pare un cuchillo. */
+    presentShield(e) {
+        const g = this.game, me = this.me;
+        if (e.type === 'protect') {
+            this.sound(ShipSounds.shield());
+            this.tell(`Proteges ${toWhom(this.seats[e.target].name)} durante ${Math.round(e.until - g.time)} segundos: si un impostor intenta matarle, no podrá.`);
+        } else if (e.type === 'shieldOff') this.notice(`Se acaba el escudo ${ofWhom(this.seats[e.target].name)}.`);
+        else {
+            this.scene?.at(e.x, e.y, ShipSounds.shieldHit());
+            this.ripple(e.x, e.y, 'ping');
+            if (e.p === me) {
+                this.killReady = false; this.inRange = null;
+                Board.banner('¡Tenía un escudo!', 'Un ángel de la guarda');
+                this.tell(`¡No has podido! Un ángel de la guarda protege ${toWhom(this.seats[e.target].name)}. Tienes que esperar otra vez para matar.`, { keep: true });
+            } else this.tell(`¡Tu escudo ha salvado ${toWhom(this.seats[e.target].name)} de un impostor!`, { keep: true });
+        }
+        Board.render(this);
+    }
+
+    /** El cambiaformas se transforma o vuelve a su forma; el espectro desaparece o aparece. */
+    presentShape(e) {
+        const g = this.game, me = this.mePl, sc = this.scene, shift = e.type === 'shift' || e.type === 'unshift';
+        const sound = shift ? ShipSounds.shift() : ShipSounds.vanish(e.type === 'vanish');
+        if (e.p === this.me) {
+            sc?.here(sound);
+            const secs = Math.round((e.until ?? g.time) - g.time);
+            this.tell({
+                shift: `Te has transformado en ${this.names[e.as]}: durante ${secs} segundos te ven y te oyen como si fueras esa persona.${this.hint('unshift', `${cap(this.press('B', 'Volver a ser tú'))} para volver antes.`)}`,
+                unshift: e.early ? 'Vuelves a ser tú.' : 'Se acaba la transformación: vuelves a ser tú.',
+                vanish: `Eres invisible durante ${secs} segundos: nadie te ve ni te oye. Mientras, no puedes matar.${this.hint('appear', `${cap(this.press('B', 'Dejarte ver'))} para aparecer antes.`)}`,
+                appear: e.early ? 'Te dejas ver otra vez.' : 'Se acaba la invisibilidad: te ven otra vez.',
+            }[e.type]);
+            Board.render(this);
+            return;
+        }
+        // Lo saben quien lo ve, los fantasmas cercanos y los otros impostores (estos, estén donde estén).
+        const d = Math.hypot(e.x - me.x, e.y - me.y), mate = this.isMate(e.p);
+        const near = e.witnesses?.includes(this.me) || (!me.alive && d <= g.visionOf(this.me));
+        if (!near && !mate) return;
+        if (near) { sc?.at(e.x, e.y, sound, { group: 'people' }); this.ripple(e.x, e.y, 'ping'); }
+        const where = near ? `, ${this.rel(e.x, e.y)}` : '', who = this.Nm(e.p), tag = mate ? ', tu compañero impostor,' : '';
+        let t = {
+            shift: `¡${who}${tag} se ha transformado en ${this.names[e.as]}${where}!`,
+            unshift: mate ? `${who} vuelve a su forma${where}.` : `¡${cap(this.names[e.as])} era ${this.names[e.p]} transformado! Vuelve a su forma${where}.`,
+            vanish: `¡${who}${tag} se ha vuelto invisible${where}!`,
+            appear: `¡${who}${tag} aparece de la nada${where}!`,
+        }[e.type];
+        if (near && me.alive && !this.amImpostor) t += this.hint('shapeSeen', 'Solo los impostores pueden hacer eso. Cuéntalo en la reunión.');
+        if (mate && !near) this.notice(t); else this.tell(t, { keep: true });
+    }
+
+    /** El ruidoso ha muerto: su alarma suena en toda la nave, y en la pantalla, una flecha lleva a su cuerpo. */
+    presentAlarm(e) {
+        const g = this.game, me = this.mePl;
+        for (const k of [0, 1.3, 2.6]) setTimeout(() => { if (!this.stopped && g.phase === 'ship') this.scene?.at(e.x, e.y, ShipSounds.noiseAlarm(), { ref: 14, roll: 0.4 }); }, k * 1000);
+        this.alarm = { x: e.x, y: e.y, area: e.area, p: e.p, until: this.clock + 12 };
+        this.ripple(e.x, e.y, 'body');
+        Board.banner('¡Alarma!', `Alguien ha muerto ${inPlace(this.areaName(e.area))}`);
+        if (e.p === this.me) { this.tell('Eras ruidoso: ha sonado tu alarma y todos saben dónde está tu cuerpo.'); return; }
+        const where = me.area === e.area ? `, ${this.rel(e.x, e.y)}` : '';
+        const hint = me.alive && !this.amImpostor ? this.hint('alarm', `Con ${this.touch ? 'Guía' : 'la G'}, la guía te lleva.`) : '';
+        this.tell(`¡Suena una alarma! Alguien ha muerto ${inPlace(this.areaName(e.area))}${where}.${hint}`, { keep: true, interrupt: true });
+    }
+
+    /** El escondite: empieza la búsqueda, llega el último minuto y quien busca sabe dónde está cada uno. */
+    presentHide(e) {
+        const g = this.game, seek = this.amImpostor, sc = this.scene;
+        const seekers = Txt.list(g.impostors().filter(q => q !== this.me).map(q => this.seats[q].name));
+        if (e.type === 'hideGo') {
+            this.flat(ShipSounds.gong(false));
+            Board.banner('¡A buscar!', seek ? 'Encuentra a todos' : `${cap(seekers)} empieza a buscar`);
+            this.tell(seek ? `¡Ya puedes buscar! Pilla a cada uno con ${this.touch ? 'Matar' : 'la Q'}.` : `¡${cap(seekers)} empieza a buscar! Que no te encuentre.`, { interrupt: true });
+            Board.status(this.statusIdle());
+        } else if (e.type === 'finalHide') {
+            this.flat(ShipSounds.gong(true));
+            Board.banner('¡Último minuto!', seek ? 'Sabes dónde está cada uno' : 'Te pueden encontrar');
+            this.tell(seek ? 'Último minuto: cada pocos segundos suena dónde está cada uno, y lo ves en la pantalla.' : 'Último minuto: quien busca sabe dónde estás cada pocos segundos. ¡Muévete y aguanta!', { interrupt: true });
+        } else if (e.p === this.me) {
+            this.pings = { at: e.at, t0: this.clock };
+            e.at.forEach((a, k) => setTimeout(() => { if (!this.stopped) sc?.at(a.x, a.y, ShipSounds.seekPing(), { ref: 10, roll: 0.4 }); }, k * 180));
+            if (this.clock - (this.pingSaid ?? -99) > 12 && !this.speech.busy && e.at.length) {
+                this.pingSaid = this.clock;
+                this.tell(cap(impList(e.at.map(a => `${this.seats[a.p].name}, ${SHIP.byId[a.area] ? inPlace(this.areaName(a.area)) : 'en un conducto'}`))) + '.');
+            }
+        }
+        Board.render(this);
+    }
+
+    /** El escondite: si quien busca se te acerca, suena tu corazón, cada vez más deprisa (atraviesa las paredes). */
+    hideCues(dt) {
+        const g = this.game, me = this.mePl;
+        this.danger = g.hideSeek && me.alive && !this.amImpostor && g.phase === 'ship' ? g.dangerOf(this.me) : 0;
+        if (this.danger <= 0) return;
+        if ((this.timers.heart = (this.timers.heart ?? 0) - dt) > 0) return;
+        this.timers.heart = 1.3 - 0.85 * this.danger;
+        this.heartT = this.clock;
+        this.scene?.here(ShipSounds.heartbeat(this.danger), 'cues');
+    }
+
+    /** Dentro de un conducto, el ingeniero (y quien se esconde) sabe cuándo le quedan pocos segundos. */
+    ventCues() {
+        const g = this.game, me = this.mePl;
+        if (me.vent == null || !g.ventLimited(this.me) || this.ventWarned) return;
+        const left = IMPOSTOR_ROLES.engineer.dur - (g.time - me.ventIn);
+        if (left > 5) return;
+        this.ventWarned = true;
+        this.tell('Te quedan 5 segundos dentro del conducto.');
+    }
+
+    /** ¿Tienes un poder que se usa con la B? (el ángel, de fantasma; los demás, en vida) */
+    hasPower() {
+        const me = this.mePl, R = IMPOSTOR_ROLES[me.special];
+        return !!R?.cd && (me.special === 'angel' ? !me.alive : me.alive);
+    }
+    powerOn() { return this.mePl.powerUntil > this.game.time; }
+    powerLabel() {
+        const me = this.mePl, on = this.powerOn(), id = me.special;
+        const base = { scientist: on ? 'Constantes vitales' : 'Mirar las constantes', angel: 'Proteger', shapeshifter: me.shape != null ? 'Volver a ser tú' : 'Transformarte', phantom: me.hidden ? 'Dejarte ver' : 'Desaparecer' }[id] || 'Poder';
+        if (on && id === 'scientist') return `${base} (${Math.max(0, Math.ceil(me.powerUntil - this.game.time))} s)`;
+        if (!on && me.powerCd > 0) return `${base} (${Math.ceil(me.powerCd)} s)`;
+        return base;
+    }
+
+    /** B: el poder de tu papel especial. */
+    async powerKey() {
+        const g = this.game, me = this.mePl, id = me.special, R = IMPOSTOR_ROLES[id];
+        if (g.phase !== 'ship') { this.explainCant(); return; }
+        const no = t => { this.audio.error(); this.tell(t); };
+        if (!R) return no(g.hideSeek ? 'En el escondite no hay papeles especiales.' : 'No tienes ningún papel especial, así que no tienes poder.');
+        if (id === 'engineer') return no(`Tu poder son los conductos: ponte junto a uno y ${this.press('V', 'Conducto')}. Puedes estar dentro ${R.dur} segundos seguidos.`);
+        if (id === 'noisemaker') return no('Tu poder es la alarma: si te matan, sonará en toda la nave y todos sabrán dónde está tu cuerpo.');
+        if (id === 'angel' && me.alive) return no('Cuando seas fantasma, podrás proteger a los vivos.');
+        if (id !== 'angel' && !me.alive) return no('Los fantasmas ya no tienen ese poder.');
+        if (me.vent != null) return no('Dentro de un conducto no puedes.');
+        const on = this.powerOn();
+        if (id === 'scientist' && on) {
+            // Con la batería puesta: abre las constantes vitales o, si las estás mirando, las apaga.
+            if (this.task?.type === 'consola' && this.task.id === 'vitals') this.act({ type: 'power', p: this.me });
+            else if (!this.task) this.openVitals(false);
+            else this.busyNotice();
+            return;
+        }
+        if (!on && me.powerCd > 0) return no(`Tu poder estará listo dentro de ${Math.ceil(me.powerCd)} segundos.`);
+        if (this.task?.fake) this.act({ type: 'cancelTask', p: this.me });
+        else if (this.task?.local) this.closeTask();
+        else if (this.task) { this.busyNotice(); return; }
+        if (id === 'shapeshifter' && me.shape == null) {
+            if (Dialog.active) return;
+            const r = await Dialog.open({
+                title: '¿En quién te transformas?',
+                text: `Te verán y te oirán como esa persona durante ${R.dur} segundos.`,
+                items: [...g.living().filter(q => q !== this.me).map(q => ({ label: `${cap(this.seats[q].name)}, ${this.lookText(q)}${this.isMate(q) ? ', impostor como tú' : ''}`, value: 'p' + q })), { label: 'Volver', value: 'back' }],
+                cancel: 'back',
+            });
+            if (!r || r === 'back' || this.stopped || g.phase !== 'ship') return;
+            this.act({ type: 'power', p: this.me, as: +r.slice(1) });
+            return;
+        }
+        this.act({ type: 'power', p: this.me });
+    }
+
+    /** Las constantes vitales del científico, estés donde estés. */
+    openVitals(first) {
+        if (this.task) { if (first) this.tell(`Constantes vitales encendidas. ${cap(this.press('B', 'Constantes vitales'))} para mirarlas.`); return; }
+        if (this.mode === 'client') { this.act({ type: 'console', p: this.me, id: 'vitals' }); return; }
+        const res = this.game.act({ type: 'console', p: this.me, id: 'vitals' });
+        if (res.ok) this.openPanel('consola', { id: 'vitals', data: res.events[0].data, local: true, remote: true });
+    }
+
     gameOverText(won) {
         const g = this.game, r = g.result || {}, imps = g.impostors(), me = this.me;
         if (!imps.length) return 'La tripulación ha hecho todas las tareas de la nave. ¡Habéis ganado!';
+        if (g.hideSeek) {
+            const seek = imps.map(p => p === me ? 'tú' : this.seats[p].name), you = imps.length === 1 && imps[0] === me;
+            const t = r.reason === 'time' ? `¡Se ha acabado el tiempo y ${Txt.list(seek)} no ${you ? 'has' : imps.length > 1 ? 'han' : 'ha'} pillado a todos!`
+                : `${cap(Txt.list(seek))} ${you ? 'has' : imps.length > 1 ? 'han' : 'ha'} pillado a todos.`;
+            return `${t} ${won ? (g.winners.length > 1 ? '¡Habéis ganado!' : '¡Has ganado!') : 'Has perdido.'}`;
+        }
         const who = imps.length === 1 ? (imps[0] === me ? 'El impostor eras tú.' : `El impostor era ${this.seats[imps[0]].name}.`)
             : `Los impostores eran ${Txt.list(imps.map(p => this.v.name(p)))}.`;
         let t;
@@ -2138,7 +2494,7 @@ class ImpostorMatch extends Match {
         $('imp-meet-crew').innerHTML = g.players.map(pl => {
             const p = pl.index, dead = !pl.alive, votes = M.counts?.[p];
             return `<div class="imp-card${dead ? ' dead' : ''}${M.talking === p ? ' talking' : ''}${M.voted.has(p) ? ' voted' : ''}${this.isMate(p) || (p === this.me && this.amImpostor) ? ' imp' : ''}">
-                <svg viewBox="-12 -20 24 32" aria-hidden="true">${ImpostorArt.crew(0, 0, 8, this.colorOf(p))}${dead ? '<path d="M -7 -7 L 7 7 M 7 -7 L -7 7" stroke="#e05656" stroke-width="2.5" stroke-linecap="round"/>' : ''}</svg>
+                <svg viewBox="-12 -22 24 34" aria-hidden="true">${ImpostorArt.crew(0, 0, 8, this.colorOf(p), this.hatOf(p))}${dead ? '<path d="M -7 -7 L 7 7 M 7 -7 L -7 7" stroke="#e05656" stroke-width="2.5" stroke-linecap="round"/>' : ''}</svg>
                 <span class="nm">${impEsc(p === this.me ? 'Tú' : cap(pl.name))}</span>
                 ${votes ? `<span class="votes">${votes} ${votes === 1 ? 'voto' : 'votos'}</span>` : M.voted.has(p) ? '<span class="st">ha votado</span>' : M.ready.has(p) && M.stage === 'talk' ? '<span class="st">quiere votar</span>' : ''}
                 ${M.last[p] ? `<span class="said">${impEsc(M.last[p])}</span>` : ''}
@@ -2183,7 +2539,7 @@ class ImpostorMatch extends Match {
             const x = clamp(me.x, f.x, f.x + f.w), y = clamp(me.y, f.y, f.y + f.h);
             parts.push(`${cap(f.name)} está ${this.rel(x, y)}.`);
         }
-        if (me.area === SHIP.button.area && g.impostorCount() && me.alive) parts.push('En la mesa está el botón de emergencia.');
+        if (me.area === SHIP.button.area && g.impostorCount() && !g.hideSeek && me.alive) parts.push('En la mesa está el botón de emergencia.');
         for (const c of SHIP.consoles) if (c.area === me.area) {
             const one = c.name.startsWith('el ');
             parts.push(c.table ? `En ${c.table.name} se ${one ? 'mira' : 'miran'} ${c.name}.` : `${cap(c.name)} ${one ? 'está' : 'están'} ${this.rel(c.x, c.y)}.`);
@@ -2195,15 +2551,40 @@ class ImpostorMatch extends Match {
         else parts.push('Ya has hecho todas tus tareas.');
         const { seen, bodies } = g.perceive(this.me);
         for (const p of bodies) { const b = g.bodies.find(x => x.p === p); parts.push(`${p === this.me ? 'Tu cuerpo' : `El cuerpo ${ofWhom(this.seats[p].name)}`} está ${this.rel(b.x, b.y)}.`); }
-        if (seen.length) parts.push(`Ves ${impList(seen.map(p => `${toWhom(this.names[p])}${g.players[p].alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}, ${this.rel(g.players[p].x, g.players[p].y)}`))}.`);
+        if (seen.length) parts.push(`Ves ${impList(seen.map(p => `${toWhom(this.seenName(p))}${g.players[p].alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}${g.hideSeek && g.isImpostor(p) ? ', que busca' : ''}, ${this.rel(g.players[p].x, g.players[p].y)}`))}.`);
         else parts.push('No ves a nadie cerca.');
         if (this.amImpostor && me.alive) {
             const t = g.killTargets(this.me)[0];
             parts.push(me.killCd > 0 ? `Para matar, faltan ${Math.ceil(me.killCd)} segundos.` : t != null ? `Puedes matar ${toWhom(this.seats[t].name)}.` : 'Ya puedes matar, pero no tienes a nadie a tu alcance.');
         }
-        if (this.amImpostor && g.rules.sabotages) parts.push(this.sabWaitText());
+        if (this.amImpostor && g.rules.sabotages && !g.hideSeek) parts.push(this.sabWaitText());
+        if (g.hideSeek) parts.push(this.hideText());
+        if (this.alarm && this.clock < this.alarm.until) parts.push(`La alarma ha sonado ${inPlace(this.areaName(this.alarm.area))}${me.area === this.alarm.area ? `, ${this.rel(this.alarm.x, this.alarm.y)}` : ''}.`);
+        if (this.hasPower()) parts.push(this.powerText());
         if (this.guide?.carrot) parts.push(`La guía te lleva ${this.guide.to}: sigue ${impDir(this.guide.carrot.x - me.x, this.guide.carrot.y - me.y)}.`);
         this.tell(parts.join(' '), { keep: true });
+    }
+
+    /** Cómo va el escondite: cuánto queda y, para quien busca, dónde estaba cada uno la última vez. */
+    hideText() {
+        const g = this.game, H = g.hide, me = this.mePl;
+        if (!H) return '';
+        if (g.time < H.go) return this.amImpostor ? `Empiezas a buscar dentro de ${Math.ceil(H.go - g.time)} segundos.` : `Quien busca sale dentro de ${Math.ceil(H.go - g.time)} segundos: ¡escóndete!`;
+        const left = Math.max(0, Math.ceil(H.until - g.time)), m = Math.floor(left / 60), sec = left % 60;
+        let t = `Quedan ${m ? `${m} ${m === 1 ? 'minuto' : 'minutos'}${sec ? ` y ${sec} segundos` : ''}` : `${sec} segundos`} de escondite.`;
+        const hiding = g.living().filter(q => !g.isImpostor(q)).length;
+        t += ` ${hiding === 1 ? 'Queda uno escondido' : `Quedan ${hiding} escondidos`}.`;
+        if (this.amImpostor && this.pings && this.clock - this.pings.t0 < 10) t += ` Hace un momento: ${impList(this.pings.at.map(a => `${this.seats[a.p].name}, ${SHIP.byId[a.area] ? inPlace(this.areaName(a.area)) : 'en un conducto'}${me.area === a.area ? `, ${this.rel(a.x, a.y)}` : ''}`))}.`;
+        if (this.danger > 0.66) t += ' ¡Quien busca está muy cerca!';
+        else if (this.danger > 0) t += ' Quien busca anda cerca.';
+        return t;
+    }
+
+    /** Tu poder: listo, en marcha o cuánto falta. */
+    powerText() {
+        const me = this.mePl, R = IMPOSTOR_ROLES[me.special], g = this.game;
+        if (this.powerOn()) return me.special === 'scientist' ? `Las constantes vitales tienen batería para ${Math.ceil(me.powerUntil - g.time)} segundos.` : `Tu poder dura ${Math.ceil(me.powerUntil - g.time)} segundos más.`;
+        return me.powerCd > 0 ? `Tu poder de ${R.name} estará listo dentro de ${Math.ceil(me.powerCd)} segundos.` : `Tu poder de ${R.name} está listo: ${this.press('B', 'Poder')}.`;
     }
 
     /** Z: solo lo fundamental: a quién ves y si hay cuerpos a la vista, lo mismo que se ve en la pantalla. */
@@ -2213,7 +2594,7 @@ class ImpostorMatch extends Match {
         const parts = [];
         if (me.vent != null) parts.push('Estás dentro de un conducto.');
         else if (a) parts.push(`${cap(inPlace(a.name))}.`);
-        if (seen.length) parts.push(`Ves ${impList(seen.map(p => `${toWhom(this.names[p])}${g.players[p].alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}, ${this.rel(g.players[p].x, g.players[p].y)}`))}.`);
+        if (seen.length) parts.push(`Ves ${impList(seen.map(p => `${toWhom(this.seenName(p))}${g.players[p].alive ? '' : ', su fantasma'}${this.isMate(p) ? ', impostor como tú' : ''}${g.hideSeek && g.isImpostor(p) ? ', que busca' : ''}, ${this.rel(g.players[p].x, g.players[p].y)}`))}.`);
         else parts.push(g.lightsOff && me.alive && !this.amImpostor ? 'No ves a nadie: a oscuras, solo ves muy cerca.' : 'No ves a nadie.');
         const body = p => { const b = g.bodies.find(x => x.p === p); return `${p === this.me ? 'el tuyo' : `el ${ofWhom(this.seats[p].name)}`}, ${this.rel(b.x, b.y)}`; };
         if (!bodies.length) parts.push('No hay cuerpos.');
@@ -2245,15 +2626,18 @@ class ImpostorMatch extends Match {
         const g = this.game, me = this.mePl, mine = me.tasks, left = mine.filter(t => !t.done).length;
         const parts = [];
         const n = g.impostorCount();
-        if (n) {
+        if (g.hideSeek) parts.push(`Escondite. ${this.amImpostor ? 'Te toca buscar.' : me.alive ? 'Te toca esconderte.' : 'Te han pillado.'} ${this.hideText()}`);
+        else if (n) {
             const role = !me.alive ? 'Eres un fantasma' : this.amImpostor ? 'Eres impostor' : 'Eres tripulante';
             const mates = this.amImpostor ? g.impostors().filter(q => q !== this.me) : [];
-            parts.push(`${role}${mates.length ? `, con ${Txt.list(mates.map(q => this.seats[q].name))}` : ''}. ${n === 1 ? 'Hay un impostor' : `Hay ${n} impostores`}${this.impsOut ? `, y ya habéis echado a ${this.impsOut}` : ''}.`);
+            const sp = me.special ? ` y ${IMPOSTOR_ROLES[me.special].name}` : '';
+            parts.push(`${role}${sp}${mates.length ? `, con ${Txt.list(mates.map(q => `${this.seats[q].name}${g.players[q].special ? `, ${IMPOSTOR_ROLES[g.players[q].special].name}` : ''}`))}` : ''}. ${n === 1 ? 'Hay un impostor' : `Hay ${n} impostores`}${this.impsOut ? `, y ya habéis echado a ${this.impsOut}` : ''}.`);
+            if (this.hasPower()) parts.push(this.powerText());
         }
-        parts.push(this.barText());
+        if (!g.hideSeek) parts.push(this.barText());
         if (!this.amImpostor) parts.push(left ? `A ti te quedan ${left} de ${mine.length}.` : 'Tú ya has hecho todas las tuyas.');
         else if (me.alive) parts.push(me.killCd > 0 ? `Para matar, faltan ${Math.ceil(me.killCd)} segundos.` : 'Ya puedes matar.');
-        if (n && me.alive) {
+        if (n && me.alive && !g.hideSeek) {
             const w = g.buttonWait();
             parts.push(me.meetingsLeft ? `Te ${me.meetingsLeft === 1 ? 'queda una reunión de emergencia' : `quedan ${me.meetingsLeft} reuniones de emergencia`}${w > 0 ? `, y el botón estará listo dentro de ${Math.ceil(w)} segundos` : ''}.` : 'Ya no te quedan reuniones de emergencia.');
         }
@@ -2262,12 +2646,12 @@ class ImpostorMatch extends Match {
         if (g.sab?.kind === 'reactor') parts.push(`El reactor estalla en ${Math.ceil(g.sab.until - g.time)} segundos.`);
         if (g.sab?.kind === 'oxygen') parts.push(`El oxígeno se acaba en ${Math.ceil(g.sab.until - g.time)} segundos.`);
         if (g.doorsShut) parts.push(`Están cerradas las puertas ${ofWhom(this.areaName(g.doorsShut.room))}.`);
-        if (this.amImpostor && g.rules.sabotages) parts.push(this.sabWaitText());
+        if (this.amImpostor && g.rules.sabotages && !g.hideSeek) parts.push(this.sabWaitText());
         const a = SHIP.byId[me.area];
         if (me.vent != null) parts.push(`Estás dentro ${ofWhom(ventName(SHIP.vents[me.vent]))}.`);
         else if (a) parts.push(`Estás ${inPlace(a.name)}.`);
         const dead = g.players.filter(pl => !pl.alive && pl.knownDead).map(pl => pl.index);
-        parts.push(`En la nave estáis ${g.n}: ${Txt.list(this.names)}.${dead.length ? ` Se sabe que han muerto o que los han echado: ${Txt.list(dead.map(p => this.v.name(p)))}.` : ''}`);
+        parts.push(`En la nave estáis ${g.n}: ${Txt.list(this.names.map((nm, q) => `${nm}, ${this.lookText(q).replace(/^el /, '')}`))}.${dead.length ? ` Se sabe que han muerto o que los han echado: ${Txt.list(dead.map(p => this.v.name(p)))}.` : ''}`);
         this.tell(parts.join(' '), { keep: true });
     }
 
@@ -2292,26 +2676,27 @@ class ImpostorMatch extends Match {
         const t = [
             'W, A, S y D, o las flechas: andar. W va hacia delante, que es arriba en la pantalla; S, hacia detrás; A, a la izquierda, y D, a la derecha. Lo que suena a tu derecha está a tu derecha.',
             'E o Enter: usar lo que tienes al lado: una tarea, el panel de un sabotaje o una consola. Junto a la mesa del Comedor, pedir una reunión de emergencia.',
-            'R: avisar de un cuerpo que tienes cerca. Si eres impostor: Q, matar a quien tienes a tu alcance; X, sabotear, y V, entrar en un conducto o salir. Dentro de un conducto, las flechas o los números te llevan a otro.',
+            'R: avisar de un cuerpo que tienes cerca. Si eres impostor: Q, matar a quien tienes a tu alcance; X, sabotear, y V, entrar en un conducto o salir. Dentro de un conducto, las flechas o los números te llevan a otro. B: el poder de tu papel, si tienes un papel especial.',
             'F: qué hay cerca: dónde estás, las salidas, tus tareas y quién está contigo. Z: solo lo fundamental: a quién ves y si hay cuerpos. G: la guía, que te lleva con un pitido a una tarea o a una sala.',
-            'T o C: tus tareas. M: cómo es la nave. P: cómo suenan los pasos y la nota de cada uno. I: cómo va la partida.',
+            'T o C: tus tareas. M: cómo es la nave. P: el color de cada uno y cómo suenan sus pasos y su nota. I: cómo va la partida.',
             'Espacio: repetir lo último. H: las teclas. Escape: pausa, o dejar la tarea que estás haciendo.',
         ];
         this.tell(t.join(' ') + this.srKeysTip(), { keep: true });
     }
 
-    /** P: los pasos y la nota de cada uno, para reconocerlos sin verlos. */
+    /** P: el color, los pasos y la nota de cada uno, para reconocerlos sin verlos. Cada color suena siempre igual. */
     async stepsDemo() {
         if (this.demoing || !this.scene?.ok) { if (!this.scene?.ok) this.tell('No hay sonido.'); return; }
         this.demoing = true;
         const g = this.game, order = [this.me, ...g.players.map(p => p.index).filter(p => p !== this.me)];
         for (const [k, p] of order.entries()) {
             if (this.stopped) break;
-            await this.say(p === this.me ? 'Tus pasos.' : `${cap(this.names[p])}.`, { interrupt: k === 0 });
-            for (let i = 0; i < 3; i++) setTimeout(() => this.scene?.here(ShipSounds.step(STEP_TIMBRES[this.timbreOf(p)], 'metal', p === this.me ? 0.8 : 1.3), p === this.me ? 'mine' : 'people'), i * 300);
-            // Y la nota que suena mientras le ves.
+            const col = g.players[p].color;
+            await this.say(p === this.me ? `Tus pasos. Eres ${this.lookText(p)}.` : `${cap(this.names[p])}, ${this.lookText(p)}.`, { interrupt: k === 0 });
+            for (let i = 0; i < 3; i++) setTimeout(() => this.scene?.here(ShipSounds.step(STEP_TIMBRES[p === this.me ? 0 : 1 + col], 'metal', p === this.me ? 0.8 : 1.3), p === this.me ? 'mine' : 'people'), i * 300);
+            // Y la nota de su color, que suena mientras le ves.
             const note = p !== this.me && this.settings.impostorPresence;
-            if (note) for (let i = 0; i < 2; i++) setTimeout(() => this.scene?.here(ShipSounds.presence(PRESENCE_NOTES[this.timbreOf(p)]), 'people'), 1000 + i * 450);
+            if (note) for (let i = 0; i < 2; i++) setTimeout(() => this.scene?.here(ShipSounds.presence(PRESENCE_NOTES[col]), 'people'), 1000 + i * 450);
             await new Promise(r => setTimeout(r, note ? 1900 : 1000));
         }
         this.demoing = false;
@@ -2328,7 +2713,9 @@ class ImpostorMatch extends Match {
         // Con un sabotaje en marcha, lo primero: el panel que lo arregla (en el reactor, el que está libre).
         const held = g.reactorHeld();
         const panels = g.sab && me.alive ? SHIP.panels.filter(x => x.sab === g.sab.kind && !held.includes(x.id) && !g.sab.done?.includes(x.id)).map(x => { const s = shipStandAt(x); return { x, s, d: dist(s.x, s.y) }; }).sort((a, b) => a.d - b.d) : [];
+        const A = this.alarm && this.clock < this.alarm.until + 30 && me.alive ? this.alarm : null;
         const items = [
+            ...(A ? [{ label: `Adonde ha sonado la alarma: ${this.areaName(A.area)}, ${impDist(dist(A.x, A.y))}`, value: 'alarm:0' }] : []),
             ...panels.map(({ x, d }) => ({ label: `Arreglar ${IMP_SAB[x.sab]}: ${x.name}, ${impDist(d)}`, value: 'panel:' + x.id })),
             ...tasks.map(({ t, d }) => ({ label: `${this.taskName(t)}, ${inPlace(this.areaName(t.spot.area))}, ${impDist(d)}${this.waitLeft(t) > 0 ? `, lista dentro de ${Math.ceil(this.waitLeft(t))} segundos` : ''}`, value: 'task:' + t.i })),
             ...SHIP.areas.filter(a => a.kind === 'room' && a.id !== me.area).map(a => ({ label: `Ir ${toPlace(a.name)}`, value: 'room:' + a.id })),
@@ -2349,6 +2736,9 @@ class ImpostorMatch extends Match {
         } else if (kind === 'panel') {
             const { x, s } = panels.find(o => o.x.id === v);
             this.setGuide({ kind, id: v, x: s.x, y: s.y, to: toPlace(x.name) });
+        } else if (kind === 'alarm') {
+            const s = shipStandAt({ x: A.x, y: A.y });
+            this.setGuide({ kind: 'room', id: A.area, x: s.x, y: s.y, to: toPlace(this.areaName(A.area)) });
         } else if (kind === 'console') {
             const c = SHIP.consoles.find(o => o.id === v);
             const s = c.table ? this.tableSpot(c.table) : shipStandAt(c);
@@ -2429,7 +2819,7 @@ class ImpostorMatch extends Match {
         const c = g.consoleHere(this.me);
         if (c) { this.act({ type: 'console', p: this.me, id: c.id }); return; }
         if (panel) { this.audio.error(); this.tell('Los fantasmas no pueden arreglar los sabotajes: eso les toca a los vivos.'); return; }
-        if (this.alive && g.impostorCount() && g.atButton(this.me)) { this.emergency(); return; }
+        if (this.alive && g.impostorCount() && !g.hideSeek && g.atButton(this.me)) { this.emergency(); return; }
         this.audio.error();
         const n = this.nearestTask();
         if (!n) { this.tell(`Ya has hecho todas tus tareas. ${g.impostorCount() ? 'Vigila quién va con quién.' : 'Pasea por la nave mientras los demás acaban las suyas.'}`); return; }
@@ -3138,16 +3528,20 @@ class ImpostorMatch extends Match {
         const T = this.task;
         if (T?.type === 'consola' && T.id === e.id) { this.consoleUpdate(T, e.data); return; }
         // En la mesa del invitado la respuesta llega después: si ya te has ido, no se abre.
-        if (T || this.game.phase !== 'ship' || this.game.consoleHere(this.me)?.id !== e.id) return;
-        this.openPanel('consola', { id: e.id, data: e.data, local: true });
+        // El científico mira las constantes vitales desde donde esté.
+        const here = this.game.consoleHere(this.me)?.id === e.id, remote = !here && e.id === 'vitals' && this.mePl.special === 'scientist' && this.powerOn();
+        if (T || this.game.phase !== 'ship' || (!here && !remote)) return;
+        this.openPanel('consola', { id: e.id, data: e.data, local: true, remote });
     }
     consolaStart(T) {
         const c = SHIP.consoles.find(x => x.id === T.id);
-        $('imp-task-title').textContent = cap(c.name);
+        $('imp-task-title').textContent = cap(c.name) + (T.remote ? ', desde tu aparato' : '');
         Board.status(cap(c.name));
+        if (T.id === 'cams') this.camT = 0;
         T.t = 0; T.last = this.consoleSig(T.id, T.data);
         this.sound(ShipSounds.console());
-        this.taskUI({ text: this.consoleText(T.id, T.data), art: this.consoleArt(T.id, T.data), buttons: [{ k: ' ', label: 'Repetir' }] });
+        // Las cámaras se ven en sus pantallas: el texto, corto.
+        this.taskUI({ text: this.consoleText(T.id, T.data, T.id === 'cams'), art: this.consoleArt(T.id, T.data), buttons: [{ k: ' ', label: 'Repetir' }] });
         this.tell(`${this.consoleText(T.id, T.data)}${this.hint('console', `Se pone al día sola; ${this.touch ? 'Repetir' : 'Espacio'} lo vuelve a decir. Para irte, anda.`)}`, { keep: true });
     }
     consolaKey(T, k) { if (k === ' ' || k === 'Enter') this.tell(this.consoleText(T.id, T.data), { keep: true }); }
@@ -3155,7 +3549,7 @@ class ImpostorMatch extends Match {
     consolaTick(T, dt) {
         if ((T.t -= dt) > 0) return;
         T.t = 1;
-        if (this.game.consoleHere(this.me)?.id !== T.id) { this.closeTask(); return; }
+        if (T.remote ? !this.powerOn() : this.game.consoleHere(this.me)?.id !== T.id) { this.closeTask(); return; }
         // El invitado se la pide al anfitrión; la respuesta llega como «console» (showConsole).
         if (this.mode === 'client') { this.act({ type: 'console', p: this.me, id: T.id }); return; }
         const res = this.game.act({ type: 'console', p: this.me, id: T.id });
@@ -3165,7 +3559,9 @@ class ImpostorMatch extends Match {
     consoleUpdate(T, data) {
         T.data = data;
         const key = this.consoleSig(T.id, data);
-        this.taskUI({ text: this.consoleText(T.id, data), art: this.consoleArt(T.id, data) });
+        // Las pantallas de las cámaras se dibujan solas en cada fotograma (drawCams): no se rehacen.
+        const live = T.id === 'cams' && !data.down && !!$('imp-task-art')?.querySelector('canvas[data-cam]');
+        this.taskUI({ text: this.consoleText(T.id, data, T.id === 'cams'), art: live ? null : this.consoleArt(T.id, data) });
         if (key === T.last) return;
         T.last = key;
         this.sound(ShipSounds.console());
@@ -3181,9 +3577,11 @@ class ImpostorMatch extends Match {
             return `${short ? '' : 'El mapa de la nave: cuántos hay en cada sala. '}${list.length ? cap(impList(list)) : 'No hay nadie en las salas'}.${short ? '' : ' En las demás, nadie. En los pasillos y en los conductos no se ve.'}`;
         }
         if (id === 'cams') {
+            // De cada uno, hacia qué sala va, si anda.
             const parts = d.cams.filter(c => c.seen.length || c.bodies.length).map(c => {
-                const a = SHIP.byId[c.area], what = [...c.seen.map(p => this.whoName(p)), ...c.bodies.map(p => `el cuerpo ${ofWhom(this.whoName(p))}`)];
-                return `en ${a.name}, ${Txt.list(what)}`;
+                const a = SHIP.byId[c.area];
+                const what = [...c.seen.map((p, k) => `${this.whoName(p)}${c.going?.[k] ? `, hacia ${this.areaName(c.going[k])}` : ''}`), ...c.bodies.map(p => `el cuerpo ${ofWhom(this.whoName(p))}`)];
+                return `en ${a.name}, ${impList(what)}`;
             });
             if (short) return `Cámaras: ${parts.length ? impList(parts) : 'no se ve a nadie'}.`;
             return `Las cámaras de los pasillos: ${impList(d.cams.map(c => this.areaName(c.area).replace(/^el pasillo /, '')))}. ${parts.length ? cap(impList(parts)) : 'No se ve a nadie'}.`;
@@ -3202,7 +3600,8 @@ class ImpostorMatch extends Match {
             return `<svg viewBox="0 0 ${X(58)} ${Y(40)}">${rooms}</svg>`;
         }
         if (id === 'cams') {
-            return `<ul class="imp-list">${d.cams.map(c => `<li><b>${impEsc(cap(this.areaName(c.area).replace(/^el pasillo entre /, '')))}</b>: ${impEsc([...c.seen.map(p => this.whoName(p)), ...c.bodies.map(p => `cuerpo ${ofWhom(this.whoName(p))}`)].join(', ') || 'nadie')}</li>`).join('')}</ul>`;
+            // Cuatro pantallas, una por cámara, con lo que pasa en directo (drawCams).
+            return `<div class="imp-cams">${SHIP.cameras.map((k, i) => `<figure class="imp-cam"><canvas data-cam="${i}"></canvas><figcaption>${impEsc(cap(this.areaName(k.area).replace(/^el pasillo entre /, '')))}</figcaption></figure>`).join('')}</div>`;
         }
         return `<ul class="imp-list">${this.game.players.map(pl => `<li class="${d.dead.includes(pl.index) ? 'dead' : 'ok'}">${impEsc(cap(this.whoName(pl.index)))}: ${d.dead.includes(pl.index) ? 'muerto' : 'vivo'}</li>`).join('')}</ul>`;
     }
@@ -3212,10 +3611,16 @@ class ImpostorMatch extends Match {
     ventKey() {
         const g = this.game, me = this.mePl;
         if (g.phase !== 'ship') { this.explainCant(); return; }
-        if (!this.amImpostor) { this.audio.error(); this.tell(g.impostorCount() ? 'Solo los impostores van por los conductos. Tú eres tripulante.' : 'En esta partida no hay impostores.'); return; }
+        if (me.vent != null) { this.act({ type: 'vent', p: this.me }); return; }
         if (!me.alive) { this.audio.error(); this.tell('Los fantasmas atraviesan las paredes: no necesitan conductos.'); return; }
         if (!g.rules.vents) { this.audio.error(); this.tell('En esta partida no se usan los conductos.'); return; }
-        if (me.vent != null) { this.act({ type: 'vent', p: this.me }); return; }
+        if (me.hidden) { this.audio.error(); this.tell('Mientras eres invisible no puedes meterte en un conducto.'); return; }
+        if (!g.canVent(this.me)) {
+            this.audio.error();
+            this.tell(g.hideSeek ? 'Quien busca no va por los conductos.' : g.impostorCount() ? 'Solo los impostores y los ingenieros van por los conductos. Tú eres tripulante.' : 'En esta partida no hay impostores.');
+            return;
+        }
+        if (me.ventCd > 0) { this.audio.error(); this.tell(`Todavía no puedes volver a meterte en un conducto: faltan ${Math.ceil(me.ventCd)} segundos.`); return; }
         if (this.task?.fake) this.act({ type: 'cancelTask', p: this.me });
         else if (this.task?.local) this.closeTask();
         else if (this.task) { this.busyNotice(); return; }
@@ -3313,6 +3718,7 @@ class ImpostorMatch extends Match {
         if (k === 'q') { e.preventDefault(); this.killKey(); return true; }
         if (k === 'v') { e.preventDefault(); this.ventKey(); return true; }
         if (k === 'x') { e.preventDefault(); this.sabotageMenu(); return true; }
+        if (k === 'b') { e.preventDefault(); this.powerKey(); return true; }
         if (k === 'r') { e.preventDefault(); this.report(); return true; }
         if (k === 'f') { e.preventDefault(); this.radar(); return true; }
         if (k === 'z') { e.preventDefault(); this.whoHere(); return true; }
@@ -3363,57 +3769,7 @@ class ImpostorMatch extends Match {
             c.fillStyle = `rgba(255,255,255,${s.a})`;
             c.fillRect(sx, sy, s.r, s.r);
         }
-        // El casco, las salas y los pasillos.
-        c.fillStyle = '#141b2b';
-        c.beginPath();
-        [[1, 1], [57, 1], [57, 26], [43, 26], [43, 39], [1, 39]].forEach(([x, y], k) => k ? c.lineTo(X(x), Y(y)) : c.moveTo(X(x), Y(y)));
-        c.closePath(); c.fill();
-        for (const a of SHIP.areas) {
-            c.fillStyle = a.kind === 'room' ? IMP_FLOOR[a.id] : '#2b3448';
-            c.fillRect(X(a.x), Y(a.y), a.w * S + 0.5, a.h * S + 0.5);
-            // Las rejillas se ven como rejillas.
-            if (a.floor === 'rejilla') {
-                c.strokeStyle = 'rgba(255,255,255,.06)'; c.lineWidth = 1;
-                c.beginPath();
-                for (let x = a.x + 1; x < a.x + a.w; x++) { c.moveTo(X(x), Y(a.y)); c.lineTo(X(x), Y(a.y + a.h)); }
-                for (let y = a.y + 1; y < a.y + a.h; y++) { c.moveTo(X(a.x), Y(y)); c.lineTo(X(a.x + a.w), Y(y)); }
-                c.stroke();
-            }
-        }
-        // Las paredes.
-        c.strokeStyle = '#8da2c9'; c.lineWidth = Math.max(2, S * 0.12); c.lineCap = 'round';
-        c.beginPath();
-        for (const [x0, y0, x1, y1] of this.wallSegs) { c.moveTo(X(x0), Y(y0)); c.lineTo(X(x1), Y(y1)); }
-        c.stroke();
-        // Las puertas: una raya en el suelo; las cerradas, una barra roja.
-        c.strokeStyle = 'rgba(159,180,217,.45)'; c.lineWidth = Math.max(1.5, S * 0.07); c.setLineDash([S * 0.25, S * 0.2]);
-        c.beginPath();
-        for (const d of SHIP.doors) { if (this.doorShut(d)) continue; const px = -d.ny * 1.5, py = d.nx * 1.5; c.moveTo(X(d.x - px), Y(d.y - py)); c.lineTo(X(d.x + px), Y(d.y + py)); }
-        c.stroke(); c.setLineDash([]);
-        for (const d of SHIP.doors) {
-            if (!this.doorShut(d)) continue;
-            // La barra ocupa las casillas del pasillo que se han vuelto pared.
-            const ox2 = d.nx * 0.5, oy2 = d.ny * 0.5, px = -d.ny * 1.5, py = d.nx * 1.5;
-            c.strokeStyle = '#e05656'; c.lineWidth = S * 0.9; c.lineCap = 'butt';
-            c.beginPath(); c.moveTo(X(d.x + ox2 - px), Y(d.y + oy2 - py)); c.lineTo(X(d.x + ox2 + px), Y(d.y + oy2 + py)); c.stroke();
-            c.strokeStyle = 'rgba(255,215,208,.8)'; c.lineWidth = Math.max(1.5, S * 0.06);
-            c.beginPath(); c.moveTo(X(d.x + ox2 - px), Y(d.y + oy2 - py)); c.lineTo(X(d.x + ox2 + px), Y(d.y + oy2 + py)); c.stroke();
-            c.lineCap = 'round';
-        }
-        // Los muebles.
-        for (const f of SHIP.furniture) {
-            c.fillStyle = '#7a5a3a'; c.strokeStyle = '#a07a50'; c.lineWidth = Math.max(2, S * 0.08);
-            c.beginPath(); c.roundRect?.(X(f.x) + 2, Y(f.y) + 2, f.w * S - 4, f.h * S - 4, S * 0.4); c.fill(); c.stroke();
-        }
-        // Los conductos: una rejilla en el suelo.
-        for (const v of SHIP.vents) {
-            const w2 = S * 0.42, h2 = S * 0.3, mine = me.vent === v.id;
-            c.fillStyle = '#0b1020'; c.strokeStyle = mine ? '#ff8a8a' : '#8da2c9'; c.lineWidth = Math.max(1.5, S * 0.06);
-            c.fillRect(X(v.x) - w2, Y(v.y) - h2, w2 * 2, h2 * 2); c.strokeRect(X(v.x) - w2, Y(v.y) - h2, w2 * 2, h2 * 2);
-            c.beginPath();
-            for (let k = -2; k <= 2; k++) { c.moveTo(X(v.x) + k * w2 * 0.38, Y(v.y) - h2 * 0.7); c.lineTo(X(v.x) + k * w2 * 0.38, Y(v.y) + h2 * 0.7); }
-            c.stroke();
-        }
+        this.drawBase(c, X, Y, S, me.vent);
         // Los paneles de los sabotajes: rojos y parpadeando si hay que arreglarlos; verdes si alguien tiene la mano puesta.
         const held = g.reactorHeld();
         for (const x of SHIP.panels) {
@@ -3443,10 +3799,17 @@ class ImpostorMatch extends Match {
                 c.strokeStyle = '#0b1020'; c.beginPath(); c.moveTo(X(k.x) - S * 0.28, Y(k.y)); c.lineTo(X(k.x) - S * 0.08, Y(k.y)); c.lineTo(X(k.x), Y(k.y) - S * 0.18); c.lineTo(X(k.x) + S * 0.08, Y(k.y) + S * 0.14); c.lineTo(X(k.x) + S * 0.28, Y(k.y)); c.stroke();
             }
         }
-        // Las cámaras, con su luz roja.
+        // Las cámaras: con la luz roja parpadeando y un halo si alguien las está mirando; si no, apagadas.
+        const lit = g.phase === 'ship' && g.camsOn;
         for (const k of SHIP.cameras) {
+            if (lit) {
+                const glow = c.createRadialGradient(X(k.x), Y(k.y), 0, X(k.x), Y(k.y), S * 1.2);
+                glow.addColorStop(0, `rgba(240,70,70,${0.28 + 0.12 * Math.sin(now * 4)})`); glow.addColorStop(1, 'rgba(240,70,70,0)');
+                c.fillStyle = glow; c.beginPath(); c.arc(X(k.x), Y(k.y), S * 1.2, 0, Math.PI * 2); c.fill();
+            }
             c.fillStyle = '#c9c9c9'; c.beginPath(); c.arc(X(k.x), Y(k.y), S * 0.16, 0, Math.PI * 2); c.fill();
-            c.fillStyle = `rgba(240,70,70,${Math.sin(now * 3) > 0 ? 0.95 : 0.3})`; c.beginPath(); c.arc(X(k.x), Y(k.y), S * 0.07, 0, Math.PI * 2); c.fill();
+            c.fillStyle = lit ? `rgba(240,70,70,${Math.sin(now * 5) > 0 ? 1 : 0.35})` : '#3a4560';
+            c.beginPath(); c.arc(X(k.x), Y(k.y), S * 0.07, 0, Math.PI * 2); c.fill();
         }
         // Las consolas de las tareas: las tuyas, en amarillo; hechas, en verde.
         const mine = new Map(me.tasks.map(t => [t.spot, t]));
@@ -3491,19 +3854,13 @@ class ImpostorMatch extends Match {
             const b = g.bodies.find(x => x.p === p);
             if (b) this.drawBody(c, X(b.x), Y(b.y), S, p);
         }
-        // Quien pasa por el escáner: un haz verde.
-        for (const p of this.scanning.keys()) {
+        // Las tareas que se ven: el haz verde del escáner, la basura que cae y los escudos que se encienden.
+        for (const [p, task] of this.scanning) {
             const pl = g.players[p];
             if (p !== this.me && !this.seenNow.has(p)) continue;
-            const k = (now * 1.6) % 1;
-            c.strokeStyle = `rgba(92,196,106,${0.9 - k * 0.6})`; c.lineWidth = 3;
-            c.beginPath(); c.moveTo(X(pl.x) - S * 0.55, Y(pl.y) - S * 0.5 + k * S); c.lineTo(X(pl.x) + S * 0.55, Y(pl.y) - S * 0.5 + k * S); c.stroke();
+            this.drawVisual(c, X(pl.x), Y(pl.y), S, task, now);
         }
-        if (this.task?.type === 'escaner') {
-            const k = (now * 1.6) % 1;
-            c.strokeStyle = `rgba(92,196,106,${0.9 - k * 0.6})`; c.lineWidth = 3;
-            c.beginPath(); c.moveTo(X(me.x) - S * 0.55, Y(me.y) - S * 0.5 + k * S); c.lineTo(X(me.x) + S * 0.55, Y(me.y) - S * 0.5 + k * S); c.stroke();
-        }
+        if (this.task && !this.task.fake && IMP_VISUAL[this.task.type] && g.visualTask(this.task.type)) this.drawVisual(c, X(me.x), Y(me.y), S, this.task.type, now);
         // Dentro de un conducto: flechas hacia los conductos a los que lleva.
         if (me.vent != null) {
             const v = SHIP.vents[me.vent];
@@ -3523,7 +3880,7 @@ class ImpostorMatch extends Match {
         // Los tripulantes que ves, y tú. Los fantasmas, medio transparentes; tú, dentro de un conducto, también.
         for (const pl of g.players) {
             if (pl.index !== this.me && !this.seenNow.has(pl.index)) continue;
-            c.globalAlpha = pl.alive && pl.vent == null ? 1 : 0.45;
+            c.globalAlpha = pl.hidden ? 0.3 : pl.alive && pl.vent == null ? 1 : 0.45;
             this.drawCrew(c, X(pl.x), Y(pl.y), S, pl, pl.index === this.me);
             c.globalAlpha = 1;
         }
@@ -3533,6 +3890,18 @@ class ImpostorMatch extends Match {
             c.strokeStyle = `rgba(240,70,70,${0.6 + 0.3 * Math.sin(now * 8)})`; c.lineWidth = 3;
             c.beginPath(); c.arc(X(tg.x), Y(tg.y), S * 0.62, 0, Math.PI * 2); c.stroke();
         }
+        // El escondite: quien busca ve dónde estaba cada uno hace un momento (un aro que se apaga).
+        if (this.pings && this.amImpostor && now - this.pings.t0 < 4) {
+            const k = (now - this.pings.t0) / 4;
+            c.font = `700 ${Math.round(S * 0.36)}px system-ui, sans-serif`;
+            for (const a of this.pings.at) {
+                c.strokeStyle = `rgba(255,211,77,${0.9 * (1 - k)})`; c.lineWidth = 3;
+                c.beginPath(); c.arc(X(a.x), Y(a.y), S * (0.4 + 0.5 * ((now * 1.5) % 1)), 0, Math.PI * 2); c.stroke();
+                c.fillStyle = `rgba(255,211,77,${1 - k})`; c.fillText(cap(this.seats[a.p].name), X(a.x), Y(a.y) - S * 0.9);
+            }
+        }
+        // La alarma del ruidoso: un aro rojo en su cuerpo y, si está fuera de la pantalla, una flecha hacia él.
+        if (this.alarm && now < this.alarm.until) this.drawPointer(c, w, h, X(this.alarm.x), Y(this.alarm.y), S, now, '240,70,70');
         // La niebla: más allá de lo que ves, se ve oscuro; sin luces, casi negro.
         const vis = g.visionOf(this.me), dark = g.lightsOff && me.alive && !this.amImpostor;
         const fog = c.createRadialGradient(w / 2, h / 2, vis * S * 0.75, w / 2, h / 2, vis * S * 1.15);
@@ -3546,6 +3915,13 @@ class ImpostorMatch extends Match {
             c.fillStyle = g.sab.kind === 'oxygen' ? `rgba(40,90,220,${k})` : `rgba(200,30,30,${k})`;
             c.fillRect(0, 0, w, h);
         }
+        // El escondite: si quien busca se acerca, los bordes laten de rojo con tu corazón.
+        if (this.danger > 0) {
+            const beat = Math.max(0, 1 - (now - (this.heartT ?? -9)) / 0.45);
+            const edge = c.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.7);
+            edge.addColorStop(0, 'rgba(200,20,40,0)'); edge.addColorStop(1, `rgba(200,20,40,${this.danger * (0.25 + 0.35 * beat)})`);
+            c.fillStyle = edge; c.fillRect(0, 0, w, h);
+        }
         // El joystick.
         const st = this.stick;
         if (st) {
@@ -3553,6 +3929,143 @@ class ImpostorMatch extends Match {
             c.beginPath(); c.arc(st.x0, st.y0, 48, 0, Math.PI * 2); c.stroke();
             c.fillStyle = 'rgba(255,211,77,.7)';
             c.beginPath(); c.arc(st.x0 + st.dx * 48, st.y0 + st.dy * 48, 18, 0, Math.PI * 2); c.fill();
+        }
+        if (this.camsWatching()) this.drawCams();
+    }
+
+    /** Una tarea que se ve, en el sitio de quien la hace. */
+    drawVisual(c, x, y, S, task, now) {
+        const k = (now * 1.6) % 1;
+        if (task === 'basura') {
+            // La basura cae por la rampa: unos trozos que bajan.
+            c.fillStyle = 'rgba(168,116,63,.9)';
+            for (let i = 0; i < 4; i++) { const t = (k + i / 4) % 1; c.fillRect(x + S * (0.5 + 0.15 * Math.sin(i * 2)), y - S * 0.4 + t * S * 1.2, S * 0.14, S * 0.14); }
+        } else if (task === 'escudos') {
+            // Los escudos: un hexágono azul que se enciende.
+            c.strokeStyle = `rgba(143,211,255,${0.9 - k * 0.6})`; c.lineWidth = 3;
+            c.beginPath();
+            for (let i = 0; i <= 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3, r = S * (0.55 + 0.35 * k); i ? c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r) : c.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
+            c.stroke();
+        } else {
+            c.strokeStyle = `rgba(92,196,106,${0.9 - k * 0.6})`; c.lineWidth = 3;
+            c.beginPath(); c.moveTo(x - S * 0.55, y - S * 0.5 + k * S); c.lineTo(x + S * 0.55, y - S * 0.5 + k * S); c.stroke();
+        }
+    }
+
+    /** Un aro en (x, y) y, si queda fuera de la pantalla, una flecha en el borde que apunta hacia allí. */
+    drawPointer(c, w, h, x, y, S, now, rgb) {
+        const pulse = 0.55 + 0.4 * Math.sin(now * 8);
+        if (x > 0 && y > 0 && x < w && y < h) {
+            c.strokeStyle = `rgba(${rgb},${pulse})`; c.lineWidth = 4;
+            c.beginPath(); c.arc(x, y, S * (0.8 + 0.3 * Math.sin(now * 6)), 0, Math.PI * 2); c.stroke();
+            return;
+        }
+        const cx = w / 2, cy = h / 2, a = Math.atan2(y - cy, x - cx), m = 28;
+        const t = Math.min((w / 2 - m) / Math.abs(Math.cos(a) || 1e-6), (h / 2 - m) / Math.abs(Math.sin(a) || 1e-6));
+        const px = cx + Math.cos(a) * t, py = cy + Math.sin(a) * t;
+        c.save(); c.translate(px, py); c.rotate(a);
+        c.fillStyle = `rgba(${rgb},${pulse})`; c.strokeStyle = 'rgba(0,0,0,.7)'; c.lineWidth = 2;
+        c.beginPath(); c.moveTo(18, 0); c.lineTo(-10, -13); c.lineTo(-4, 0); c.lineTo(-10, 13); c.closePath(); c.fill(); c.stroke();
+        c.restore();
+    }
+
+    /**
+     * Las cámaras en directo: cada pantalla dibuja lo que ve su cámara, como en una tele de vigilancia, con los
+     * tripulantes de su color (el cambiaformas, como quien parece), los cuerpos, la luz de grabar y, si pasa algo, un destello.
+     */
+    drawCams() {
+        const box = $('imp-task-art'), feed = this.game.camFeed?.();
+        if (!box || !feed) return;
+        const dpr = Math.min(2, window.devicePixelRatio || 1), now = this.clock;
+        for (const cv of box.querySelectorAll('canvas[data-cam]')) {
+            const i = +cv.dataset.cam, cam = SHIP.cameras[i], f = feed[i];
+            const w = cv.clientWidth, h = cv.clientHeight;
+            if (!w || !h || !f) continue;
+            if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+            const c = cv.getContext('2d');
+            c.setTransform(dpr, 0, 0, dpr, 0, 0);
+            const S = w / 13, ox = w / 2 - cam.x * S, oy = h / 2 - cam.y * S, X = x => ox + x * S, Y = y => oy + y * S;
+            c.fillStyle = '#060a14'; c.fillRect(0, 0, w, h);
+            this.drawBase(c, X, Y, S);
+            c.textAlign = 'center'; c.textBaseline = 'middle';
+            c.font = `700 ${Math.max(9, Math.round(S * 0.42))}px system-ui, sans-serif`;
+            for (const b of f.bodies) this.drawBody(c, X(b.x), Y(b.y), S, b.p);
+            for (const q of f.people) {
+                const pl = { index: q.p, x: q.x, y: q.y, fx: q.fx ?? 0, fy: q.fy ?? -1, busy: q.busy, alive: true, shieldUntil: 0 };
+                this.drawCrew(c, X(q.x), Y(q.y), S, pl, q.p === this.me, q.as ?? q.p);
+            }
+            // Lo que no ve la cámara, más oscuro: el borde de su alcance.
+            const fog = c.createRadialGradient(w / 2, h / 2, IMPOSTOR_CAMERA * S * 0.8, w / 2, h / 2, IMPOSTOR_CAMERA * S * 1.1);
+            fog.addColorStop(0, 'rgba(4,7,15,0)'); fog.addColorStop(1, 'rgba(4,7,15,.8)');
+            c.fillStyle = fog; c.fillRect(0, 0, w, h);
+            // Las rayas de la tele y la luz de grabar.
+            c.fillStyle = 'rgba(160,220,255,.05)';
+            for (let y = (now * 30) % 4; y < h; y += 4) c.fillRect(0, y, w, 1);
+            c.fillStyle = Math.sin(now * 5) > 0 ? '#ff4a4a' : 'rgba(255,74,74,.3)';
+            c.beginPath(); c.arc(12, 12, 5, 0, Math.PI * 2); c.fill();
+            c.fillStyle = '#ffb3b3'; c.font = '700 11px system-ui, sans-serif'; c.textAlign = 'left';
+            c.fillText(`CÁM ${i + 1}`, 22, 12);
+            const F = this.camFlash;
+            if (F && F.i === i && now - F.t0 < 2) {
+                const k = 1 - (now - F.t0) / 2;
+                c.strokeStyle = F.kind === 'kill' ? `rgba(240,70,70,${k})` : `rgba(255,211,77,${k})`; c.lineWidth = 6;
+                c.strokeRect(3, 3, w - 6, h - 6);
+            }
+        }
+    }
+
+    /** Lo que no se mueve de la nave: el casco, las salas, las paredes, las puertas, los muebles y los conductos. */
+    drawBase(c, X, Y, S, myVent = null) {
+        // El casco, las salas y los pasillos.
+        c.fillStyle = '#141b2b';
+        c.beginPath();
+        [[1, 1], [57, 1], [57, 26], [43, 26], [43, 39], [1, 39]].forEach(([x, y], k) => k ? c.lineTo(X(x), Y(y)) : c.moveTo(X(x), Y(y)));
+        c.closePath(); c.fill();
+        for (const a of SHIP.areas) {
+            c.fillStyle = a.kind === 'room' ? IMP_FLOOR[a.id] : '#2b3448';
+            c.fillRect(X(a.x), Y(a.y), a.w * S + 0.5, a.h * S + 0.5);
+            // Las rejillas se ven como rejillas.
+            if (a.floor === 'rejilla') {
+                c.strokeStyle = 'rgba(255,255,255,.06)'; c.lineWidth = 1;
+                c.beginPath();
+                for (let x = a.x + 1; x < a.x + a.w; x++) { c.moveTo(X(x), Y(a.y)); c.lineTo(X(x), Y(a.y + a.h)); }
+                for (let y = a.y + 1; y < a.y + a.h; y++) { c.moveTo(X(a.x), Y(y)); c.lineTo(X(a.x + a.w), Y(y)); }
+                c.stroke();
+            }
+        }
+        // Las paredes.
+        c.strokeStyle = '#8da2c9'; c.lineWidth = Math.max(2, S * 0.12); c.lineCap = 'round';
+        c.beginPath();
+        for (const [x0, y0, x1, y1] of this.wallSegs) { c.moveTo(X(x0), Y(y0)); c.lineTo(X(x1), Y(y1)); }
+        c.stroke();
+        // Las puertas: una raya en el suelo; las cerradas, una barra roja.
+        c.strokeStyle = 'rgba(159,180,217,.45)'; c.lineWidth = Math.max(1.5, S * 0.07); c.setLineDash([S * 0.25, S * 0.2]);
+        c.beginPath();
+        for (const d of SHIP.doors) { if (this.doorShut(d)) continue; const px = -d.ny * 1.5, py = d.nx * 1.5; c.moveTo(X(d.x - px), Y(d.y - py)); c.lineTo(X(d.x + px), Y(d.y + py)); }
+        c.stroke(); c.setLineDash([]);
+        for (const d of SHIP.doors) {
+            if (!this.doorShut(d)) continue;
+            // La barra ocupa las casillas del pasillo que se han vuelto pared.
+            const ox2 = d.nx * 0.5, oy2 = d.ny * 0.5, px = -d.ny * 1.5, py = d.nx * 1.5;
+            c.strokeStyle = '#e05656'; c.lineWidth = S * 0.9; c.lineCap = 'butt';
+            c.beginPath(); c.moveTo(X(d.x + ox2 - px), Y(d.y + oy2 - py)); c.lineTo(X(d.x + ox2 + px), Y(d.y + oy2 + py)); c.stroke();
+            c.strokeStyle = 'rgba(255,215,208,.8)'; c.lineWidth = Math.max(1.5, S * 0.06);
+            c.beginPath(); c.moveTo(X(d.x + ox2 - px), Y(d.y + oy2 - py)); c.lineTo(X(d.x + ox2 + px), Y(d.y + oy2 + py)); c.stroke();
+            c.lineCap = 'round';
+        }
+        // Los muebles.
+        for (const f of SHIP.furniture) {
+            c.fillStyle = '#7a5a3a'; c.strokeStyle = '#a07a50'; c.lineWidth = Math.max(2, S * 0.08);
+            c.beginPath(); c.roundRect?.(X(f.x) + 2, Y(f.y) + 2, f.w * S - 4, f.h * S - 4, S * 0.4); c.fill(); c.stroke();
+        }
+        // Los conductos: una rejilla en el suelo.
+        for (const v of SHIP.vents) {
+            const w2 = S * 0.42, h2 = S * 0.3, mine = myVent === v.id;
+            c.fillStyle = '#0b1020'; c.strokeStyle = mine ? '#ff8a8a' : '#8da2c9'; c.lineWidth = Math.max(1.5, S * 0.06);
+            c.fillRect(X(v.x) - w2, Y(v.y) - h2, w2 * 2, h2 * 2); c.strokeRect(X(v.x) - w2, Y(v.y) - h2, w2 * 2, h2 * 2);
+            c.beginPath();
+            for (let k = -2; k <= 2; k++) { c.moveTo(X(v.x) + k * w2 * 0.38, Y(v.y) - h2 * 0.7); c.lineTo(X(v.x) + k * w2 * 0.38, Y(v.y) + h2 * 0.7); }
+            c.stroke();
         }
     }
 
@@ -3570,23 +4083,45 @@ class ImpostorMatch extends Match {
         c.strokeText(label, x, y + r * 2); c.fillText(label, x, y + r * 2);
     }
 
-    drawCrew(c, x, y, S, pl, isMe) {
-        const r = S * 0.32, col = this.colorOf(pl.index);
+    drawCrew(c, x, y, S, pl, isMe, lookAs = null) {
+        const g = this.game, r = S * 0.32, look = lookAs ?? this.looks(pl.index);
+        const col = IMPOSTOR_COLORS[g.players[look]?.color ?? 0].hex, hat = g.players[look]?.hat || 0;
         if (isMe) { c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r * 1.7, 0, Math.PI * 2); c.stroke(); }
-        // La antena, siempre hacia arriba, y el cuerpo.
-        c.strokeStyle = '#dfe7f5'; c.lineWidth = Math.max(1.5, r * 0.18);
-        c.beginPath(); c.moveTo(x, y - r * 0.9); c.lineTo(x + r * 0.35, y - r * 1.5); c.stroke();
-        c.fillStyle = '#ffd34d'; c.beginPath(); c.arc(x + r * 0.35, y - r * 1.55, r * 0.2, 0, Math.PI * 2); c.fill();
+        // El escudo del ángel: solo lo ve el ángel que lo ha puesto.
+        if (pl.shieldUntil > g.time) {
+            c.strokeStyle = `rgba(143,211,255,${0.55 + 0.3 * Math.sin(this.clock * 5)})`; c.lineWidth = Math.max(2, S * 0.08);
+            c.beginPath(); c.arc(x, y, r * 1.45, 0, Math.PI * 2); c.stroke();
+        }
+        // La antena, siempre hacia arriba (si no lleva gorro), y el cuerpo.
+        if (!hat) {
+            c.strokeStyle = '#dfe7f5'; c.lineWidth = Math.max(1.5, r * 0.18);
+            c.beginPath(); c.moveTo(x, y - r * 0.9); c.lineTo(x + r * 0.35, y - r * 1.5); c.stroke();
+            c.fillStyle = '#ffd34d'; c.beginPath(); c.arc(x + r * 0.35, y - r * 1.55, r * 0.2, 0, Math.PI * 2); c.fill();
+        }
         c.fillStyle = col; c.strokeStyle = '#0b1020'; c.lineWidth = Math.max(1.5, r * 0.18);
         c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); c.stroke();
         // La visera mira hacia donde anda.
         const ang = Math.atan2(pl.fy, pl.fx);
         c.fillStyle = '#bfe6ff'; c.lineWidth = Math.max(1, r * 0.12);
         c.beginPath(); c.ellipse(x + Math.cos(ang) * r * 0.42, y + Math.sin(ang) * r * 0.42, r * 0.36, r * 0.6, ang, 0, Math.PI * 2); c.fill(); c.stroke();
+        this.drawHat(c, x, y, r, hat);
         if (pl.busy) { c.fillStyle = '#ffd34d'; c.fillText('…', x, y - r * 2.3); }
-        // Los impostores ven en rojo el nombre de sus compañeros.
-        c.fillStyle = this.isMate(pl.index) ? '#ff8a8a' : '#fff'; c.strokeStyle = 'rgba(0,0,0,.7)'; c.lineWidth = 3;
-        const label = isMe ? 'Tú' : cap(pl.name);
+        // Los impostores ven en rojo el nombre de sus compañeros (y en el escondite, todos el de quien busca); el cambiaformas, el de quien parece.
+        c.fillStyle = this.isMate(pl.index) || (g.hideSeek && !isMe && g.isImpostor(pl.index)) ? '#ff8a8a' : '#fff'; c.strokeStyle = 'rgba(0,0,0,.7)'; c.lineWidth = 3;
+        const as = look !== pl.index && (isMe || this.isMate(pl.index)) ? ` (como ${cap(this.names[look])})` : '';
+        const label = (isMe ? 'Tú' : cap(this.names[this.isMate(pl.index) ? pl.index : look])) + as;
         c.strokeText(label, x, y + r * 2); c.fillText(label, x, y + r * 2);
+    }
+
+    /** Un gorro (IMP_HAT_ART) sobre una cabeza de radio r. */
+    drawHat(c, x, y, r, hat) {
+        const parts = IMP_HAT_ART[hat];
+        if (!parts?.length) return;
+        this.hatPaths ??= IMP_HAT_ART.map(list => list.map(([d, fill]) => [new Path2D(d), fill]));
+        c.save();
+        c.translate(x, y); c.scale(r, r);
+        c.strokeStyle = '#0b1020'; c.lineWidth = 0.1; c.lineJoin = 'round';
+        for (const [path, fill] of this.hatPaths[hat]) { c.fillStyle = fill; c.fill(path); c.stroke(path); }
+        c.restore();
     }
 }

@@ -131,6 +131,16 @@ const NEWS = {
 
     impostor: [
         {
+            date: '2026-10-22', items: [
+                'Cada uno elige su color y su gorro, al preparar la partida o en la sala de espera. Cada color suena siempre igual, con su nota y sus pasos, en todos los aparatos. La P dice el color de cada uno.',
+                'Papeles especiales, cada uno se pone o se quita en las reglas: el científico mira las constantes vitales desde cualquier sitio, el ingeniero va por los conductos, el ruidoso hace sonar una alarma si le matan, y el ángel de la guarda, de fantasma, protege a los vivos. Entre los impostores, el cambiaformas se transforma en otro y el espectro se vuelve invisible. Los poderes se usan con la B.',
+                'Nuevo modo escondite: uno busca, y todos saben quién es, y los demás aguantan hasta que se acabe el tiempo. Si se te acerca, suena tu corazón cada vez más deprisa.',
+                'Tareas comunes, largas y cortas: en las reglas se elige cuántas hay de cada clase, y si hay tareas que se ven, como el escáner, la basura y los escudos.',
+                'Las cámaras, en directo: cuatro pantallas con quién pasa, de su color y hacia dónde va. Si alguien mata o se mete en un conducto delante de una cámara, se ve y se dice. Mientras alguien las mira, las cámaras de la nave se encienden y zumban.',
+                'Práctica de impostor, con compañeros que no hacen nada, para aprender a matar, sabotear e ir por los conductos.',
+            ],
+        },
+        {
             date: '2026-10-20', items: [
                 'La Z (o el botón Quién hay) dice solo lo fundamental: la sala, a quién ves, hacia dónde y a qué distancia, y si hay cuerpos a la vista. Con las luces apagadas, solo quien está muy cerca.',
                 'A los demás solo se les oye si se les ve, como en la pantalla: ni a través de una pared ni más lejos de lo que se ve. Con las luces apagadas, la tripulación ve y oye a menos distancia.',
