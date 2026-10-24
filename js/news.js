@@ -138,6 +138,11 @@ const NEWS = {
 
     impostor: [
         {
+            date: '2026-10-24', items: [
+                'Reglas de la casa: el alcance para matar se puede poner normal, un poco más o más, para que el impostor mate desde un par de pasos o desde unos tres. Los rivales de la máquina también lo usan. Sigue estando la opción de menos, casi pegado.',
+            ],
+        },
+        {
             date: '2026-10-23', items: [
                 'En una sala, antes de cada partida, entráis todos en la sala de espera de la nave: andáis juntos por el Comedor, os oís los pasos y la nota de cada uno, y quien ha creado la sala empieza la partida con la E cuando estéis todos. Al acabar, volvéis a ella.',
                 'En la sala de espera, la C cambia tu color y tu gorro, y los demás lo oyen al momento. Al pasar por cada color suena su nota, que es como te oirán. Un color que ya tiene otra persona no se puede coger; el de un rival de la máquina, sí: te lo cambia por el tuyo.',

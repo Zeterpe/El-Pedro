@@ -40,7 +40,7 @@ const IMPOSTOR_DEFAULT_RULES = {
     vision: 1,                // hasta dónde se ve y se oye a los demás
     impostors: 'auto',        // cuántos impostores: 'auto' (1, y 2 desde 7 jugadores), 0 (solo tareas), 1, 2 o 3
     killCooldown: 25,         // segundos de espera entre muerte y muerte
-    killRange: 'medio',       // alcance para matar: corto, medio o largo
+    killRange: 'medio',       // alcance para matar: corto, medio (normal), largo (un poco más) o muylargo (más)
     meetings: 1,              // reuniones de emergencia que puede pedir cada uno
     buttonWait: 15,           // segundos, al empezar y tras cada reunión, antes de poder pedir una
     confirmEjects: true,      // al echar a alguien, se dice si era impostor
@@ -86,7 +86,7 @@ const IMPOSTOR_USE = 1.4;             // a qué distancia se puede usar una tare
 const IMPOSTOR_REPORT = 3;            // a qué distancia de un cuerpo se puede avisar (viéndolo)
 const IMPOSTOR_BUTTON = 1.6;          // a qué distancia de la mesa del Comedor se pide una reunión
 const IMPOSTOR_IMP_VISION = 1.3;      // los impostores ven un poco más lejos
-const IMPOSTOR_KILL_RANGE = { corto: 1.2, medio: 1.8, largo: 2.6 };
+const IMPOSTOR_KILL_RANGE = { corto: 1.2, medio: 1.8, largo: 2.6, muylargo: 3.4 };
 const IMPOSTOR_SAY_MAX = 4;           // lo que puede decir cada uno en una reunión
 const IMPOSTOR_VENT_USE = 1.2;        // a qué distancia de un conducto se puede entrar
 const IMPOSTOR_CONSOLE = 1.6;         // a qué distancia de una consola o de un panel se usa

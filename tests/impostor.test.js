@@ -358,6 +358,8 @@ function shipWith(n, at, rules = {}, seed = 9) {
     // El alcance depende de la regla.
     const near = r => { const x = shipWith(4, [[5, 5], [7.2, 5], [22, 3.5], [5, 20]], { killRange: r }); x.players[0].killCd = 0; return x.killTargets(0).includes(1); };
     assert(!near('corto') && !near('medio') && near('largo'), 'a 2,2 metros solo llega el alcance largo');
+    const at = (r, d) => { const x = shipWith(4, [[5, 5], [5 + d, 5], [22, 3.5], [5, 20]], { killRange: r }); x.players[0].killCd = 0; return x.killTargets(0).includes(1); };
+    assert(!at('largo', 3) && at('muylargo', 3), 'a 3 metros solo llega el alcance más largo');
 }
 
 // ── Ganar ─────────────────────────────────────────
