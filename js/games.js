@@ -471,7 +471,7 @@ const GAMES = {
                     text: v => ({ auto: 'según cuántos seáis: uno, y dos desde siete jugadores', 0: 'ninguno: solo tareas', 1: 'uno', 2: 'dos, si sois siete o más', 3: 'tres, si sois nueve o diez' })[v],
                 },
                 { label: 'Espera entre muerte y muerte', values: [15, 25, 35, 45], get: () => r.killCooldown, set: v => { r.killCooldown = v; }, text: v => `${v} segundos` },
-                { label: 'Alcance para matar', values: ['corto', 'medio', 'largo'], get: () => r.killRange, set: v => { r.killRange = v; }, text: v => v === 'corto' ? 'corto: casi pegado' : v === 'medio' ? 'medio' : 'largo: a un par de pasos' },
+                { label: 'Alcance para matar', values: ['medio', 'largo', 'muylargo', 'corto'], get: () => r.killRange, set: v => { r.killRange = v; }, text: v => ({ medio: 'normal', largo: 'un poco más: a un par de pasos', muylargo: 'más: a unos tres pasos', corto: 'menos: casi pegado' })[v] },
                 { label: 'Reuniones de emergencia de cada uno', values: [1, 2, 3, 0], get: () => r.meetings, set: v => { r.meetings = v; }, text: v => v === 0 ? 'ninguna: solo se avisa de los cuerpos' : v === 1 ? 'una' : `${v}` },
                 { label: 'Espera para el botón de emergencia', values: [10, 15, 20, 30], get: () => r.buttonWait, set: v => { r.buttonWait = v; }, text: v => `${v} segundos al empezar y después de cada reunión` },
                 { label: 'Al echar a alguien, decir si era impostor', values: [true, false], get: () => r.confirmEjects, set: v => { r.confirmEjects = v; }, text: v => v ? 'sí' : 'no: nadie lo sabe hasta el final' },
