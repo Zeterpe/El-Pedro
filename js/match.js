@@ -18,9 +18,13 @@
  * o 'client' (te has unido a una sala: el anfitrión te manda lo que pasa).
  * seats: [{ name, kind: 'me' | 'bot' | 'remote', char }] en el orden de la mesa.
  * watch: miras la partida de una sala sin jugar (me es -1); pov es el sitio que se dibuja abajo.
+ * restore: { game, bots }, la partida copiada de quien llevaba la sala (se ha ido y sigues tú, desde donde iba).
  */
+/** El rival de la máquina que juega por quien se ha ido, con su nombre. */
+function absentChar(name) { return { id: 'ausente', name, level: 'normal', pitch: 1, rate: 1, quips: {} }; }
+
 class Match {
-    constructor(app, { seats, me = 0, mode = 'local', online = null, rules, seed = (Date.now() ^ 0x5eed) >>> 0, practice = false, watch = false, pov = 0 }) {
+    constructor(app, { seats, me = 0, mode = 'local', online = null, rules, seed = (Date.now() ^ 0x5eed) >>> 0, practice = false, watch = false, pov = 0, restore = null }) {
         this.app = app;
         this.settings = app.settings;
         this.speech = app.speech;
@@ -35,8 +39,8 @@ class Match {
         this.names = this.seats.map((s, i) => i === this.me ? 'tú' : s.name);
         this.v = new Voice(this.names, this.me);
         this.seed = seed;
-        this.game = mode === 'client' ? this.makeMirror(rules) : this.makeGame(rules, seed);
-        this.bots = this.seats.map((s, i) => s.kind === 'bot' && mode !== 'client' ? this.makeBot(i, s.char, makeRng(seed + 101 * (i + 1))) : null);
+        this.game = restore?.game || (mode === 'client' ? this.makeMirror(rules) : this.makeGame(rules, seed));
+        this.bots = this.seats.map((s, i) => s.kind === 'bot' && mode !== 'client' ? restore?.bots?.[i] || this.makeBot(i, s.char, makeRng(seed + 101 * (i + 1))) : null);
         this.audio.setPlayers(this.game.n, this.pov);
         this.inbox = [];                           // anfitrión: lo que mandan los demás jugadores
         this._wake = null;
@@ -186,6 +190,12 @@ class Match {
     }
 
     async intro() {
+        if (this.migrated) {
+            // Se ha ido quien llevaba la sala: la llevas tú y la partida sigue.
+            Board.status('Ahora llevas tú la sala');
+            await this.say(`${this.migrated} La partida sigue donde iba.`, { keep: true });
+            return;
+        }
         if (this.watching) {
             const who = Txt.list(this.seats.map(s => s.kind === 'bot' ? `${s.name}, de la máquina` : s.name));
             Board.status(`Miras la partida: ${Txt.list(this.seats.map(s => s.name))}`);
@@ -280,13 +290,14 @@ class Match {
                 { label: `Siguiente ${this.roundWord}`, value: 'next' },
                 ...(this.visual ? [] : [{ label: 'Repetir el resultado', value: 'repeat', key: 'r' }]),
                 ...(host ? [{ label: 'Volver a la sala para elegir otro juego', value: 'lobby' }] : []),
-                { label: host ? 'Cerrar la sala y salir' : 'Salir al salón', value: 'menu' },
+                ...this.leaveItems('Salir al salón'),
             ],
             cancel: host ? 'lobby' : 'menu',
         });
         if (r === 'repeat') { await this.say(this.speech.last, { interrupt: true }); return this.afterRound(); }
         if (r === 'next') return true;
         if (r === 'lobby' && host) { this.online.backToLobby(); return false; }
+        if (r === 'pass') { this.app.passRoom(); return false; }
         this.app.leaveMatch();   // en una sala, la cierra
         return false;
     }
@@ -300,13 +311,14 @@ class Match {
         Board.status(who);
         await this.say(who, { keep: true });
         const items = this.mode === 'host'
-            ? [{ label: this.hostAgainLabel, value: 'again' }, { label: 'Volver a la sala para elegir otro juego', value: 'lobby' }, { label: 'Cerrar la sala y salir', value: 'menu' }]
+            ? [{ label: this.hostAgainLabel, value: 'again' }, { label: 'Volver a la sala para elegir otro juego', value: 'lobby' }, ...this.leaveItems()]
             : [{ label: this.againLabel, value: 'again' }, { label: 'Salir al salón', value: 'menu' }];
         const r = await Dialog.open({ title: 'Fin de la partida', text: this.visual ? `${who} ${this.resultText()}` : who, speak: 'Fin de la partida.', items, cancel: this.mode === 'host' ? 'lobby' : 'menu' });
         if (this.stopped) return;
         if (this.mode === 'host') {
             if (r === 'again') this.online.restart();
             else if (r === 'lobby') this.online.backToLobby();
+            else if (r === 'pass') this.app.passRoom();
             else this.app.leaveMatch();
             return;
         }
@@ -424,7 +436,7 @@ class Match {
         if (!s || s.kind !== 'remote') return;
         s.kind = 'bot';
         s.left = true;
-        s.char = { id: 'ausente', name: s.name, level: 'normal', pitch: 1, rate: 1, quips: {} };
+        s.char = absentChar(s.name);
         this.bots[p] = this.makeBot(p, s.char, makeRng(this.seed + 977 * (p + 1)));
         this.botTookOver?.(p);
         this.wake();
@@ -630,7 +642,7 @@ class Match {
                 ...(host && this.online.watchers().some(w => w.conn && w.viewing) && this.freeSeats().length ? [{ label: 'Dar a quien mira el sitio de un rival de la máquina', value: 'seat' }] : []),
                 ...this.pauseItems(),
                 ...(host ? [{ label: 'Volver a la sala para elegir otro juego', value: 'lobby' }] : []),
-                { label: host ? 'Cerrar la sala y salir' : this.mode === 'client' ? 'Salir de la sala' : 'Salir al salón', value: 'menu' },
+                ...this.leaveItems(this.mode === 'client' ? 'Salir de la sala' : 'Salir al salón'),
             ],
             cancel: 'go',
         });
@@ -639,9 +651,22 @@ class Match {
         else if (r === 'keys') this.keysHelp();
         else if (r === 'info') this.info();
         else if (r === 'lobby') this.online.backToLobby();
+        else if (r === 'pass') this.app.passRoom();
         else if (r === 'menu') this.app.leaveMatch();
         else if (this.pauseItems().some(it => it.value === r)) await this.pauseItem(r);
         else if (!this.visual) this.speech.say('Seguimos.', { interrupt: true });
+    }
+
+    /**
+     * Cómo se sale. Quien lleva la sala, si hay más personas, elige: pasarla a la siguiente
+     * (la partida sigue sin ti) o cerrarla para todos. Los demás salen sin más (label).
+     */
+    leaveItems(label = 'Salir al salón') {
+        if (this.mode !== 'host') return [{ label, value: 'menu' }];
+        const heir = this.online.heirs()[0];
+        return heir
+            ? [{ label: `Salir y pasar la sala a ${heir.name}`, value: 'pass' }, { label: 'Cerrar la sala para todos', value: 'menu' }]
+            : [{ label: 'Cerrar la sala y salir', value: 'menu' }];
     }
 
     /** Lo que se dice al abrir la pausa (en El Impostor, en una sala, que la partida sigue). */

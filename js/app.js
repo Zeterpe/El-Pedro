@@ -275,9 +275,29 @@ const App = {
         this.speech.say(text, { interrupt: true });
     },
 
-    leaveLobby() {
+    async leaveLobby() {
+        // Quien lleva la sala, si hay más personas, elige si la pasa a la siguiente o la cierra para todos.
+        const heir = Online.role === 'host' ? Online.heirs()[0] : null;
+        if (heir) {
+            const r = await Dialog.open({
+                title: 'Salir de la sala',
+                items: [{ label: `Salir y pasar la sala a ${heir.name}`, value: 'pass' }, { label: 'Cerrar la sala para todos', value: 'close' }, { label: 'Quedarme', value: 'stay' }],
+                cancel: 'stay',
+            });
+            if (r === 'pass') { this.passRoom(); return; }
+            if (r !== 'close') return;
+        }
         Online.close();
         this.openFriends();
+    },
+
+    /** Te vas y la sala la lleva la siguiente persona: la partida sigue sin ti (juega la máquina por ti). */
+    passRoom() {
+        const heir = Online.handOver();
+        if (this.match) { this.match.stop(); this.match = null; }
+        Dialog.close(undefined, true);
+        this.keepAwake(false);
+        this.showMenu(false, heir ? `Has pasado la sala a ${heir}. Si vuelves a entrar con el código, recuperas tu sitio.` : '');
     },
 
     async testConnection() {

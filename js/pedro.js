@@ -49,6 +49,9 @@ class PedroMatch extends Match {
     onStop() { if (this.picking) { const p = this.picking; this.picking = null; p.resolve(null); } }
     lateAction(a) { return a?.type === 'peekStart'; }
     botTookOver(p) { this.bots[p].myTurns = 3; }   // empieza sin recordar nada, pero puede cantar Pedro
+    /** Sigues la partida de quien llevaba la sala: las reglas para contar las cartas y lo que recordaba tu ayuda de memoria. */
+    restored() { Txt.pedroRules = this.game.rules; }
+    inherit(old) { if (old?.kind === this.kind && old.helper) this.helper = old.helper; }
 
     actor() {
         const g = this.game;

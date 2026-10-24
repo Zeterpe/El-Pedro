@@ -53,6 +53,15 @@ const Net = {
     hasTurn() { return this.options().config.iceServers.some(s => [].concat(s.urls).some(u => /^turns?:/.test(u))); },
     /** Código de sala: 5 cifras, fácil de dictar y de escribir en el móvil. */
     newCode() { return String(10000 + Math.floor(Math.random() * 90000)); },
+    /**
+     * Los códigos de una sala: el suyo y dos de reserva, que salen siempre iguales del primero.
+     * Si se va quien la lleva y el servidor tarda en soltar el código, el siguiente abre la sala
+     * en uno de reserva, y los demás la encuentran sin que nadie se lo diga.
+     */
+    roomCodes(base) {
+        const n = parseInt(base, 10) || 10000;
+        return [String(base), ...[1, 2].map(k => String(10000 + ((n - 10000) * 7919 + k * 30011) % 90000))];
+    },
     explain(err) {
         const t = Net.kind(err);
         if (t === 'peer-unavailable') return 'No hay ninguna sala abierta con ese código. Comprueba el código y que quien creó la sala tiene el juego abierto en pantalla.';
@@ -118,16 +127,18 @@ const Net = {
 
 /** La mesa de quien crea la sala. */
 class HostNet {
-    constructor({ onConnect, onMessage, onClose }) {
-        this.onConnect = onConnect; this.onMessage = onMessage; this.onClose = onClose;
+    /** onLost: otro navegador ha cogido el código de esta sala (se te cortó la conexión y la lleva otra persona). */
+    constructor({ onConnect, onMessage, onClose, onLost }) {
+        this.onConnect = onConnect; this.onMessage = onMessage; this.onClose = onClose; this.onLost = onLost;
         this.peer = null; this.code = null;
         this.conns = new Set();
     }
 
-    async open() {
+    /** Abre la sala. codes: los códigos que se prueban primero, en orden (al pasar la sala, los suyos). */
+    async open(codes = []) {
         await Net.loadTurn();
-        for (let attempt = 0; attempt < 5; attempt++) {
-            const code = Net.newCode();
+        for (let attempt = 0; attempt < codes.length + 5; attempt++) {
+            const code = codes[attempt] || Net.newCode();
             try {
                 await this.#tryOpen(code);
                 this.code = code;
@@ -151,11 +162,14 @@ class HostNet {
                 this.peer = peer;
                 peer.on('connection', conn => this.#accept(conn));
                 // Si se pierde el servidor de salas, las conexiones abiertas siguen funcionando; se reintenta.
-                peer.on('disconnected', () => { try { if (!peer.destroyed) peer.reconnect(); } catch (_) { /* nada */ } });
+                // Al cerrar la sala también se desconecta: entonces no se vuelve a conectar (el código queda libre).
+                peer.on('disconnected', () => { try { if (!peer.destroyed && !this.closed && this.peer === peer) peer.reconnect(); } catch (_) { /* nada */ } });
                 resolve();
             });
             peer.on('error', err => {
-                if (!done) { done = true; clearTimeout(timer); peer.destroy(); reject(err); }
+                if (!done) { done = true; clearTimeout(timer); peer.destroy(); reject(err); return; }
+                // Al volver a conectar, el código ya es de otro: la sala la lleva otra persona.
+                if (err?.type === 'unavailable-id' && !this.closed && this.peer === peer) this.onLost?.();
             });
         });
     }
@@ -210,13 +224,16 @@ class ClientNet {
         }
     }
 
-    #connectOnce(code, relay = false) {
+    /** Un intento, sin reintentar (wait: cuánto se espera, en milisegundos). Si no se une, se cierra. */
+    once(code, { relay = false, wait = 25000 } = {}) { return this.#connectOnce(code, relay, wait); }
+
+    #connectOnce(code, relay = false, wait = 25000) {
         return new Promise((resolve, reject) => {
             const peer = this.peer = new Peer(Net.options({ relay }));
             let done = false, found = false;
             const fail = err => { if (!done) { done = true; clearTimeout(timer); this.#teardown(); reject(err); } };
             // Por un servidor de rebote la conexión puede tardar: se espera hasta 25 segundos.
-            const timer = setTimeout(() => fail({ type: found ? 'ice' : 'timeout' }), 25000);
+            const timer = setTimeout(() => fail({ type: found ? 'ice' : 'timeout' }), wait);
             peer.on('error', fail);
             peer.on('open', () => {
                 found = true;

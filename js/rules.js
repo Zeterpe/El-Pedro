@@ -7,7 +7,7 @@
    ============================================= */
 'use strict';
 
-const GAME_VERSION = { id: '20261024a', spoken: '24 de octubre de 2026' };
+const GAME_VERSION = { id: '20261024b', spoken: '24 de octubre de 2026' };
 
 const SUITS = ['oros', 'copas', 'espadas', 'bastos'];
 const RANK_NAME = {
@@ -62,6 +62,9 @@ function makeRng(seed) {
         range: (lo, hi) => lo + next() * (hi - lo),
         pick: arr => arr[Math.floor(next() * arr.length)],
         chance: p => next() < p,
+        /** Dónde va el azar, para seguir igual en otro navegador (si se va quien ha creado la sala). */
+        save: () => a,
+        load: v => { a = v | 0; },
         shuffle(arr) {
             for (let i = arr.length - 1; i > 0; i--) {
                 const j = Math.floor(next() * (i + 1));
