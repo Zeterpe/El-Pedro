@@ -463,6 +463,23 @@ class ImpostorMatch extends Match {
     /** Anfitrión: a cada invitado, la nave tal como la ve. */
     sendSnaps() {
         this.seats.forEach((s, i) => { if (s.kind === 'remote' && s.conn) this.online.sendTo(i, { t: 'snap', s: this.game.view(i, true) }); });
+        // La copia, por si se va quien lleva la sala: como mucho, una por segundo.
+        this.online.backupSoon();
+    }
+    /** Sigues la partida de quien llevaba la sala: tu personaje anda aquí, y ya sabéis todos vuestro papel. */
+    restored() {
+        const pl = this.mePl;
+        pl.remote = false; pl.ix = pl.iy = 0; pl.netMoved = 0;
+        this.waitStart = this.game.round;
+        this.rtRound = this.game.round;
+    }
+    /** Lo que ya sabías en tu mesa de invitado: dónde estás (lo más nuevo), a quién has matado, qué se ha dicho. */
+    inherit(old) {
+        if (!old || old.kind !== this.kind) return;
+        const was = old.game?.players?.[this.me], pl = this.mePl;
+        if (was && pl && pl.alive && was.alive && !shipBlocked(was.x, was.y, IMPOSTOR_RADIUS - 0.01, this.game.closed)) { pl.x = was.x; pl.y = was.y; pl.area = shipArea(was.x, was.y)?.id ?? pl.area; }
+        for (const k of ['myKills', 'deadSaid', 'bodiesSeen', 'samplesSaid']) if (old[k] instanceof Set) this[k] = old[k];
+        for (const k of ['impsOut', 'readyN', 'voteN', 'myVote', 'meet']) if (old[k] !== undefined) this[k] = old[k];
     }
     /** Si se va alguien de la sala, la máquina anda por esa persona; si vuelve, anda otra vez en su navegador. */
     botTookOver(p) { const pl = this.game.players[p]; pl.remote = false; pl.ix = pl.iy = 0; }
@@ -697,7 +714,7 @@ class ImpostorMatch extends Match {
         // El invitado espera a la primera nave del anfitrión: hasta entonces no sabe ni su color.
         if (this.mode === 'client' && !this.game.round) await this.waitFor(() => this.game.round > 0);
         if (this.lobby) return this.lobbyIntro();
-        if (this.rejoin) return super.intro();
+        if (this.rejoin || this.migrated) return super.intro();
         const n = this.game.impostorCount();
         Board.status(this.visual ? (n ? `${this.title}: ${n === 1 ? 'hay un impostor' : `hay ${n} impostores`} a bordo` : `${this.title}: haced entre todos las tareas de la nave`) : '');
         Board.render(this);

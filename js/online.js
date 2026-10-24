@@ -20,6 +20,12 @@
    y eligen color hasta que quien ha creado la sala
    empieza. Quien llega o se va mientras, entra o sale
    de la nave sin cortar nada.
+   Si se va quien lleva la sala (se le corta el wifi o
+   sale pasándola), la lleva quien entró antes de los que
+   quedan: tiene una copia escondida de la partida y la
+   sigue desde ahí, con el mismo código si se puede. La
+   máquina juega por quien se ha ido; si vuelve, recupera
+   su sitio como invitado.
    ============================================= */
 'use strict';
 
@@ -34,6 +40,10 @@ function clientId() {
 
 /** Cuántas personas más que sitios caben en la sala, para mirar. */
 const MAX_WATCHERS = 6;
+/** Cada cuánto dice quien lleva la sala que sigue ahí, y cuánto silencio hace pensar que se ha cortado (milisegundos). */
+const HOST_PING = 2000, HOST_SILENCE = 6000;
+/** Si se va quien lleva la sala: cuánto se espera a que vuelva antes de llevarla tú, y cuánto más espera el segundo. */
+const HOST_WAIT = 10000, HOST_WAIT_NEXT = 15000;
 
 const Online = {
     app: null,
@@ -47,6 +57,11 @@ const Online = {
     queue: [],             // invitado: mensajes para la partida
     _waiter: null,
     lobby: null,           // invitado: la sala tal como la manda el anfitrión
+    base: null,            // el código con el que se abrió la sala (los de reserva salen de él)
+    joinN: 0,              // anfitrión: orden de llegada (quien llegó antes lleva la sala si te vas)
+    backup: null,          // invitado: la copia de la sala y la partida, por si se va quien la lleva
+    handover: null,        // anfitrión que ha cogido la sala: { from } (quién la llevaba)
+    handoverTo: null,      // invitado: quien lleva la sala se ha ido pasándotela a ti o a otro (su id)
 
     init(app) { this.app = app; },
 
@@ -69,6 +84,8 @@ const Online = {
         this.role = null; this.net = null; this.code = null; this.table = [];
         this.acks = new Map(); this.seq = 0; this.queue = []; this.lobby = null;
         this.reconnecting = false;
+        this.base = null; this.backup = null; this.handover = null; this.handoverTo = null; this.displacing = false;
+        this.stopBeats();
         const w = this._waiter; this._waiter = null; w?.(null);
     },
 
@@ -79,10 +96,7 @@ const Online = {
         this.role = 'host';
         this.game = GAMES[this.app.settings.game]?.online === false ? 'pedro' : this.app.settings.game || 'pedro';
         this.showLobbyStatus('Abriendo la sala…');
-        const net = this.net = new HostNet({
-            onMessage: (c, m) => this.hostMessage(c, m),
-            onClose: c => this.hostClose(c),
-        });
+        const net = this.net = this.hostNet();
         let code;
         try {
             code = await net.open();
@@ -94,10 +108,21 @@ const Online = {
             return;
         }
         if (this.net !== net) { net.close(); return; }   // se canceló mientras abría: se cierra esa sala
-        this.code = code;
-        this.table = [{ name: this.cleanName(this.app.settings.playerName), kind: 'me', cid: clientId(), look: this.myLook() }];
+        this.code = this.base = code;
+        this.joinN = 0;
+        this.table = [{ name: this.cleanName(this.app.settings.playerName), kind: 'me', cid: clientId(), look: this.myLook(), n: 0 }];
         this.app.keepAwake(true);
+        this.startBeats();
         this.showLobby(true);
+    },
+
+    hostNet() {
+        const net = new HostNet({
+            onMessage: (c, m) => { if (this.net === net) this.hostMessage(c, m); },
+            onClose: c => { if (this.net === net) { this.hostClose(c); this.backupSoon(); } },
+            onLost: () => { if (this.net === net) this.displaced(); },
+        });
+        return net;
     },
 
     cleanName(n) {
@@ -118,10 +143,10 @@ const Online = {
     },
 
     hostMessage(conn, m) {
-        if (m.t === 'hello') return this.hello(conn, m);
+        if (m.t === 'hello') { this.hello(conn, m); this.backupSoon(); return; }
         if (m.t === 'look') return this.takeLook(this.table.find(s => s.conn === conn), m);
         if (m.t === 'ack') { if (m.gid === this.gid) this.acks.set(conn, Math.max(this.acks.get(conn) || 0, m.seq | 0)); return; }
-        if (m.t === 'bye') { this.hostClose(conn, true); try { conn.close(); } catch (_) { /* nada */ } return; }
+        if (m.t === 'bye') { this.hostClose(conn, true); this.backupSoon(); try { conn.close(); } catch (_) { /* nada */ } return; }
         const match = this.app.match;
         if (match && match.mode === 'host') {
             const seat = match.seats.findIndex(s => s.conn === conn && s.kind === 'remote');
@@ -161,7 +186,7 @@ const Online = {
         }
         if (this.table.filter(s => !s.away).length >= this.G.maxPlayers + MAX_WATCHERS) return this.refuse(conn, 'La sala está llena: no caben más personas, ni siquiera a mirar.');
         const name = this.uniqueName(this.cleanName(m.name));
-        const entry = { name, kind: 'remote', conn, cid, watch: true, look: this.cleanLook(m.look) };
+        const entry = { name, kind: 'remote', conn, cid, watch: true, look: this.cleanLook(m.look), n: ++this.joinN };
         this.table.push(entry);
         this.app.audio.select();
         if (this.waiting) {
@@ -245,8 +270,10 @@ const Online = {
             entry.conn = null;
             if (bye) this.table.splice(i, 1); else entry.away = true;
             match.seatLeft(seat);
+            if (!bye) this.watchAlone();
             return;
         }
+        if (!bye) this.watchAlone();
         this.table.splice(i, 1);
         if (this.playing) return;
         UI.say([`${entry.name} se ha ido de la sala.`, ...this.seatWatchers().map(x => this.seatedText(x))].join(' '), { interrupt: false });
@@ -256,7 +283,7 @@ const Online = {
 
     lobbyMessage() {
         return {
-            t: 'lobby', code: this.code, game: this.game, rules: { ...this.rules }, playing: this.playing,
+            t: 'lobby', code: this.code, base: this.base, game: this.game, rules: { ...this.rules }, playing: this.playing,
             players: this.table.filter(s => !s.away).map(s => ({ name: s.name, kind: s.kind === 'me' ? 'host' : s.kind, watch: !!s.watch, ...this.lookOf(s) })),
         };
     },
@@ -311,6 +338,7 @@ const Online = {
 
     /** Manda la sala a todos, si no se está jugando (a los que juegan o miran no se les interrumpe). */
     broadcastLobby() {
+        this.backupSoon();
         if (this.playing) return;
         for (const s of this.table) if (s.kind === 'remote' && s.conn) this.sendLobby(s);
     },
@@ -433,7 +461,8 @@ const Online = {
         const seats = this.app.match?.seats && rejoin ? this.app.match.seats : this.seats;
         const host = seats.findIndex(x => x.kind === 'me');
         this.net.send(seats[i].conn, {
-            t: 'start', game: this.game, me: i, rules: this.app.match?.game?.rules && rejoin ? this.app.match.game.rules : this.startRules, gid: this.gid, host, rejoin, took, note,
+            t: 'start', game: this.game, me: i, rules: this.app.match?.game?.rules && rejoin ? this.app.match.game.rules : this.startRules, gid: this.gid, host, rejoin, took, note, base: this.base,
+            migrated: rejoin ? this.handover?.from || null : null,
             seats: seats.map((x, j) => ({ name: x.name, kind: j === i ? 'me' : (x.kind === 'bot' ? 'bot' : 'remote') })),
         });
     },
@@ -446,7 +475,7 @@ const Online = {
         const seats = match.seats;
         this.net.send(entry.conn, {
             t: 'start', game: this.game, me: -1, watch: true, rules: sync ? match.game.rules : this.startRules, gid: this.gid,
-            host: seats.findIndex(x => x.kind === 'me'), rejoin: sync,
+            host: seats.findIndex(x => x.kind === 'me'), rejoin: sync, base: this.base, migrated: sync ? this.handover?.from || null : null,
             seats: seats.map(x => ({ name: x.name, kind: x.kind === 'bot' ? 'bot' : 'remote' })),
         });
         if (sync) this.net.send(entry.conn, { t: 'batch', seq: this.seq, events: [], view: match.game.view(-1), sync: true });
@@ -485,6 +514,8 @@ const Online = {
     /** Manda a cada jugador lo que ha pasado (sin las cartas que no puede ver) y la mesa. */
     broadcast(match, events) {
         this.seq++;
+        // La copia va con cada jugada (en El Impostor, que no para, una vez por segundo).
+        if (match.kind === 'impostor') this.backupSoon(); else this.sendBackup();
         match.seats.forEach((s, i) => {
             if (s.kind === 'remote' && s.conn) this.net.send(s.conn, { t: 'batch', seq: this.seq, events: events.map(e => match.eventFor(e, i)).filter(Boolean), view: match.game.view(i) });
         });
@@ -516,6 +547,7 @@ const Online = {
     },
 
     close() {
+        this.stopBeats();
         if (this.role === 'host') {
             for (const s of this.table) if (s.kind === 'remote' && s.conn) this.net?.send(s.conn, { t: 'closed' });
             const net = this.net;
@@ -537,20 +569,58 @@ const Online = {
         if (!Net.available()) { this.app.joinStatus('No se ha podido cargar la parte online del juego. Recarga la página.'); return; }
         this.role = 'client';
         this.app.joinStatus('Conectando con la sala…');
-        const net = this.net = this.clientNet();
+        let net = this.net = this.clientNet();
         try {
             await net.connect(code, { onRetry: why => { if (this.net === net) this.app.joinStatus(why); } });
         } catch (e) {
             if (this.net !== net) return;   // ya habías cancelado
-            this.reset();
-            this.app.audio.error();
-            this.app.joinStatus(Net.explain(e));
-            return;
+            // Puede que se fuera quien la llevaba y la sala siga en uno de sus códigos de reserva.
+            const found = Net.kind(e) === 'peer-unavailable' ? await this.tryCodes(Net.roomCodes(code).slice(1), { wait: 12000 }).catch(() => null) : null;
+            if (this.role !== 'client' || this.net !== net) { found?.net.close(); return; }
+            if (!found) {
+                this.reset();
+                this.app.audio.error();
+                this.app.joinStatus(Net.explain(e));
+                return;
+            }
+            net = this.net = found.net;
+            code = found.code;
         }
         if (this.net !== net) return;
         this.code = code;
         this.app.keepAwake(true);
-        net.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id, id: clientId(), look: this.myLook() });
+        this.sayHello();
+    },
+
+    /** Invitado: saluda a quien lleva la sala (con tu identificador, para que te devuelva tu sitio). */
+    sayHello() {
+        this.heard();
+        this.net?.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id, id: clientId(), look: this.myLook() });
+        this.startWatchdog();
+    },
+
+    /**
+     * Invitado: prueba a entrar en una de estas salas a la vez (los códigos de una sala). La primera que contesta, vale.
+     * Devuelve { net, code }; si no contesta ninguna, el fallo que más dice (la sala estaba pero no se unió, que no estaba…).
+     */
+    tryCodes(codes, opts = {}) {
+        return new Promise((resolve, reject) => {
+            const errs = [];
+            let left = codes.length, done = false;
+            const nets = codes.map(() => this.clientNet());
+            nets.forEach((net, k) => net.once(codes[k], opts).then(() => {
+                if (done) { net.close(); return; }
+                done = true;
+                for (const o of nets) if (o !== net) o.close();
+                resolve({ net, code: codes[k] });
+            }, e => {
+                errs.push(e);
+                if (--left || done) return;
+                const kind = e2 => Net.kind(e2);
+                reject(errs.find(x => kind(x) === 'ice') || errs.find(x => kind(x) === 'peer-unavailable') || errs[0]);
+            }));
+            if (!codes.length) reject({ type: 'peer-unavailable' });
+        });
     },
 
     clientNet() {
@@ -560,11 +630,25 @@ const Online = {
 
     clientMessage(m) {
         if (this.role !== 'client') return;
+        this.heard();
         switch (m.t) {
+            case 'ping': break;
+            // La copia de la sala y de la partida: si se va quien la lleva, la llevas tú.
+            case 'bk': {
+                const p = this.bkParts?.id === m.id ? this.bkParts : (this.bkParts = { id: m.id, got: [], left: m.n });
+                if (p.got[m.i] == null) { p.got[m.i] = String(m.d || ''); p.left--; }
+                if (p.left > 0) break;
+                this.bkParts = null;
+                try { const b = JSON.parse(p.got.join('')); if (b.t === 'backup') this.backup = b; } catch (_) { /* copia rota: vale la anterior */ }
+                break;
+            }
+            // Quien lleva la sala se va y se la pasa a alguien: si eres tú, la coges al momento.
+            case 'handover': this.handoverTo = String(m.heir || ''); this.handoverFrom = m.from; break;
             case 'lobby': {
                 this.dropWaiter();
                 const first = !this.lobby;
                 this.lobby = m;
+                if (m.base) this.base = m.base;
                 if (this.app.match) { this.app.match.stop(); this.app.match = null; Dialog.close(undefined, true); }
                 this.showLobby(false, first);
                 break;
@@ -582,6 +666,8 @@ const Online = {
                 break;
             }
             case 'start': {
+                if (m.base) this.base = m.base;
+                if (this.keepMatch(m)) break;
                 this.dropWaiter();
                 this.queue = [];
                 this.hostSeat = m.host ?? 0;
@@ -594,6 +680,22 @@ const Online = {
             default:
                 if (this._waiter) { const w = this._waiter; this._waiter = null; w(m); } else this.queue.push(m);
         }
+    },
+
+    /**
+     * Invitado: ahora lleva la sala otra persona (se fue quien la llevaba) y tu partida es la misma:
+     * se sigue en tu mesa como estaba, sin empezar otra vez. Lo que ha cambiado llega después (la mesa, con sync).
+     */
+    keepMatch(m) {
+        const match = this.app.match;
+        if (!m.migrated || !m.rejoin || !match || match.stopped || match.mode !== 'client') return false;
+        if (match.gid !== m.gid || match.kind !== m.game || match.me !== (m.watch ? -1 : m.me)) return false;
+        this.hostSeat = match.hostSeat = m.host ?? 0;
+        m.seats.forEach((x, p) => { if (match.seats[p] && p !== match.me) match.seats[p].kind = x.kind === 'bot' ? 'bot' : 'remote'; });
+        match.sentFor = -1;
+        const host = match.seats[this.hostSeat]?.name || 'otra persona';
+        match.notice(`${cap(String(m.migrated).slice(0, 40))} ya no lleva la sala: ahora la lleva ${host}, y la partida sigue.`);
+        return true;
     },
 
     /** La partida que se acaba deja de esperar mensajes (los siguientes son para la nueva). */
@@ -611,7 +713,11 @@ const Online = {
     clientClosed(byHost = false) {
         if (this.role !== 'client') return;
         // Se ha cortado sin que nadie cerrara la sala: se intenta volver a entrar.
-        if (!byHost && this.code && !this.reconnecting) { this.reconnect(); return; }
+        if (!byHost && this.code && !this.reconnecting) {
+            // Si quien la llevaba se ha ido pasándola, no se ha cortado nada: se entra sin decir nada en la sala que sigue.
+            this.reconnect(this.handoverTo ? null : undefined);
+            return;
+        }
         const host = this.lobby?.players?.find(p => p.kind === 'host')?.name;
         this.reset();
         const m = this.app.match;
@@ -621,30 +727,249 @@ const Online = {
         this.app.showMenu(false, byHost ? `${host || 'Quien creó la sala'} ha cerrado la sala.` : 'Se ha perdido la conexión con la sala.');
     },
 
-    async reconnect() {
+    /**
+     * Invitado: se ha cortado la conexión con la sala. Se busca otra vez en sus códigos (si se fue quien la llevaba,
+     * puede estar en uno de reserva). Si se ha ido y te toca a ti, la llevas tú: primero a quien entró antes;
+     * el segundo, si el primero tampoco aparece.
+     */
+    async reconnect(note = 'Se ha cortado la conexión con la sala. Intentando volver a entrar.') {
         this.reconnecting = true;
-        const code = this.code;
-        this.app.audio.error();
-        const say = t => { if (this.app.match && !this.app.match.stopped) this.app.match.notice(t); else UI.say(t, { interrupt: false }); };
-        say('Se ha cortado la conexión con la sala. Intentando volver a entrar.');
-        for (let i = 0; i < 5 && this.role === 'client' && this.reconnecting; i++) {
-            const net = this.net = this.clientNet();
+        this.stopBeats();
+        const codes = Net.roomCodes(this.base || this.code), t0 = Date.now();
+        if (note) { this.app.audio.error(); this.say(note); }
+        // kind: cómo falló el último intento; tried: cuándo empezó (si la sala se abrió después, no cuenta).
+        let kind = null, tried = 0;
+        for (let i = 0; this.role === 'client' && this.reconnecting && Date.now() - t0 < 120000; i++) {
+            if (this.shouldTakeOver(tried, kind)) { await this.takeOver(); return; }
+            tried = Date.now() - t0;
             try {
-                await net.connect(code);
-                if (this.net !== net || this.role !== 'client') return;
-                net.send({ t: 'hello', name: this.app.settings.playerName, v: GAME_VERSION.id, id: clientId(), look: this.myLook() });
+                const { net, code } = await this.tryCodes(codes, { wait: 6000, relay: i % 3 === 2 && Net.hasTurn() });
+                if (this.role !== 'client' || !this.reconnecting) { net.close(); return; }
+                this.net = net; this.code = code;
+                this.sayHello();
                 this.reconnecting = false;
-                say('Conexión recuperada.');
+                if (note) this.say('Conexión recuperada.');
                 return;
-            } catch (_) {
-                net.close();
-                await new Promise(r => setTimeout(r, 2500 + i * 1500));
-            }
+            } catch (e) { kind = Net.kind(e); }
+            if (this.role !== 'client' || !this.reconnecting) return;
+            await new Promise(r => setTimeout(r, this.handoverTo ? 600 : 1500));
         }
         if (this.role !== 'client') return;
         this.reconnecting = 'failed';
         this.clientClosed(false);
     },
+
+    say(t) { if (this.app.match && !this.app.match.stopped) this.app.match.notice(t); else UI.say(t, { interrupt: false }); },
+
+    /**
+     * ¿Te toca llevar la sala? Solo si tienes la copia y eres de los dos primeros en llevarla. Si te la han pasado,
+     * al momento. Si no, cuando quien la llevaba no ha vuelto en HOST_WAIT (y llegas al servidor de salas: si eres tú
+     * quien no tiene conexión, no). El segundo espera un poco más, por si aparece el primero.
+     */
+    shouldTakeOver(elapsed, kind) {
+        if (!kind && !this.handoverTo) return false;
+        const b = this.backup, rank = b?.heirs?.indexOf(clientId()) ?? -1;
+        if (rank < 0 || rank > 1) return false;
+        if (this.handoverTo) return this.handoverTo === clientId() || elapsed >= HOST_WAIT_NEXT * rank + 4000;
+        return ['peer-unavailable', 'ice'].includes(kind) && elapsed >= HOST_WAIT + HOST_WAIT_NEXT * rank;
+    },
+
+    // ═══ Pasar la sala ═══════════════════════════════
+
+    /** Anfitrión: quién llevaría la sala si te vas, por orden de llegada (quien mira, solo si no queda nadie jugando). */
+    heirs() {
+        const live = this.table.filter(s => s.kind === 'remote' && s.conn && !s.away);
+        const by = (a, b) => (a.n ?? 999) - (b.n ?? 999);
+        const seated = live.filter(s => !s.watch).sort(by);
+        return seated.length ? seated : live.filter(s => s.watch).sort(by);
+    },
+
+    /** Lo que es igual en todos los navegadores y lo que se copia de la partida. */
+    snapCtx() {
+        return this._snapCtx ||= {
+            classes: { PedroGame, BriscaGame, ParchisGame, TrivialGame, VirusGame, ImpostorGame, Bot, Memory, BriscaBot, ParchisBot, TrivialBot, VirusBot, ImpostorBot },
+            externs: [['SHIP', SHIP], ['CHARACTERS', CHARACTERS], ['TRIVIAL_BANK', globalThis.TRIVIAL_BANK || {}], ['TRIVIAL_BOARD', TRIVIAL_BOARD], ['IMPOSTOR_TASKS', IMPOSTOR_TASKS],
+                ['IMPOSTOR_ROLES', IMPOSTOR_ROLES], ['IMPOSTOR_COLORS', IMPOSTOR_COLORS], ['POWERS', POWERS], ['BOT_LEVELS', BOT_LEVELS], ['IMPOSTOR_LEVELS', IMPOSTOR_LEVELS]],
+        };
+    },
+
+    /** Anfitrión: manda la copia a los dos primeros que llevarían la sala, como mucho una vez por segundo. */
+    backupSoon() {
+        if (this.role !== 'host' || this.backupT) return;
+        const wait = Math.max(0, 1000 - (Date.now() - (this.backupAt || 0)));
+        this.backupT = setTimeout(() => { this.backupT = null; this.sendBackup(); }, wait);
+    },
+
+    sendBackup() {
+        if (this.role !== 'host' || !this.net) return;
+        const heirs = this.heirs();
+        if (!heirs.length) return;
+        this.backupAt = Date.now();
+        const m = this.app.match;
+        let match = null;
+        // Con la partida en marcha, también la partida (no la sala de espera de la nave: esa se empieza otra vez).
+        if (this.playing && !this.waiting && m.game.phase !== 'idle') {
+            const { data, lost } = Snapshot.encode({ game: m.game, bots: m.bots }, this.snapCtx());
+            if (lost.length) console.warn('La copia de la partida no lleva:', lost);
+            match = { seats: m.seats.map(s => ({ name: s.name, kind: s.kind, cid: s.cid || null, char: s.char || null, color: s.color, hat: s.hat, left: !!s.left })), host: m.me, seed: m.seed, snap: data };
+        }
+        const msg = {
+            t: 'backup', heirs: heirs.map(h => h.cid), base: this.base, code: this.code, game: this.game, gid: this.gid, seq: this.seq, rules: this.startRules || null,
+            table: this.table.map(e => ({ name: e.name, kind: e.kind, cid: e.cid || null, char: e.char || null, look: e.look || null, watch: !!e.watch, away: !!e.away, n: e.n ?? 999 })),
+            match,
+        };
+        // Por la sala no pasan mensajes muy largos: la copia va en trozos.
+        const text = JSON.stringify(msg), size = 12000, n = Math.ceil(text.length / size), id = (this.backupN = (this.backupN || 0) + 1);
+        for (const h of heirs.slice(0, 2)) for (let i = 0; i < n; i++) this.net.send(h.conn, { t: 'bk', id, i, n, d: text.slice(i * size, (i + 1) * size) });
+    },
+
+    /** Anfitrión: te vas y pasas la sala a quien entró antes. Devuelve su nombre. */
+    handOver() {
+        if (this.role !== 'host') return null;
+        const heir = this.heirs()[0];
+        if (!heir) { this.close(); return null; }
+        clearTimeout(this.backupT); this.backupT = null;
+        this.sendBackup();
+        const from = this.table.find(s => s.kind === 'me')?.name || 'Quien llevaba la sala';
+        for (const s of this.table) if (s.kind === 'remote' && s.conn) this.net.send(s.conn, { t: 'handover', heir: heir.cid, from });
+        const net = this.net;
+        setTimeout(() => net?.close(), 800);
+        this.app.keepAwake(false);
+        this.reset();
+        return heir.name;
+    },
+
+    /**
+     * Invitado: se ha ido quien llevaba la sala y ahora la llevas tú. Se abre con el mismo código (o uno de
+     * reserva, o uno nuevo, que se dice), con la gente de antes, y la partida sigue desde la copia.
+     */
+    async takeOver() {
+        const b = this.backup, me = clientId(), old = this.app.match;
+        const handed = this.handoverTo === me;
+        this.reconnecting = false;
+        this.handoverTo = null;
+        this.backup = null;
+        this.dropWaiter();
+        this.queue = [];
+        this.role = 'host';
+        const net = this.net = this.hostNet();
+        // Si te la ha pasado, su código queda libre en un momento: se espera un poco para seguir con el mismo.
+        if (handed) await new Promise(r => setTimeout(r, 1500));
+        let code;
+        try { code = await net.open(Net.roomCodes(b.base || b.code)); } catch (e) {
+            if (this.net !== net) return;
+            old?.stop(); this.app.match = null; Dialog.close(undefined, true);
+            const why = Net.explain(e);
+            this.reset();
+            this.app.audio.error();
+            this.app.showMenu(false, `Se ha perdido la conexión con la sala. ${why}`);
+            return;
+        }
+        if (this.net !== net) { net.close(); return; }
+        const was = b.table.find(e => e.kind === 'me');
+        this.code = code; this.base = b.base || b.code;
+        this.game = b.game; this.gid = b.gid || 0; this.seq = b.seq || 0; this.startRules = b.rules;
+        this.acks = new Map(); this.lobby = null;
+        this.table = b.table.map(e => ({
+            name: e.name, kind: e.cid === me ? 'me' : e.kind === 'bot' ? 'bot' : 'remote', char: e.char, cid: e.cid, look: e.look, watch: e.cid === me ? false : e.watch,
+            // Los demás, hasta que vuelvan a entrar, como si se les hubiera cortado.
+            away: e.kind !== 'bot' && e.cid !== me, conn: null, n: e.n,
+        }));
+        this.joinN = Math.max(0, ...this.table.map(e => e.n === 999 ? 0 : e.n || 0));
+        this.handover = { from: was?.name || 'Quien llevaba la sala' };
+        this.startBeats();
+        const newCode = code !== b.code ? ` Ahora el código de la sala es ${this.codeSpoken()}: díselo a los demás por si no entran solos.` : '';
+        const intro = `${cap(this.handover.from)} ${handed ? 'te ha pasado la sala' : 'se ha ido de la sala y ahora la llevas tú'}.${newCode}`;
+        const seat = b.match ? b.match.seats.findIndex(s => s.cid === me) : -1;
+        if (seat >= 0 && GAMES[b.game]) { this.resumeMatch(b, old, seat, intro); return; }
+        // Sin partida (o mirabas): a la sala, donde los demás irán volviendo.
+        old?.stop(); this.app.match = null; Dialog.close(undefined, true);
+        this.showLobby(true, false, intro);
+    },
+
+    /** Sigue la partida desde la copia, en tu navegador: tu sitio es el tuyo y por quien llevaba la sala juega la máquina. */
+    resumeMatch(b, old, me, intro) {
+        const G = GAMES[b.game], snap = Snapshot.decode(b.match.snap, this.snapCtx());
+        const gone = b.match.host;
+        const seats = b.match.seats.map((s, p) => {
+            if (p === me) return { ...s, kind: 'me', left: false };
+            if (p === gone) return { ...s, kind: 'bot', left: true, char: absentChar(s.name) };
+            return { ...s, conn: null };
+        });
+        old?.stop();
+        this.app.match = null;
+        Dialog.close(undefined, true);
+        const m = new G.Match(this.app, { mode: 'host', seats, me, rules: snap.game.rules, seed: b.match.seed, online: this, restore: snap });
+        m.gid = this.gid;
+        m.migrated = intro;
+        m.hostSeat = me;
+        this.seats = m.seats;
+        m.inherit?.(old);
+        m.restored?.(gone);
+        m.botTookOver?.(gone);
+        this.app.runMatch(m);
+        // Quien no vuelve a entrar en un rato, se ha ido: juega la máquina por esa persona.
+        setTimeout(() => {
+            if (this.app.match !== m || m.stopped) return;
+            m.seats.forEach((s, p) => { if (s.kind === 'remote' && !s.conn) m.seatLeft(p); });
+        }, 20000);
+    },
+
+    /**
+     * Anfitrión: se te cortó la conexión y la sala ya la lleva otra persona (tu código lo tiene otro, o te has
+     * quedado solo y la sala está en uno de reserva). Vuelves a entrar como invitado, a tu sitio.
+     * net, code: la conexión con la sala nueva, si ya la tienes.
+     */
+    async displaced(net = null, code = null) {
+        if (this.role !== 'host' || this.displacing) return;
+        this.displacing = true;
+        const mine = this.net, m = this.app.match;
+        this.stopBeats();
+        clearTimeout(this.aloneT);
+        if (m) { m.stop(); this.app.match = null; }
+        Dialog.close(undefined, true);
+        const base = this.base, was = this.code;
+        this.reset();
+        try { mine?.close(); } catch (_) { /* nada */ }
+        this.role = 'client'; this.base = base; this.code = code || was;
+        const note = 'Se te cortó la conexión y ahora lleva la sala otra persona. Vuelves a entrar, a tu sitio.';
+        if (net) { this.net = net; this.sayHello(); this.say(note); return; }
+        await this.reconnect(note);
+    },
+
+    /** Anfitrión: se ha cortado alguien. Si te quedas sin nadie, puede que seas tú quien se ha cortado: se busca la sala en los códigos de reserva. */
+    watchAlone() {
+        clearTimeout(this.aloneT);
+        let tries = 0;
+        const probe = async () => {
+            const alone = () => this.role === 'host' && !this.table.some(s => s.kind === 'remote' && s.conn);
+            if (!alone()) return;
+            const codes = Net.roomCodes(this.base).filter(c => c !== this.code);
+            const found = await this.tryCodes(codes, { wait: 6000 }).catch(() => null);
+            if (found && alone()) { this.displaced(found.net, found.code); return; }
+            found?.net.close();
+            if (++tries < 4 && alone()) this.aloneT = setTimeout(probe, 15000);
+        };
+        this.aloneT = setTimeout(probe, 15000);
+    },
+
+    /** Anfitrión: cada poco, a todos, que sigues ahí. Invitado: si no se oye nada en un rato, se ha cortado. */
+    startBeats() {
+        this.stopBeats();
+        if (this.role === 'host') this.pingT = setInterval(() => { for (const s of this.table) if (s.kind === 'remote' && s.conn) this.net?.send(s.conn, { t: 'ping' }); }, HOST_PING);
+    },
+    startWatchdog() {
+        clearInterval(this.dogT);
+        this.dogT = setInterval(() => {
+            if (this.role !== 'client' || this.reconnecting || !this.net || Date.now() - (this.lastHeard || 0) < HOST_SILENCE) return;
+            const net = this.net;
+            this.net = null;
+            net.close();
+            this.clientClosed(false);
+        }, 1000);
+    },
+    stopBeats() { clearInterval(this.pingT); clearInterval(this.dogT); clearTimeout(this.backupT); clearTimeout(this.aloneT); this.pingT = this.dogT = this.backupT = this.aloneT = null; },
+    heard() { this.lastHeard = Date.now(); },
 
     // ═══ La sala de espera ═══════════════════════════
 
@@ -663,7 +988,8 @@ const Online = {
         UI.show('lobby', { intro: text, focus: 'lobby-leave' });
     },
 
-    showLobby(host, first = true) {
+    /** lead: lo que se dice antes (al coger la sala de quien se ha ido). */
+    showLobby(host, first = true, lead = '') {
         this.renderLobby();
         const players = this.playersText();
         const G = host ? this.G : GAMES[this.lobby?.game] || GAMES.pedro;
@@ -677,6 +1003,7 @@ const Online = {
             const wait = this.lobby.playing ? 'Están jugando una partida: entrarás en la siguiente.' : mine?.watch ? 'La mesa está llena: mirarás la partida y te sentarás si queda un sitio libre.' : 'Espera a que empiece la partida.';
             intro = first ? `Te has sentado en la mesa de ${hostName}. Juego: ${G.name}. En la mesa: ${players}. ${wait}` : `De vuelta en la sala. Juego: ${G.name}. En la mesa: ${players}.`;
         }
+        if (lead) intro = `${lead} Los demás irán entrando. Juego: ${G.name}.`;
         UI.show('lobby', { intro, focus: host ? (first ? 'lobby-share' : 'lobby-start') : 'lobby-leave' });
     },
 

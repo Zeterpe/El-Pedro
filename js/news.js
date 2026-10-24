@@ -11,6 +11,13 @@
 const NEWS = {
     salon: [
         {
+            date: '2026-10-24', items: [
+                'Salas: si se va quien lleva la sala, porque se le corta el wifi o porque sale, la sala no se cierra. La lleva quien entró antes de los que quedan, la partida sigue donde iba y la máquina juega por quien se ha ido. Se dice quién la lleva ahora.',
+                'Salas: si vuelve quien llevaba la sala, recupera su sitio, pero ya como invitado. El enlace y el código siguen valiendo; si hace falta un código nuevo, se dice.',
+                'Salas: quien lleva la sala, al salir, elige entre pasarla a la siguiente persona o cerrarla para todos.',
+            ],
+        },
+        {
             date: '2026-10-20', items: [
                 'Salas: los rivales de la máquina guardan el sitio. Si llegas con la mesa llena, te sientas en el de uno de ellos.',
                 'Salas: si llegas con la partida empezada, la miras sin ver las cartas de nadie. Quien ha creado la sala te puede dar el sitio de un rival de la máquina desde la pausa, con Escape; si no, te sientas en la siguiente partida. En El Impostor, esperas en la sala.',
