@@ -139,6 +139,7 @@ const NEWS = {
     impostor: [
         {
             date: '2026-10-24', items: [
+                'En una sala, la partida empieza a la vez para todos: cada uno oye su papel y sus tareas al mismo tiempo, y nadie puede andar hasta que suena «¡Ya!», cuando todos lo han oído.',
                 'Reglas de la casa: el alcance para matar se puede poner normal, un poco más o más, para que el impostor mate desde un par de pasos o desde unos tres. Los rivales de la máquina también lo usan. Sigue estando la opción de menos, casi pegado.',
             ],
         },

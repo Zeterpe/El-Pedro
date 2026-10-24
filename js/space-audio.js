@@ -335,6 +335,13 @@ const ShipSounds = {
             k.tone(out, { t: t + 0.4, f: [[0, 932], [0.6, 880]], dur: 0.7, peak: 0.05, vib: { rate: 5, depth: 6 } });
         };
     },
+    /** ¡Ya!: empieza la partida, para todos a la vez. Dos pitidos y uno más agudo. */
+    go() {
+        return (k, out, t) => {
+            [0, 0.18].forEach(d => k.tone(out, { t: t + d, f: 880, dur: 0.1, peak: 0.12, type: 'square', filter: { type: 'lowpass', f: 2400 } }));
+            k.tone(out, { t: t + 0.36, f: 1760, dur: 0.45, r: 0.5, peak: 0.14, type: 'triangle' });
+        };
+    },
     /** Ya puedes matar: el filo de un cuchillo. */
     knife() {
         return (k, out, t) => {
