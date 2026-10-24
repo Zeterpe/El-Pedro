@@ -489,7 +489,18 @@ class ImpostorMatch extends Match {
             const g = this.game, phase = g.phase;
             if (phase === 'ship') {
                 // Al empezar la partida, primero se oye el papel y las tareas.
-                if (this.rtRound !== g.round) { this.rtRound = g.round; await this.presentChain; if (this.stopped || g.phase !== 'ship') continue; }
+                if (this.rtRound !== g.round) {
+                    this.rtRound = g.round;
+                    await this.presentChain;
+                    if (this.stopped || g.phase !== 'ship') continue;
+                    // Nadie echa a andar antes que nadie: se espera la señal del anfitrión, que llega cuando todos lo han oído.
+                    if (!this.rejoin && !g.lobby && this.goRound !== g.round) {
+                        Board.status('Esperando a que todos sepan su papel');
+                        await Promise.race([this.waitFor(() => this.goRound === g.round || g.phase !== 'ship'), new Promise(r => setTimeout(r, 90000))]);
+                        if (this.stopped || g.phase !== 'ship') continue;
+                    }
+                    if (!this.rejoin && !g.lobby) this.goCue();
+                }
                 await this.realtime();
             } else if (phase === 'meeting') await this.clientMeeting();
             else if (phase === 'gameOver') {
@@ -528,6 +539,11 @@ class ImpostorMatch extends Match {
                 this.afterView();
                 break;
             }
+            case 'go':
+                // La señal de salida: todos echan a andar a la vez.
+                this.goRound = msg.round;
+                this.viewWaiters = this.viewWaiters.filter(w => { if (this.stopped || w.pred()) { w.r(); return false; } return true; });
+                break;
             case 'console':
                 if (msg.e) this.showConsole(msg.e);
                 break;
@@ -698,6 +714,19 @@ class ImpostorMatch extends Match {
         if (this.mode === 'client' && !this.game.round) await this.waitFor(() => this.game.round > 0);
         if (this.lobby) return this.lobbyIntro();
         if (this.rejoin) return super.intro();
+        // En una sala, el anfitrión reparte los papeles antes de su presentación: así todos la oyen a la vez y nadie espera a nadie.
+        if (this.mode === 'host' && this.game.phase === 'idle') {
+            const res = this.game.startRound();
+            for (const e of res.events) { for (const b of this.bots) b?.observe(e); this.observe(e); }
+            if (res.events.length) this.seq = this.online.broadcast(this, res.events);
+            await this.introSay();
+            await this.queuePresent(res.events);
+            return;
+        }
+        return this.introSay();
+    }
+
+    async introSay() {
         const n = this.game.impostorCount();
         Board.status(this.visual ? (n ? `${this.title}: ${n === 1 ? 'hay un impostor' : `hay ${n} impostores`} a bordo` : `${this.title}: haced entre todos las tareas de la nave`) : '');
         Board.render(this);
@@ -1103,8 +1132,11 @@ class ImpostorMatch extends Match {
             if (this.mode === 'host' && this.waitStart !== this.game.round && !this.lobby) {
                 this.waitStart = this.game.round;
                 Board.status('Esperando a que todos sepan su papel');
-                await this.online.waitAcks(this.seq, 30000);
+                await this.online.waitAcks(this.seq, 45000);
                 if (this.stopped || this.game.phase !== 'ship') return true;
+                // La señal de salida: todos echan a andar a la vez.
+                this.online.broadcastAll({ t: 'go', round: this.game.round, gid: this.gid });
+                this.goCue();
             }
             await this.realtime();
             await this.presentChain;
@@ -1112,6 +1144,13 @@ class ImpostorMatch extends Match {
         }
         if (phase === 'meeting') { await this.meetingStep(); return true; }
         return false;
+    }
+
+    /** ¡Ya!: en una sala, la partida empieza a la vez para todos. */
+    goCue() {
+        this.flat(ShipSounds.go());
+        Board.banner('¡Ya!', 'Empieza la partida');
+        if (!this.visual) this.say('¡Ya! Empieza la partida.', { interrupt: true });
     }
 
     /** La partida corre sola: cada fotograma avanza el tiempo, suenan las cosas y se dibuja la nave. */
